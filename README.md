@@ -5,25 +5,28 @@
 Create a conda environment:
 
 ```
-conda create --name=flygenvectors python=3.6
-source activate flygenvectors
+$ conda create --name=flygenvectors python=3.6
+$ source activate flygenvectors
 ```
 
 To make the package modules visible to the python interpreter, locally run pip 
 install from inside the main `flygenvectors` directory:
 
 ```
-pip install -e .
+(flygenvectors) $: pip install -e .
 ```
 
 To be able to use this environment for jupyter notebooks:
 
 ```
-python -m ipykernel install --user --name flygenvectors --display-name "flygenvectors"
+(flygenvectors) $: python -m ipykernel install --user --name flygenvectors --display-name "flygenvectors"
 ``` 
 
-Install ssm:
+To install ssm, `cd` to any directory where you would like to keep the ssm code and run the following:
 
 ```
-TODO
+(flygenvectors) $: git clone git@github.com:slinderman/ssm.git
+(flygenvectors) $: cd ssm
+(flygenvectors) $: pip install cython
+(flygenvectors) $: pip install -e .
 ```
