@@ -1,5 +1,31 @@
+import os
 import numpy as np
 from ssm import HMM
+
+
+def get_user():
+    """Get name of user running this function"""
+    import pwd
+    return pwd.getpwuid(os.getuid()).pw_name
+
+
+def get_dirs():
+    username = get_user()
+    if username == 'evan':
+        dirs = {
+            'data': '',
+            'results': ''
+        }
+    elif username == 'mattw':
+        dirs = {
+            'data': '/home/mattw/data/schaffer/',  # base data dir
+            'results': '/home/mattw/results/fly/'  # base results dir
+        }
+    else:
+        raise ValueError(
+            'must update flygenvectors.utils.get_dirs() to include user %s' %
+            username)
+    return dirs
 
 
 def split_trials(

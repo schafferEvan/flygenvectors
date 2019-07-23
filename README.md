@@ -5,8 +5,8 @@
 Create a conda environment:
 
 ```
-$ conda create --name=flygenvectors python=3.6
-$ source activate flygenvectors
+$: conda create --name=flygenvectors python=3.6
+$: source activate flygenvectors
 ```
 
 To make the package modules visible to the python interpreter, locally run pip 
