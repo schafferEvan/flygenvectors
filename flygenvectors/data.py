@@ -1,5 +1,73 @@
+import os
 import numpy as np
 from sklearn.decomposition import PCA
+
+
+def load_timeseries(expt_id, base_data_dir=None):
+    """
+    Helper function to load neural and behavioral data
+
+    Args:
+        expt_id (str)
+        base_data_dir (str)
+
+    Returns:
+        dict
+    """
+
+    import scipy.io as sio
+    from flygenvectors.utils import get_dirs
+
+    if base_data_dir is None:
+        base_data_dir = get_dirs()['data']
+
+    if expt_id == '190424_f3':
+        file_name = 'runAndFeedSample.mat'
+        file_path = os.path.join(base_data_dir, file_name)
+        data_dict = sio.loadmat(file_path)
+        # data_dict contents:
+        #   trialFlag: indexes running/feeding/running components of the expt
+        #   dOO: ratiometric dF/F for every active cell
+        #   A: spatial footprint of these cells
+        #   legs, stim, and feed: behavioral data
+    elif expt_id == '180824_f3r1':
+        file_name = 'runningSample.mat'
+        file_path = os.path.join(base_data_dir, file_name)
+        data_dict = sio.loadmat(file_path)
+        # data_dict contents:
+        #   trialFlag: indexes running/feeding/running components of the expt
+        #   dOO: ratiometric dF/F for every active cell
+        #   A: spatial footprint of these cells
+        #   legs, stim, and feed: behavioral data
+    else:
+        # assumes following filename structure:
+        # yyyy_mm_dd_flyi/yyyy_mm_dd_Nsyb_NLS6s_walk_flyi.npz
+
+        strs = expt_id.split('_')
+        datestr = str('%s_%s_%s' % (strs[0], strs[1], strs[2]))
+        fly = strs[3]
+        file_name = str('%s_Nsyb_NLS6s_walk_%s.npz' % (datestr, fly))
+        file_path = os.path.join(base_data_dir, expt_id, file_name)
+        data = np.load(file_path)
+        t = np.max(data['time'].shape)
+        data_dict = {}
+        for key, val in data.items():
+            # put time dim first
+            data_dict[key] = val if val.shape[0] == t else val.T
+        # data_dict contents:
+        #   time: timestamps in seconds
+        #   trialFlag: index of which imaging run each timestamp corresponds to
+        #       (~10 sec between runs)
+        #   dFF: bleach-corrected ratio
+        #   ball: movement of ball measured in pixel variance
+        #   dlc: dlc labels
+        #   dims: height, width, depth of imaged volume
+
+    return data_dict
+
+
+def load_spatial_footprints(expt_id, base_data_dir=None):
+    raise NotImplementedError
 
 
 def zscore(data):
