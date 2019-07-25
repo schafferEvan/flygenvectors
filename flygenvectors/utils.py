@@ -40,11 +40,11 @@ def split_trials(
     Args:
         n_trials (int): number of trials to use in the split
         rng_seed (int): numpy random seed for reproducibility
-        trials_tr (int): number of train trials per block
-        trials_val (int): number of validation trials per block
-        trials_test (int): number of test trials per block
-        trials_gap (int): number of gap trials between tr/val/test; there will be
-            a total of 3 * `trials_gap` gap trials per block
+        trials_tr (int): train trials per block
+        trials_val (int): validation trials per block
+        trials_test (int): test trials per block
+        trials_gap (int): gap trials between tr/val/test; there will be a total
+            of 3 * `trials_gap` gap trials per block
 
     Returns:
         (dict)

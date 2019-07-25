@@ -9,7 +9,8 @@ def plot_pcs(pcs, color, cmap='inferno'):
 
 
 def plot_neural_activity(
-        pcs=None, neural_data=None, behavior=None, states=None, slc=(0, 5000)):
+        pcs=None, neural_data=None, behavior=None, states=None, slc=(0, 5000),
+        cmap_rasters='Greys', cmap_states='tab20b'):
 
     from matplotlib.gridspec import GridSpec
 
@@ -40,7 +41,7 @@ def plot_neural_activity(
     # discrete states
     if states is not None:
         plt.subplot(gs[i, 0])
-        plt.imshow(states[None, slice(*slc)], aspect='auto', cmap='tab20b')
+        plt.imshow(states[None, slice(*slc)], aspect='auto', cmap=cmap_states)
         plt.xlim(0, slc[1] - slc[0])
         plt.xticks([])
         plt.ylabel('State')
@@ -68,7 +69,7 @@ def plot_neural_activity(
     plt.subplot(gs[i, 0])
     plt.imshow(
         neural_data[slice(*slc)].T, aspect='auto',
-        cmap='Greys', vmin=vmin, vmax=vmax)
+        cmap=cmap_rasters, vmin=vmin, vmax=vmax)
     plt.xlim(0, slc[1] - slc[0])
     plt.xlabel('Time')
     plt.ylabel('Neuron')

@@ -16,6 +16,7 @@ def load_timeseries(expt_id, base_data_dir=None):
     """
 
     import scipy.io as sio
+    from scipy import sparse
     from flygenvectors.utils import get_dirs
 
     if base_data_dir is None:
@@ -54,6 +55,12 @@ def load_timeseries(expt_id, base_data_dir=None):
         for key, val in data.items():
             # put time dim first
             data_dict[key] = val if val.shape[0] == t else val.T
+
+        # load
+        file_name = str('%s_Nsyb_NLS6s_walk_%s_A.npz' % (datestr, fly))
+        file_path = os.path.join(base_data_dir, expt_id, file_name)
+        data_dict['A'] = sparse.load_npz(file_path)
+
         # data_dict contents:
         #   time: timestamps in seconds
         #   trialFlag: index of which imaging run each timestamp corresponds to
@@ -62,12 +69,20 @@ def load_timeseries(expt_id, base_data_dir=None):
         #   ball: movement of ball measured in pixel variance
         #   dlc: dlc labels
         #   dims: height, width, depth of imaged volume
+        #   A: spatial footprint of these cells
 
     return data_dict
 
 
-def load_spatial_footprints(expt_id, base_data_dir=None):
-    raise NotImplementedError
+def remove_artifact_cells(data, threshold=10, footprints=None):
+    mx = np.amax(data, axis=0)
+    good_cells = mx < threshold
+    data = data[:, good_cells]
+    if footprints is not None:
+        footprints = footprints[:, good_cells]
+        return data, footprints
+    else:
+        return data
 
 
 def zscore(data):
