@@ -92,6 +92,9 @@ def plot_validation_likelihoods(all_results, T_val=1):
             alpha=1, label=model_name.upper())
     #     plt.legend(loc='lower center', frameon=False)
     plt.legend(loc='lower left', frameon=False)
+    plt.xlim(0, max(Ks)+1)
+    plt.gca().set_xticks(Ks)
+    plt.gca().set_xticklabels(Ks)
     plt.xlabel('Discrete states')
     plt.ylabel('Log probability')
     plt.title('Validation data')
@@ -127,3 +130,106 @@ def plot_dynamics_matrices(model, deridge=False):
     fig.colorbar(im, cax=cbar_ax)
 
     return fig
+
+
+def plot_dlc_arhmm_states(
+        dlc_labels=None, states=None, state_probs=None, slc=(0, 1000)):
+    """
+    Args:
+        dlc_labels (dict): keys are 'x', 'y', 'l', each value is a TxD np array
+        states (np array): length T
+        state_probs (np array): T x K
+    """
+
+    n_dlc_comp = dlc_labels['x'].shape[1]
+
+    fig, axes = plt.subplots(
+        4, 1, figsize=(12, 10),
+        gridspec_kw={'height_ratios': [0.1, 0.1, 0.4, 0.4]})
+
+    i = 0
+    axes[i].imshow(states[None, slice(*slc)], aspect='auto', cmap='tab20b')
+    axes[i].set_xticks([])
+    axes[i].set_yticks([])
+    axes[i].set_title('State')
+
+    i = 1
+    n_states = state_probs.shape[1]
+    xs_ = [np.arange(slc[0], slc[1]) for _ in range(n_states)]
+    ys_ = [state_probs[slice(*slc), j] for j in range(n_states)]
+    cs_ = [j for j in range(n_states)]
+    multiline(xs_, ys_, ax=axes[i], c=cs_, alpha=0.8, cmap='tab20b', lw=3)
+    axes[i].set_xticks([])
+    axes[i].set_xlim(slc[0], slc[1])
+    axes[i].set_yticks([])
+    axes[i].set_ylim(-0.1, 1.1)
+    axes[i].set_title('State probabilities')
+
+    i = 2
+    coord = 'x'
+    behavior = 4 * dlc_labels[coord] / np.max(np.abs(dlc_labels[coord])) + \
+               np.arange(dlc_labels[coord].shape[1])
+    axes[i].plot(np.arange(slc[0], slc[1]), behavior[slice(*slc), :])
+    axes[i].set_xticks([])
+    axes[i].set_xlim(slc[0], slc[1])
+    axes[i].set_yticks([])
+    axes[i].set_ylim(-1, n_dlc_comp)
+    axes[i].set_title('%s coords' % coord.upper())
+
+    i = 3
+    coord = 'y'
+    behavior = 4 * dlc_labels[coord] / np.max(np.abs(dlc_labels[coord])) + \
+               np.arange(dlc_labels[coord].shape[1])
+    axes[i].plot(np.arange(slc[0], slc[1]), behavior[slice(*slc), :])
+    axes[i].set_xlim(slc[0], slc[1])
+    axes[i].set_yticks([])
+    axes[i].set_ylim(-1, n_dlc_comp)
+    axes[i].set_title('%s coords' % coord.upper())
+
+    axes[-1].set_xlabel('Time (bins)')
+    plt.tight_layout()
+    plt.show()
+
+    return fig
+
+
+def multiline(xs, ys, c, ax=None, **kwargs):
+    """
+    Plot lines with different colorings
+    Taken from:
+    For use with plotting ARHMM state probabilities
+
+    Parameters
+    ----------
+    xs : iterable container of x coordinates
+    ys : iterable container of y coordinates
+    c : iterable container of numbers mapped to colormap
+    ax (optional): Axes to plot on.
+    kwargs (optional): passed to LineCollection
+
+    Notes:
+        len(xs) == len(ys) == len(c) is the number of line segments
+        len(xs[i]) == len(ys[i]) is the number of points for each line (indexed by i)
+
+    Returns
+    -------
+    lc : LineCollection instance.
+    """
+    from matplotlib.collections import LineCollection
+
+    # find axes
+    ax = plt.gca() if ax is None else ax
+
+    # create LineCollection
+    segments = [np.column_stack([x, y]) for x, y in zip(xs, ys)]
+    lc = LineCollection(segments, **kwargs)
+
+    # set coloring of line segments
+    #    Note: I get an error if I pass c as a list here... not sure why.
+    lc.set_array(np.asarray(c))
+
+    # add lines to axes and rescale
+    #    Note: adding a collection doesn't autoscalee xlim/ylim
+    ax.add_collection(lc)
+    ax.autoscale()
+    return lc
