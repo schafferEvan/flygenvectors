@@ -85,6 +85,44 @@ def remove_artifact_cells(data, threshold=10, footprints=None):
         return data
 
 
+def estimate_noise_variance(y, range_ff=[0.25, 0.5], method='mean'):
+    """
+    Estimate noise power through the power spectral density over the range of
+    large frequencies; adapted from GetSn() function from the OASIS package for
+    online deconvolution of calcium imaging data:
+    https://github.com/j-friedrich/OASIS/blob/master/oasis/functions.py
+
+    Parameters
+    ----------
+    y : array, shape (T,)
+        One dimensional array containing the fluorescence intensities with
+        one entry per time-bin.
+    range_ff : (1,2) array, nonnegative, max value <= 0.5
+        range of frequency (x Nyquist rate) over which the spectrum is averaged
+    method : string, optional, default 'mean'
+        method of averaging: Mean, median, exponentiated mean of logvalues
+
+    Returns
+    -------
+    sn : noise standard deviation
+    """
+    from scipy.signal import welch
+
+    ff, Pxx = welch(y)
+    ind1 = ff > range_ff[0]
+    ind2 = ff < range_ff[1]
+    ind = np.logical_and(ind1, ind2)
+    Pxx_ind = Pxx[ind]
+    sn = {
+        'mean': lambda Pxx_ind: np.sqrt(np.mean(Pxx_ind / 2)),
+        'median': lambda Pxx_ind: np.sqrt(np.median(Pxx_ind / 2)),
+        'logmexp': lambda Pxx_ind: np.sqrt(
+            np.exp(np.mean(np.log(Pxx_ind / 2))))
+    }[method](Pxx_ind)
+
+    return sn
+
+
 def zscore(data):
     """zscore over axis 0"""
     std = np.std(data, axis=0)
