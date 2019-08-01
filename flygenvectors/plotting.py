@@ -233,3 +233,150 @@ def multiline(xs, ys, c, ax=None, **kwargs):
     ax.add_collection(lc)
     ax.autoscale()
     return lc
+
+
+def make_syllable_movies(filepath, hparams, latents, states, trial_idxs,
+                         data_generator, min_threshold=0, n_buffer=5,
+                         n_pre_frames=3):
+    plot_n_frames = hparams['plot_n_frames']
+    if hparams['plot_frame_rate'] == 'orig':
+        raise NotImplementedError
+    else:
+        plot_frame_rate = hparams['plot_frame_rate']
+
+    [bs, n_channels, y_dim, x_dim] = data_generator.datasets[0][0][
+        'images'].shape
+
+    state_indices = get_discrete_chunks(states, include_edges=True)
+
+    movie_dim1 = n_channels * y_dim
+    movie_dim2 = x_dim
+
+    actual_K = len(state_indices)
+
+    # Get all example over threshold
+    over_threshold_instances = [[] for _ in range(actual_K)]
+    for i_state in range(actual_K):
+        if state_indices[i_state].shape[0] > 0:
+            over_threshold_instances[i_state] = state_indices[i_state][
+                (np.diff(state_indices[i_state][:, 1:3], 1) > min_threshold)[:,
+                0]]
+            np.random.shuffle(
+                over_threshold_instances[i_state])  # Shuffle instances
+
+    dim1 = int(np.floor(np.sqrt(actual_K)))
+    dim2 = int(np.ceil(actual_K / dim1))
+
+    # Initialize syllable movie frames
+    plt.clf()
+    fig_dim_div = movie_dim2 * dim2 / 10  # aiming for dim 1 being 10
+    fig, axes = plt.subplots(dim1, dim2, figsize=(
+    (movie_dim2 * dim2) / fig_dim_div, (movie_dim1 * dim1) / fig_dim_div))
+
+    for i, ax in enumerate(fig.axes):
+        ax.set_yticks([])
+        ax.set_xticks([])
+        ax.set_title('Syllable ' + str(i), fontsize=16)
+    fig.tight_layout(pad=0)
+
+    ims = [[] for _ in range(plot_n_frames + bs + 200)]
+
+    # Loop through syllables
+    for i_syllable in range(actual_K):
+        print(i_syllable)
+        if len(over_threshold_instances[i_syllable]) > 0:
+            i_chunk = 0
+            i_frame = 0
+
+            while i_frame < plot_n_frames:
+
+                if i_chunk >= len(over_threshold_instances[i_syllable]):
+                    im = fig.axes[i_syllable].imshow(
+                        np.zeros((movie_dim1, movie_dim2)), animated=True,
+                        vmin=0, vmax=1, cmap='gray')
+                    ims[i_frame].append(im)
+                    i_frame += 1
+                else:
+
+                    # Get movies/latents
+                    which_trial = trial_idxs[
+                        over_threshold_instances[i_syllable][i_chunk, 0]]
+                    movie_chunk = data_generator.datasets[0][which_trial][
+                                      'images'].cpu().detach().numpy()[max(
+                        over_threshold_instances[i_syllable][
+                            i_chunk, 1] - n_pre_frames, 0):
+                                                                       over_threshold_instances[
+                                                                           i_syllable][
+                                                                           i_chunk, 2]]
+                    # movie_chunk = images[over_threshold_instances[i_syllable][i_chunk,0]][max(over_threshold_instances[i_syllable][i_chunk,1]-n_pre_frames,0):over_threshold_instances[i_syllable][i_chunk,2]]
+
+                    if hparams['lab'] == 'musall':
+                        movie_chunk = np.transpose(movie_chunk, (0, 1, 3, 2))
+                    movie_chunk = np.concatenate([movie_chunk[:, j] for j in
+                                                  range(movie_chunk.shape[1])],
+                                                 axis=1)
+
+                    # latents_chunk = latents[over_threshold_instances[i_syllable][i_chunk,0]][max(over_threshold_instances[i_syllable][i_chunk,1]-n_pre_frames,0):over_threshold_instances[i_syllable][i_chunk,2]]
+
+                    # print(states[over_threshold_instances[i_syllable][i_chunk,0]][max(over_threshold_instances[i_syllable][i_chunk,1]-n_pre_frames,0):min(over_threshold_instances[i_syllable][i_chunk,2]+1,999)])
+                    # print(hmm.most_likely_states(latents[over_threshold_instances[i_syllable][i_chunk,0]])[max(over_threshold_instances[i_syllable][i_chunk,1]-n_pre_frames,0):min(over_threshold_instances[i_syllable][i_chunk,2]+1,999)])
+
+                    # print(data_generator.datasets[0][which_trial]['images'][max(over_threshold_instances[i_syllable][i_chunk,1]-n_pre_frames,0):over_threshold_instances[i_syllable][i_chunk,2]].shape)
+                    # pred_latents, _, _ = ae_model.encoding(data_generator.datasets[0][which_trial]['images'][max(over_threshold_instances[i_syllable][i_chunk,1]-n_pre_frames,0):over_threshold_instances[i_syllable][i_chunk,2]])
+                    # pred_latents = pred_latents.cpu().detach().numpy()
+
+                    # print(np.max(np.abs(latents_chunk-pred_latents)))
+                    # print(np.max(np.abs(latents[0][0:len(pred_latents)]-pred_latents)))
+                    if np.sum(states[over_threshold_instances[i_syllable][
+                        i_chunk, 0]][
+                              over_threshold_instances[i_syllable][i_chunk, 1]:
+                              over_threshold_instances[i_syllable][
+                                  i_chunk, 2] - 1] != i_syllable) > 0:
+                        raise ValueError(
+                            'Misaligned states for syllable segmentation')
+
+                    # Loop over this chunk
+                    for i in range(movie_chunk.shape[0]):
+
+                        im = fig.axes[i_syllable].imshow(movie_chunk[i],
+                                                         animated=True, vmin=0,
+                                                         vmax=1, cmap='gray')
+                        ims[i_frame].append(im)
+
+                        # Add red box if start of syllable
+                        syllable_start = n_pre_frames if \
+                        over_threshold_instances[i_syllable][
+                            i_chunk, 1] >= n_pre_frames else \
+                        over_threshold_instances[i_syllable][i_chunk, 1]
+
+                        if i > syllable_start and i < (syllable_start + 2):
+                            rect = matplotlib.patches.Rectangle((5, 5), 10, 10,
+                                                                linewidth=1,
+                                                                edgecolor='r',
+                                                                facecolor='r')
+                            im = fig.axes[i_syllable].add_patch(rect)
+                            ims[i_frame].append(im)
+
+                        i_frame += 1
+
+                    # Add buffer black frames
+                    for j in range(n_buffer):
+                        im = fig.axes[i_syllable].imshow(
+                            np.zeros((movie_dim1, movie_dim2)), animated=True,
+                            vmin=0, vmax=1, cmap='gray')
+                        ims[i_frame].append(im)
+                        i_frame += 1
+
+                    i_chunk += 1
+
+    ani = animation.ArtistAnimation(fig, [ims[i] for i in range(len(ims)) if
+                                          ims[i] != []], interval=20,
+                                    blit=True, repeat=False)
+    writer = FFMpegWriter(fps=plot_frame_rate, metadata=dict(artist='mrw'),
+                          bitrate=-1)
+    save_file = os.path.join(filepath, 'syllable_behavior_K_' + str(
+        hparams['n_arhmm_states']) + '_kappa_' + str(
+        hparams['kappa']) + '_noise_' + hparams[
+                                 'noise_type'] + '_nlags_' + str(
+        hparams['n_lags']) + '.mp4')
+    ani.save(save_file, writer=writer)
