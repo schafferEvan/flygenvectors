@@ -383,7 +383,7 @@ class scape:
 
 
   
-    def postProcess(self, inputFile, outputFile, savematfile=False, secsToTrim=10.):
+    def postProcess(self, inputFile, outputFile, secsToTrim=10., savematfile=False):
         self.importdata(self.baseFolder+inputFile)
         self.trimTrialStart(secsToTrim)
 
@@ -421,40 +421,32 @@ class scape:
         # self.makeQuantileF0_multiExp(RsmoothData, bnds, self.Rpopt)
         print('\n calculate red F0')
         self.makeQuantileDF0(self.RsmoothData, bnds, self.Rpopt)
-        R0 = self.F0
+        self.R0 = self.F0
         self.Rpopt = self.popt
 
         print('\n calculate green F0')
         self.makeQuantileDF0(self.YsmoothData, bnds, self.Ypopt)
-        Y0 = self.F0
+        self.Y0 = self.F0
         self.Ypopt = self.popt
 
         # rescale smooth data to match scale of original data
         print('\n rescale red data')
         self.rescaleData(self.RsmoothData, self.Rmin, self.Rmax)
-        Rgoodsc = self.rescaled
+        self.Rgoodsc = self.rescaled
 
         print('\n rescale green data')
         self.rescaleData(self.YsmoothData, self.Ymin, self.Ymax)
-        Ygoodsc = self.rescaled
+        self.Ygoodsc = self.rescaled
         
 
         # rescale exponential fits to match scale of original data
         print('\n rescale red F0')
-        self.rescaleData(R0, self.Rmin, self.Rmax)
-        R0sc = self.rescaled
+        self.rescaleData(self.R0, self.Rmin, self.Rmax)
+        self.R0sc = self.rescaled
 
         print('\n rescale green F0')
-        self.rescaleData(Y0, self.Ymin, self.Ymax)
-        Y0sc = self.rescaled
-
-        self.R0 = R0
-        self.Y0 = Y0
-        self.Rgoodsc = Rgoodsc
-        self.Ygoodsc = Ygoodsc
-        self.R0sc = R0sc
-        self.Y0sc = Y0sc
-        
+        self.rescaleData(self.Y0, self.Ymin, self.Ymax)
+        self.Y0sc = self.rescaled
 
         self.dYY = np.divide(self.Ygoodsc-self.Y0sc, self.Y0sc)
         self.dRR = np.divide(self.Rgoodsc-self.R0sc, self.R0sc)
@@ -536,11 +528,12 @@ if __name__ == '__main__':
     baseFolder = '/Volumes/SCAPEdata1/finalData/2019_06_26_Nsyb_NLS6s_walk/fly2/Yproj/' #'/Volumes/dataFast/sample/2019_06_26_Nsyb_NLS6s_walk/fly2/Yproj/'
 
     savematfile = False #True
+    secsToTrim=10.
     # obj = scape(baseFolder)
     # obj.postProcess('F.mat', 'post_fromYcc.mat')
     obj = scape(baseFolder)
     # obj.postProcess('F_fromRed.mat', 'post_fromRcc.mat')
-    obj.postProcess('2019_06_26_Nsyb_NLS6s_walk_fly2_raw.npz', '2019_06_26_Nsyb_NLS6s_walk_fly2.npz', savematfile)
+    obj.postProcess('2019_06_26_Nsyb_NLS6s_walk_fly2_raw.npz', '2019_06_26_Nsyb_NLS6s_walk_fly2.npz',secsToTrim, savematfile)
 
 
 
