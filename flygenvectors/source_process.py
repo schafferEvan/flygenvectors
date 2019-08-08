@@ -13,6 +13,7 @@ import sys
 import glob
 import numpy as np
 import pickle
+import warnings
 from scipy import sparse, optimize, io
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
@@ -306,7 +307,6 @@ class scape:
             print(i,end=" ")
             sys.stdout.flush()
 
-
     def trimTrialStart(self,secsToTrim):
         # trim frames from beginning of each run
         extra_buffer = int(np.round( secsToTrim*self.raw.scanRate )) # number of frames to trim
@@ -383,7 +383,7 @@ class scape:
 
 
   
-    def postProcess(self, inputFile, outputFile, secsToTrim=10., savematfile=False):
+    def process(self, inputFile, outputFile, secsToTrim=10., savematfile=False):
         self.importdata(self.baseFolder+inputFile)
         self.trimTrialStart(secsToTrim)
 
@@ -456,7 +456,7 @@ class scape:
 
         
         #self.dOO = np.divide(self.Ogoodsc-self.O0sc, self.O0sc)
-        print('\n calculate O and dOO')
+        print('\n calculate O and dOO (ratiometric dFF)')
         self.make_O_and_dOO()
 
         print('\n find and remove bad units')
@@ -533,7 +533,7 @@ if __name__ == '__main__':
     # obj.postProcess('F.mat', 'post_fromYcc.mat')
     obj = scape(baseFolder)
     # obj.postProcess('F_fromRed.mat', 'post_fromRcc.mat')
-    obj.postProcess('2019_06_26_Nsyb_NLS6s_walk_fly2_raw.npz', '2019_06_26_Nsyb_NLS6s_walk_fly2.npz',secsToTrim, savematfile)
+    obj.process('2019_06_26_Nsyb_NLS6s_walk_fly2_raw.npz', '2019_06_26_Nsyb_NLS6s_walk_fly2.npz',secsToTrim, savematfile)
 
 
 
