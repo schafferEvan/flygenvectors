@@ -145,9 +145,14 @@ def plot_dlc_arhmm_states(
 
     n_dlc_comp = dlc_labels['x'].shape[1]
 
-    fig, axes = plt.subplots(
-        4, 1, figsize=(12, 10),
-        gridspec_kw={'height_ratios': [0.1, 0.1, 0.4, 0.4]})
+    if state_probs is not None:
+        fig, axes = plt.subplots(
+            4, 1, figsize=(12, 10),
+            gridspec_kw={'height_ratios': [0.1, 0.1, 0.4, 0.4]})
+    else:
+        fig, axes = plt.subplots(
+            3, 1, figsize=(10, 10),
+            gridspec_kw={'height_ratios': [0.1, 0.4, 0.4]})
 
     i = 0
     axes[i].imshow(states[None, slice(*slc)], aspect='auto', cmap='tab20b')
@@ -155,19 +160,20 @@ def plot_dlc_arhmm_states(
     axes[i].set_yticks([])
     axes[i].set_title('State')
 
-    i = 1
-    n_states = state_probs.shape[1]
-    xs_ = [np.arange(slc[0], slc[1]) for _ in range(n_states)]
-    ys_ = [state_probs[slice(*slc), j] for j in range(n_states)]
-    cs_ = [j for j in range(n_states)]
-    _multiline(xs_, ys_, ax=axes[i], c=cs_, alpha=0.8, cmap='tab20b', lw=3)
-    axes[i].set_xticks([])
-    axes[i].set_xlim(slc[0], slc[1])
-    axes[i].set_yticks([])
-    axes[i].set_ylim(-0.1, 1.1)
-    axes[i].set_title('State probabilities')
+    if state_probs is not None:
+        i += 1
+        n_states = state_probs.shape[1]
+        xs_ = [np.arange(slc[0], slc[1]) for _ in range(n_states)]
+        ys_ = [state_probs[slice(*slc), j] for j in range(n_states)]
+        cs_ = [j for j in range(n_states)]
+        _multiline(xs_, ys_, ax=axes[i], c=cs_, alpha=0.8, cmap='tab20b', lw=3)
+        axes[i].set_xticks([])
+        axes[i].set_xlim(slc[0], slc[1])
+        axes[i].set_yticks([])
+        axes[i].set_ylim(-0.1, 1.1)
+        axes[i].set_title('State probabilities')
 
-    i = 2
+    i += 1
     coord = 'x'
     behavior = 4 * dlc_labels[coord] / np.max(np.abs(dlc_labels[coord])) + \
                np.arange(dlc_labels[coord].shape[1])
@@ -178,7 +184,7 @@ def plot_dlc_arhmm_states(
     axes[i].set_ylim(-1, n_dlc_comp)
     axes[i].set_title('%s coords' % coord.upper())
 
-    i = 3
+    i += 1
     coord = 'y'
     behavior = 4 * dlc_labels[coord] / np.max(np.abs(dlc_labels[coord])) + \
                np.arange(dlc_labels[coord].shape[1])
@@ -197,7 +203,8 @@ def plot_dlc_arhmm_states(
 
 def make_syllable_movie(
         filename, states, frames, frame_indxs, min_threshold=5, n_buffer=5,
-        n_pre_frames=3, framerate=20, plot_n_frames=1000, single_state=None):
+        n_pre_frames=3, framerate=20, plot_n_frames=1000, single_state=None,
+        start_box=False):
     """
     Adapted from Ella Batty
 
@@ -211,6 +218,7 @@ def make_syllable_movie(
         framerate (float): Hz
         plot_n_frames (int): length of movie
         single_state (int or NoneType): choose only a single state for movie
+        start_box (bool): include red box in each panel indicating state onset
     """
 
     from matplotlib.patches import Rectangle
@@ -255,13 +263,23 @@ def make_syllable_movie(
     for i, ax in enumerate(fig.axes):
         ax.set_yticks([])
         ax.set_xticks([])
-        ax.set_title('Syllable ' + str(i), fontsize=16)
+        if i >= K:
+            ax.set_axis_off()
+        elif single_state is not None:
+            ax.set_title('Syllable %i' % single_state, fontsize=16)
+        else:
+            ax.set_title('Syllable %i' % i, fontsize=16)
     fig.tight_layout(pad=0)
 
     ims = [[] for _ in range(plot_n_frames + 500)]
 
     # loop through syllables
     for i_k, ax in enumerate(fig.axes):
+
+        # skip if no syllable in this axis
+        if i_k >= K:
+            continue
+
         print('processing syllable %i/%i' % (i_k + 1, K))
 
         if single_state is not None:
@@ -313,12 +331,13 @@ def make_syllable_movie(
                     ims[i_frame].append(im)
 
                     # Add red box if start of syllable
-                    if syllable_start < i < (syllable_start + 2):
-                        rect = Rectangle(
-                            (5, 5), 10, 10, linewidth=1, edgecolor='r',
-                            facecolor='r')
-                        im = ax.add_patch(rect)
-                        ims[i_frame].append(im)
+                    if start_box:
+                        if syllable_start < i < (syllable_start + 2):
+                            rect = Rectangle(
+                                (5, 5), 10, 10, linewidth=1, edgecolor='r',
+                                facecolor='r')
+                            im = ax.add_patch(rect)
+                            ims[i_frame].append(im)
 
                     i_frame += 1
 

@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import pickle
 from ssm import HMM
 
 
@@ -18,7 +19,7 @@ def get_dirs():
         }
     elif username == 'mattw':
         dirs = {
-            'data': '/home/mattw/data/schaffer/',  # base data dir
+            'data': '/media/mattw/data/schaffer/',  # base data dir
             'results': '/home/mattw/results/fly/'  # base results dir
         }
     else:
@@ -82,39 +83,86 @@ def split_trials(
 def fit_model(
         n_states, data_dim, input_dim, model_kwargs,
         data_tr, data_val, data_test,
-        inputs_tr=None, inputs_val=None, inputs_test=None):
+        inputs_tr=None, inputs_val=None, inputs_test=None, fit_kwargs=None):
 
-    model = HMM(K=n_states, D=data_dim, M=input_dim, **model_kwargs)
-    model.initialize(data_tr, inputs=inputs_tr)
-    model.observations.initialize(data_tr, inputs=inputs_tr)
+    if fit_kwargs is None:
+        fit_kwargs = {
+            'save': False, 'load_if_exists': False,
+            'expt_id': None, 'model_dir': None, 'save_dir': None}
 
-    # run EM; specify tolerances for overall convergence and each M-step's
-    # convergence
-    lps = model.fit(
-        data_tr, inputs=inputs_tr, method='em', num_em_iters=50,
-        tolerance=1e-1,
-        transitions_mstep_kwargs={'optimizer': 'lbfgs', 'tol': 1e-3})
+    train_model = True
+    load_model = fit_kwargs['load_if_exists']
+    save_model = fit_kwargs['save']
 
-    # compute stats
-    ll_val = model.log_likelihood(data_val, inputs=inputs_val)
-    ll_test = model.log_likelihood(data_test, inputs=inputs_test)
+    # check if model exists
+    if load_model:
+        save_file = get_save_file(n_states, model_kwargs, fit_kwargs)
+        if os.path.exists(save_file):
+            train_model = False
 
-    # sort states by usage
-    inputs_tr = [None] * len(data_tr) if inputs_tr is None else inputs_tr
-    states_tr = [model.most_likely_states(x, u) for x, u in
-                 zip(data_tr, inputs_tr)]
-    usage = np.bincount(np.concatenate(states_tr), minlength=n_states)
-    model.permute(np.argsort(-usage))
-    states_tr = [model.most_likely_states(x, u) for x, u in
-                 zip(data_tr, inputs_tr)]
+    # fit model
+    if train_model:
+        model = HMM(K=n_states, D=data_dim, M=input_dim, **model_kwargs)
+        model.initialize(data_tr, inputs=inputs_tr)
+        model.observations.initialize(data_tr, inputs=inputs_tr)
 
-    # combine results
-    return {
-        'model': model,
-        'states_tr': states_tr,
-        'lps': lps,
-        'll_val': ll_val,
-        'll_test': ll_test}
+        # run EM; specify tolerances for overall convergence and each M-step's
+        # convergence
+        lps = model.fit(
+            data_tr, inputs=inputs_tr, method='em', num_em_iters=50,
+            tolerance=1e-1,
+            transitions_mstep_kwargs={'optimizer': 'lbfgs', 'tol': 1e-3})
+
+        # compute stats
+        ll_val = model.log_likelihood(data_val, inputs=inputs_val)
+        ll_test = model.log_likelihood(data_test, inputs=inputs_test)
+
+        # sort states by usage
+        inputs_tr = [None] * len(data_tr) if inputs_tr is None else inputs_tr
+        states_tr = [model.most_likely_states(x, u) for x, u in
+                     zip(data_tr, inputs_tr)]
+        usage = np.bincount(np.concatenate(states_tr), minlength=n_states)
+        model.permute(np.argsort(-usage))
+        states_tr = [model.most_likely_states(x, u) for x, u in
+                     zip(data_tr, inputs_tr)]
+
+        # combine results
+        model_results = {
+            'model': model,
+            'states_tr': states_tr,
+            'lps': lps,
+            'll_val': ll_val,
+            'll_test': ll_test}
+    else:
+        save_file = get_save_file(n_states, model_kwargs, fit_kwargs)
+        with open(save_file, 'rb') as f:
+            model_results = pickle.load(f)
+
+    # save resulting model
+    if train_model and save_model:
+        save_file = get_save_file(n_states, model_kwargs, fit_kwargs)
+        print('saving model to %s' % save_file)
+        if not os.path.exists(os.path.dirname(save_file)):
+            os.makedirs(os.path.dirname(save_file))
+        with open(save_file, 'wb') as f:
+            pickle.dump(model_results, f)
+
+    return model_results
+
+
+def get_save_file(n_states, model_kwargs, fit_kwargs):
+    model_name = str(
+        'hmm_%s_%s_%i-lags_K=%i.pkl' % (
+            model_kwargs['transitions'], model_kwargs['observations'],
+            model_kwargs['observation_kwargs']['lags'], n_states))
+    if fit_kwargs['save_dir'] is not None:
+        save_dir = fit_kwargs['save_dir']
+    else:
+        base_dir = get_dirs()['results']
+        model_dir = fit_kwargs['model_dir']
+        expt_dir = fit_kwargs['expt_id']
+        save_dir = os.path.join(base_dir, expt_dir, model_dir)
+    return os.path.join(save_dir, model_name)
 
 
 def extract_high_likelihood_runs(
@@ -143,7 +191,7 @@ def extract_high_likelihood_runs(
     save_run = False
     for t in range(1, T):
 
-        if np.all(likelihoods[t] > l_thresh):
+        if np.all(likelihoods[t] >= l_thresh):
             run_len += 1
             i_end += 1
         else:
