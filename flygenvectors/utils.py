@@ -115,3 +115,129 @@ def fit_model(
         'lps': lps,
         'll_val': ll_val,
         'll_test': ll_test}
+
+
+def extract_high_likelihood_runs(
+        likelihoods, l_thresh=0.8, min_length=100, max_length=500):
+    """
+    Find contiguous chunks of data with likelihoods larger than a given value
+
+    Args:
+        likelihoods (np array):
+        l_thresh (float): minimum likelihood threshold
+        min_length (int): minimum length of high likelihood runs
+        max_length (int): maximum length of high likelihood runs; once a run
+            surpasses this threshold a new run is started
+
+    Returns:
+        list: of run indices
+    """
+
+    indxs = []
+
+    T = likelihoods.shape[0]
+    run_len = 1
+    i_beg = 0
+    i_end = 1
+    reset_run = False
+    save_run = False
+    for t in range(1, T):
+
+        if np.all(likelihoods[t] > l_thresh):
+            run_len += 1
+            i_end += 1
+        else:
+            if run_len >= min_length:
+                save_run = True
+            reset_run = True
+        if run_len == max_length:
+            save_run = True
+            reset_run = True
+
+        if save_run:
+            indxs.append(np.arange(i_beg, i_end))
+            save_run = False
+        if reset_run:
+            run_len = 1
+            i_beg = t
+            i_end = t + 1
+            reset_run = False
+
+    # final run
+    if run_len - 1 >= min_length:
+        indxs.append(np.arange(i_beg, i_end - 1))
+
+    return indxs
+
+
+def split_runs(indxs, dtypes, dtype_lens):
+    """
+
+    Args:
+        indxs (list):
+        dtypes (list of strs):
+        dtype_lens (list of ints):
+
+    Returns:
+        dict
+    """
+
+    # first sort, then split according to ratio
+    i_sorted = np.argsort([len(i) for i in indxs])
+
+    indxs_split = {dtype: [] for dtype in dtypes}
+    dtype_indx = 0
+    dtype_curr = dtypes[dtype_indx]
+    counter = 0
+    for indx in reversed(i_sorted):
+        if counter == dtype_lens[dtype_indx]:
+            # move to next dtype
+            dtype_indx = (dtype_indx + 1) % len(dtypes)
+            while dtype_lens[dtype_indx] == 0:
+                dtype_indx = (dtype_indx + 1) % len(dtypes)
+            dtype_curr = dtypes[dtype_indx]
+            counter = 0
+        indxs_split[dtype_curr].append(indxs[indx])
+        counter += 1
+
+    return indxs_split
+
+
+def extract_state_runs(states, indxs, min_length=20):
+    """
+    Find contiguous chunks of data with the same state
+
+    Args:
+        states (list):
+        indxs (list):
+        min_length (int):
+
+    Returns:
+        list
+    """
+
+    K = len(np.unique(np.concatenate([np.unique(s) for s in states])))
+    state_snippets = [[] for _ in range(K)]
+
+    for curr_states, curr_indxs in zip(states, indxs):
+        i_beg = 0
+        curr_state = curr_states[i_beg]
+        curr_len = 1
+        for i in range(1, len(curr_states)):
+            next_state = curr_states[i]
+            if next_state != curr_state:
+                # record indices if state duration long enough
+                if curr_len >= min_length:
+                    state_snippets[curr_state].append(
+                        curr_indxs[i_beg:i])
+                i_beg = i
+                curr_state = next_state
+                curr_len = 1
+            else:
+                curr_len += 1
+        # end of trial cleanup
+        if next_state == curr_state:
+            # record indices if state duration long enough
+            if curr_len >= min_length:
+                state_snippets[curr_state].append(curr_indxs[i_beg:i])
+    return state_snippets

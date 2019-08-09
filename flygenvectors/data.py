@@ -1,4 +1,5 @@
 import os
+import glob
 import numpy as np
 from sklearn.decomposition import PCA
 
@@ -47,8 +48,8 @@ def load_timeseries(expt_id, base_data_dir=None):
         strs = expt_id.split('_')
         datestr = str('%s_%s_%s' % (strs[0], strs[1], strs[2]))
         fly = strs[3]
-        file_name = str('%s_Nsyb_NLS6s_walk_%s.npz' % (datestr, fly))
-        file_path = os.path.join(base_data_dir, expt_id, file_name)
+        file_name = str('%s*%s.npz' % (datestr, fly))
+        file_path = glob.glob(os.path.join(base_data_dir, expt_id, file_name))[0]
         data = np.load(file_path)
         t = np.max(data['time'].shape)
         data_dict = {}
@@ -72,6 +73,108 @@ def load_timeseries(expt_id, base_data_dir=None):
         #   A: spatial footprint of these cells
 
     return data_dict
+
+
+def load_dlc_from_csv(expt_id, base_data_dir=None):
+    """
+    Helper function to load dlc labels from raw video (uninterpolated)
+
+    Args:
+        expt_id (str)
+        base_data_dir (str)
+
+    Returns:
+        array: x1, y1, like1, x2, y2, like2, ...
+    """
+
+    from numpy import genfromtxt
+    from flygenvectors.utils import get_dirs
+
+    if base_data_dir is None:
+        base_data_dir = get_dirs()['data']
+
+    file_path = glob.glob(
+        os.path.join(base_data_dir, expt_id, '*DeepCut*.csv'))[0]
+    dlc = genfromtxt(file_path, delimiter=',', dtype=None)
+    dlc = dlc[3:, 1:].astype('float')  # get rid of headers, etc.
+
+    return dlc
+
+
+def load_video(expt_id, base_data_dir=None):
+    """
+    Helper function to load videos
+
+    Args:
+        expt_id (str):
+        base_data_dir (str):
+
+    Returns:
+        np array (T x y_pix x x_pix)
+    """
+
+    import cv2
+    from flygenvectors.utils import get_dirs
+
+    if base_data_dir is None:
+        base_data_dir = get_dirs()['data']
+
+    file_path = glob.glob(
+        os.path.join(base_data_dir, expt_id, '*crop.mp4'))[0]
+
+    # read file
+    cap = cv2.VideoCapture(file_path)
+
+    # Check if file opened successfully
+    if not cap.isOpened():
+        print('Error opening video stream or file')
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    videodata = np.zeros((total_frames, height, width), dtype='uint8')
+
+    # read until video is completed
+    fr = 0
+    while cap.isOpened():
+        # Capture frame-by-frame
+        ret, frame = cap.read()
+        if ret:
+            videodata[fr, :, :] = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            fr += 1
+        else:
+            break
+
+    # When everything done, release the video capture object
+    cap.release()
+
+    return videodata
+
+
+def clean_dlc_labels(labels, thresh=0.8):
+    """
+    For any dlc label whose likelihood is below `thresh` for a single
+    timepoint, linearly interpolate dlc coordinates from surrounding (good)
+    coordinates.
+
+    Args:
+        labels (dict): keys 'x', 'y', 'l'
+        thresh (int):
+
+    Returns:
+        dict
+    """
+
+    T = labels['x'].shape[0]
+    for t in range(1, T - 1):
+        is_t = np.where(labels['l'][t, :] < thresh)[0]
+        for i in is_t:
+            if ((labels['l'][t - 1, i] > thresh) & (
+                    labels['l'][t + 1, i] > thresh)):
+                for c in ['x', 'y', 'l']:
+                    labels[c][t, i] = np.mean(
+                        [labels[c][t - 1, i], labels[c][t + 1, i]])
+    return labels
 
 
 def remove_artifact_cells(data, threshold=10, footprints=None):
