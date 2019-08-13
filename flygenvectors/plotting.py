@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -103,10 +104,11 @@ def plot_validation_likelihoods(all_results, T_val=1):
 
 def plot_dynamics_matrices(model, deridge=False):
     K = model.K
+    n_lags = model.observations.lags
     n_cols = 2
     n_rows = int(np.ceil(K / n_cols))
 
-    fig = plt.figure(figsize=(4 * n_cols, 4 * n_rows))
+    fig = plt.figure(figsize=(4 * n_cols, 4 * n_rows / n_lags))
 
     mats = np.copy(model.observations.As)
     if deridge:
@@ -129,6 +131,23 @@ def plot_dynamics_matrices(model, deridge=False):
     cbar_ax = fig.add_axes([0.85, 0.4, 0.03, 0.2])
     fig.colorbar(im, cax=cbar_ax)
 
+    return fig
+
+
+def plot_state_transition_matrix(model, deridge=False):
+    trans = np.copy(model.transitions.transition_matrix)
+    if deridge:
+        n_states = trans.shape[0]
+        for i in range(n_states):
+            trans[i, i] = np.nan
+        clim = np.nanmax(np.abs(trans))
+    else:
+        clim = 1
+    fig = plt.figure()
+    plt.imshow(trans, clim=[-clim, clim], cmap='RdBu_r')
+    plt.colorbar()
+    plt.title('State transition matrix')
+    plt.show()
     return fig
 
 
@@ -212,6 +231,8 @@ def make_syllable_movie(
         filename (str): absolute path
         states (list of np arrays):
         frames (np array): T x ypix x xpix
+        frame_indxs (list of array-like): indices into `frames` that correspond
+            to `states`
         min_threshold (int): minimum length of states
         n_buffer (int): black frames between syllable instances
         n_pre_frames (int): n frames before syllabel start
@@ -269,7 +290,7 @@ def make_syllable_movie(
             ax.set_title('Syllable %i' % single_state, fontsize=16)
         else:
             ax.set_title('Syllable %i' % i, fontsize=16)
-    fig.tight_layout(pad=0)
+    fig.tight_layout(pad=0, h_pad=1.05)
 
     ims = [[] for _ in range(plot_n_frames + 500)]
 
@@ -324,6 +345,9 @@ def make_syllable_movie(
 
                 # loop over this chunk
                 for i in range(movie_chunk.shape[0]):
+                    # in case chunk is too long
+                    if i_frame >= plot_n_frames:
+                        continue
 
                     im = ax.imshow(
                         movie_chunk[i], animated=True,
@@ -343,6 +367,9 @@ def make_syllable_movie(
 
                 # add buffer black frames
                 for j in range(n_buffer):
+                    # in case chunk is too long
+                    if i_frame >= plot_n_frames:
+                        continue
                     im = ax.imshow(
                         np.zeros((y_pix, x_pix)), animated=True,
                         vmin=vmin, vmax=vmax, cmap='gray')
@@ -358,6 +385,8 @@ def make_syllable_movie(
     print('done')
     print('saving video to %s...' % filename, end='')
     writer = FFMpegWriter(fps=framerate, bitrate=-1)
+    if not os.path.exists(os.path.dirname(filename)):
+        os.makedirs(os.path.dirname(filename))
     ani.save(filename, writer=writer)
     print('done')
 
@@ -421,6 +450,69 @@ def make_syllable_plots(labels, max_snippets=5, max_t=100, coord='y'):
     plt.show()
 
     return fig
+
+
+def make_labeled_movie(
+        filename, states, frames, frame_indxs, state_mapping, framerate=20):
+    """
+    Label frames with state names
+
+    Args:
+        filename (str): absolute path
+        states (np array):
+        frames (np array): T x ypix x xpix
+        frame_indxs (list of array-like): indices into `frames` that correspond
+            to `states`
+        state_mapping (dict): keys are states (ints), values are labels (strs)
+        framerate (float): Hz
+    """
+
+    import matplotlib.animation as animation
+    from matplotlib.animation import FFMpegWriter
+
+    K = len(state_mapping)
+    n_frames = len(frame_indxs)
+
+    fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+    ax.set_yticks([])
+    ax.set_xticks([])
+    fig.tight_layout(pad=0)
+
+    vmin = 0
+    vmax = np.max(frames)
+    im_kwargs = {'animated': True, 'vmin': vmin, 'vmax': vmax, 'cmap': 'gray'}
+    txt_kwargs = {
+        'fontsize': 30, 'color': [1, 1, 1], 'horizontalalignment': 'left',
+        'verticalalignment': 'top', 'transform': ax.transAxes}
+
+    # ims is a list of lists, each row is a list of artists to draw in the
+    # current frame; here we are just animating one artist, the image, in
+    # each frame
+    ims = []
+    for i in range(n_frames):
+
+        if i % 100 == 0:
+            print('processing frame %03i/%03i' % (i, n_frames))
+
+        ims_curr = []
+        im = ax.imshow(frames[frame_indxs[i], :, :], **im_kwargs)
+        ims_curr.append(im)
+        im = ax.text(0.03, 0.97, state_mapping[states[i]], **txt_kwargs)
+        ims_curr.append(im)
+
+        ims.append(ims_curr)
+
+    print('creating animation...', end='')
+    ani = animation.ArtistAnimation(
+        fig, [ims[i] for i in range(len(ims)) if ims[i] != []],
+        blit=True, repeat=False)
+    print('done')
+    print('saving video to %s...' % filename, end='')
+    writer = FFMpegWriter(fps=framerate, bitrate=-1)
+    if not os.path.exists(os.path.dirname(filename)):
+        os.makedirs(os.path.dirname(filename))
+    ani.save(filename, writer=writer)
+    print('done')
 
 
 def _multiline(xs, ys, c, ax=None, **kwargs):
