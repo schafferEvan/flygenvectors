@@ -180,6 +180,8 @@ def extract_high_likelihood_runs(
     """
     Find contiguous chunks of data with likelihoods larger than a given value
 
+    TODO: remove; now in dlc.DLCLabels class
+
     Args:
         likelihoods (np array):
         l_thresh (float): minimum likelihood threshold
