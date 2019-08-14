@@ -93,7 +93,7 @@ def plot_validation_likelihoods(all_results, T_val=1):
             alpha=1, label=model_name.upper())
     #     plt.legend(loc='lower center', frameon=False)
     plt.legend(loc='lower left', frameon=False)
-    plt.xlim(0, max(Ks)+1)
+    plt.xlim(min(Ks)-1, max(Ks)+1)
     plt.gca().set_xticks(Ks)
     plt.gca().set_xticklabels(Ks)
     plt.xlabel('Discrete states')
@@ -470,8 +470,12 @@ def make_labeled_movie(
     import matplotlib.animation as animation
     from matplotlib.animation import FFMpegWriter
 
-    K = len(state_mapping)
     n_frames = len(frame_indxs)
+    if isinstance(state_mapping[0], str):
+        plot_colors = False
+    else:
+        from matplotlib.patches import Rectangle
+        plot_colors = True
 
     fig, ax = plt.subplots(1, 1, figsize=(5, 5))
     ax.set_yticks([])
@@ -497,7 +501,14 @@ def make_labeled_movie(
         ims_curr = []
         im = ax.imshow(frames[frame_indxs[i], :, :], **im_kwargs)
         ims_curr.append(im)
-        im = ax.text(0.03, 0.97, state_mapping[states[i]], **txt_kwargs)
+        if plot_colors:
+            rect = Rectangle(
+                (5, 5), 10, 10, linewidth=1,
+                edgecolor=state_mapping[states[i]],
+                facecolor=state_mapping[states[i]])
+            im = ax.add_patch(rect)
+        else:
+            im = ax.text(0.03, 0.97, state_mapping[states[i]], **txt_kwargs)
         ims_curr.append(im)
 
         ims.append(ims_curr)
