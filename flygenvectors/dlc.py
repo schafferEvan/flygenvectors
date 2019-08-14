@@ -6,7 +6,7 @@ from flygenvectors.ssmutils import split_runs
 
 class DLCLabels(object):
 
-    def __init__(self, expt_id):
+    def __init__(self, expt_id, verbose=True):
 
         from flygenvectors.utils import get_dirs
 
@@ -24,6 +24,8 @@ class DLCLabels(object):
         self.idxs_valid = []  # "good" indices
         self.idxs_dict = []  # indices separated by
 
+        self.verbose = verbose
+
     def _get_filename(self):
         return glob.glob(os.path.join(
             self.base_data_dir, self.expt_id, '*DeepCut*.csv'))[0]
@@ -34,13 +36,16 @@ class DLCLabels(object):
 
         if filename is None:
             filename = self._get_filename()
+        if self.verbose:
+            print('loading labels from %s...' % filename, end='')
         dlc = genfromtxt(filename, delimiter=',', dtype=None)
         dlc = dlc[3:, 1:].astype('float')  # get rid of headers, etc.
         self.labels['x'] = dlc[:, 0::3]
         self.labels['y'] = dlc[:, 1::3]
         self.labels['l'] = dlc[:, 2::3]
-        print('Loaded data from experiment %s' % self.expt_id)
-        print('n time points: %i' % dlc.shape[0])
+        if self.verbose:
+            print('done')
+            print('total time points: %i' % dlc.shape[0])
 
     def interpolate_single_bad_labels(self, thresh=0.8):
         """
@@ -51,6 +56,8 @@ class DLCLabels(object):
         Args:
             thresh (int):
         """
+        if self.verbose:
+            print('linearly interpolating single bad labels...', end='')
         old_likelihoods = np.copy(self.labels['l'])
         T = self.labels['x'].shape[0]
         for t in range(1, T - 1):
@@ -62,17 +69,23 @@ class DLCLabels(object):
                         self.labels[c][t, i] = np.mean(
                             [self.labels[c][t - 1, i],
                              self.labels[c][t + 1, i]])
-        print('linearly interpolated %i labels' %
-              np.sum(((old_likelihoods - self.labels['l']) != 0) * 1.0))
+        if self.verbose:
+            print('done')
+            print('linearly interpolated %i labels' %
+                  np.sum(((old_likelihoods - self.labels['l']) != 0) * 1.0))
 
     def standardize(self):
         """subtract off mean and divide by variance across all labels"""
+        if self.verbose:
+            print('standardizing labels...', end='')
         for c in ['x', 'y']:
             self.means[c] = np.mean(self.labels[c], axis=0)
         self.stds = np.mean(
             np.concatenate([self.labels['x'], self.labels['x']], axis=0))
         for c in ['x', 'y']:
             self.labels[c] = (self.labels[c] - self.means[c]) / self.stds
+        if self.verbose:
+            print('done')
 
     def print_likelihood_info(self):
         # percentage of time points below a certain threshold per label
@@ -107,6 +120,9 @@ class DLCLabels(object):
                 `likelihoods`, `True` indices will be counted as a negative
                 comparison
         """
+        if self.verbose:
+            print('extracting runs of labels above likelihood=%1.2f...' %
+                  l_thresh, end='')
 
         import operator
         if comparison == '>':
@@ -169,7 +185,14 @@ class DLCLabels(object):
 
         self.idxs_valid = idxs
 
+        if self.verbose:
+            print('done')
+            print('extracted %i runs for a total of %i time points' % (
+                len(idxs), np.sum([len(i) for i in idxs])))
+
     def split_labels(self, dtypes, dtype_lens):
+        if self.verbose:
+            print('splitting labels into {}...'.format(dtypes), end='')
         # get train/text/val indices
         self.idxs_dict = split_runs(self.idxs_valid, dtypes, dtype_lens)
         # split labels into train/test/val using index split above
@@ -178,7 +201,13 @@ class DLCLabels(object):
         for dtype, dindxs in self.idxs_dict.items():
             for dindx in dindxs:
                 self.labels_dict[dtype].append(dlc_array[dindx, :])
+        if self.verbose:
+            print('done')
+            for dtype in dtypes:
+                print('\t%s: %i time points in %i trials' % (
+                    dtype, np.sum([len(i) for i in self.labels_dict[dtype]]),
+                    len(self.labels_dict[dtype])))
 
     def get_label_array(self):
         """concatenate x/y labels into a single array"""
-        return np.concatenate([self.labels['x'], self.labels['y']], axis=0)
+        return np.concatenate([self.labels['x'], self.labels['y']], axis=1)
