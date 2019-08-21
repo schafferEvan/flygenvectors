@@ -343,7 +343,7 @@ class scape:
                 'redIsGood':self.redIsGood,'Ypopt':self.Ypopt,'Rpopt':self.Rpopt,
                 })
         np.savez( self.baseFolder+filename+'.npz', time=self.good.time, trialFlag=self.good.trialFlag,
-                dFF=self.dOO, ball=self.good.ball, dlc=self.good.dlc, dims=self.good.dims, im=self.good.im, 
+                dFF=self.dOO, ball=self.good.ball, dlc=self.good.dlc, dims=self.raw.dims, im=self.good.im, 
                 scanRate=self.good.scanRate) 
         sparse.save_npz(self.baseFolder+filename+'_A.npz', self.good.A)
 
