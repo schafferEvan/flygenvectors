@@ -82,75 +82,6 @@ def plot_neural_activity(
     return fig
 
 
-def plot_validation_likelihoods(all_results, T_val=1):
-    # plot the log likelihood of the validation data
-    fig = plt.figure(figsize=(8, 6))
-    for model_name, model_results in all_results.items():
-        Ks = sorted(model_results.keys())
-        lls_val = np.array([model_results[K]['ll_val'] for K in Ks])
-        plt.plot(
-            Ks, lls_val / T_val, ls='-', marker='o',
-            alpha=1, label=model_name.upper())
-    #     plt.legend(loc='lower center', frameon=False)
-    plt.legend(loc='lower left', frameon=False)
-    plt.xlim(min(Ks)-1, max(Ks)+1)
-    plt.gca().set_xticks(Ks)
-    plt.gca().set_xticklabels(Ks)
-    plt.xlabel('Discrete states')
-    plt.ylabel('Log probability')
-    plt.title('Validation data')
-    return fig
-
-
-def plot_dynamics_matrices(model, deridge=False):
-    K = model.K
-    n_lags = model.observations.lags
-    n_cols = 2
-    n_rows = int(np.ceil(K / n_cols))
-
-    fig = plt.figure(figsize=(4 * n_cols, 4 * n_rows / n_lags))
-
-    mats = np.copy(model.observations.As)
-    if deridge:
-        for k in range(K):
-            for d in range(model.D):
-                mats[k, d, d] = np.nan
-        clim = np.nanmax(np.abs(mats))
-    else:
-        clim = np.max(np.abs(model.observations.As))
-
-    for k in range(K):
-        plt.subplot(n_rows, n_cols, k + 1)
-        im = plt.imshow(mats[k], cmap='RdBu_r', clim=[-clim, clim])
-        plt.xticks([])
-        plt.yticks([])
-        plt.title('State %i' % k)
-    plt.tight_layout()
-
-    fig.subplots_adjust(right=0.8)
-    cbar_ax = fig.add_axes([0.85, 0.4, 0.03, 0.2])
-    fig.colorbar(im, cax=cbar_ax)
-
-    return fig
-
-
-def plot_state_transition_matrix(model, deridge=False):
-    trans = np.copy(model.transitions.transition_matrix)
-    if deridge:
-        n_states = trans.shape[0]
-        for i in range(n_states):
-            trans[i, i] = np.nan
-        clim = np.nanmax(np.abs(trans))
-    else:
-        clim = 1
-    fig = plt.figure()
-    plt.imshow(trans, clim=[-clim, clim], cmap='RdBu_r')
-    plt.colorbar()
-    plt.title('State transition matrix')
-    plt.show()
-    return fig
-
-
 def plot_dlc_arhmm_states(
         dlc_labels=None, states=None, state_probs=None, slc=(0, 1000)):
     """
@@ -214,6 +145,182 @@ def plot_dlc_arhmm_states(
     axes[i].set_title('%s coords' % coord.upper())
 
     axes[-1].set_xlabel('Time (bins)')
+    plt.tight_layout()
+    plt.show()
+
+    return fig
+
+
+#############################
+# SSM-specific plotting utils
+#############################
+def plot_validation_likelihoods(all_results, T_val=1):
+    # plot the log likelihood of the validation data
+    fig = plt.figure(figsize=(8, 6))
+    for model_name, model_results in all_results.items():
+        Ks = sorted(model_results.keys())
+        lls_val = np.array([model_results[K]['ll_val'] for K in Ks])
+        plt.plot(
+            Ks, lls_val / T_val, ls='-', marker='o',
+            alpha=1, label=model_name.upper())
+    #     plt.legend(loc='lower center', frameon=False)
+    plt.legend(loc='lower left', frameon=False)
+    plt.xlim(min(Ks)-1, max(Ks)+1)
+    plt.gca().set_xticks(Ks)
+    plt.gca().set_xticklabels(Ks)
+    plt.xlabel('Discrete states')
+    plt.ylabel('Log probability')
+    plt.title('Validation data')
+    return fig
+
+
+def plot_dynamics_matrices(model, deridge=False):
+    K = model.K
+    n_lags = model.observations.lags
+    n_cols = 3
+    n_rows = int(np.ceil(K / n_cols))
+
+    fig = plt.figure(figsize=(4 * n_cols, 4 * n_rows / n_lags * 2))
+
+    mats = np.copy(model.observations.As)
+    if deridge:
+        for k in range(K):
+            for d in range(model.D):
+                mats[k, d, d] = np.nan
+        clim = np.nanmax(np.abs(mats))
+    else:
+        clim = np.max(np.abs(mats))
+
+    for k in range(K):
+        plt.subplot(n_rows, n_cols, k + 1)
+        im = plt.imshow(mats[k], cmap='RdBu_r', clim=[-clim, clim])
+        plt.xticks([])
+        plt.yticks([])
+        plt.title('State %i' % k)
+    plt.tight_layout()
+
+    fig.subplots_adjust(right=0.8)
+    cbar_ax = fig.add_axes([0.85, 0.4, 0.03, 0.2])
+    fig.colorbar(im, cax=cbar_ax)
+
+    return fig
+
+
+def plot_biases(model):
+    fig = plt.figure(figsize=(6, 4))
+
+    mats = np.copy(model.observations.bs.T)
+    clim = np.max(np.abs(mats))
+    im = plt.imshow(mats, cmap='RdBu_r', clim=[-clim, clim], aspect='auto')
+    plt.xlabel('State')
+    plt.yticks([])
+    plt.ylabel('Observation dimension')
+    plt.tight_layout()
+    plt.colorbar()
+    plt.title('State biases')
+    plt.show()
+    return fig
+
+
+def plot_state_transition_matrix(model, deridge=False):
+    trans = np.copy(model.transitions.transition_matrix)
+    if deridge:
+        n_states = trans.shape[0]
+        for i in range(n_states):
+            trans[i, i] = np.nan
+        clim = np.nanmax(np.abs(trans))
+    else:
+        clim = 1
+    fig = plt.figure()
+    plt.imshow(trans, clim=[-clim, clim], cmap='RdBu_r')
+    plt.colorbar()
+    plt.title('State transition matrix')
+    plt.show()
+    return fig
+
+
+def plot_covariance_matrices(model):
+    K = model.K
+    n_cols = 3
+    n_rows = int(np.ceil(K / n_cols))
+
+    fig = plt.figure(figsize=(4 * n_cols, 4 * n_rows))
+
+    mats = np.copy(model.observations.Sigmas)
+    clim = np.quantile(np.abs(mats), 0.95)
+
+    for k in range(K):
+        plt.subplot(n_rows, n_cols, k + 1)
+        im = plt.imshow(mats[k], cmap='RdBu_r', clim=[-clim, clim])
+        plt.xticks([])
+        plt.yticks([])
+        plt.title('State %i' % k)
+    plt.tight_layout()
+
+    fig.subplots_adjust(right=0.8)
+    cbar_ax = fig.add_axes([0.85, 0.4, 0.03, 0.2])
+    fig.colorbar(im, cax=cbar_ax)
+
+    return fig
+
+
+def make_syllable_plots(
+        labels, max_snippets=5, max_t=100, coord='y', states_to_plot=None):
+    """
+    Plot snippets of dlc coordinates for each syllable
+
+    Args:
+        labels (list of dicts):
+        max_snippets (int): max snippets per state (max rows)
+        max_t (int): max number of time bins for each snippet
+        coord (str): 'y', 'x'
+        states_to_plot (list)
+
+    Returns:
+        figure handle
+    """
+    if states_to_plot is None:
+        K = len(labels)
+        states = np.arange(K)
+    else:
+        K = len(states_to_plot)
+        states = np.array(states_to_plot)
+    n_snippets = [np.min([len(s['x']), max_snippets]) for s in labels]
+
+    fig, axes = plt.subplots(
+        max(n_snippets), K, figsize=(4 * K, 2 * max(n_snippets)))
+    if len(axes.shape) == 1:
+        axes = axes[None, :]
+    for ax1 in axes:
+        for ax2 in ax1:
+            ax2.set_axis_off()
+
+    # get max length on time axis
+    n_ts = [np.min([max_t, np.max([len(s) for s in labels[k]['x'][:n_snippets[k]]])])
+        for k in states]
+
+    # get max val of coordinate
+    max_val = np.max([np.max(np.concatenate(labels[k][coord], axis=0))
+                      for k in states])
+
+    for i, k in enumerate(states):
+        for j in range(n_snippets[k]):
+            behavior = 4 * labels[k][coord][j] / max_val + \
+                np.arange(labels[k][coord][j].shape[1])
+            ax = axes[j, i]
+            ax.set_axis_on()
+            ax.plot(behavior)
+            ax.set_xlim([0, n_ts[i]])
+            ax.set_yticks([])
+            if ax.is_first_col():
+                ax.set_ylabel('Example %i' % j)
+            if ax.is_first_row():
+                ax.set_title(
+                    'DLC %s coordinates: state %i' % (coord.upper(), k))
+            if not ax.is_last_row():
+                ax.set_xticks([])
+            if ax.is_last_row():
+                ax.set_xlabel('Time (bins)')
     plt.tight_layout()
     plt.show()
 
@@ -389,67 +496,6 @@ def make_syllable_movie(
         os.makedirs(os.path.dirname(filename))
     ani.save(filename, writer=writer)
     print('done')
-
-
-def make_syllable_plots(labels, max_snippets=5, max_t=100, coord='y'):
-    """
-    Plot snippets of dlc coordinates for each syllable
-
-    Args:
-        labels (list of dicts):
-        max_snippets (int): max snippets per state (max rows)
-        max_t (int): max number of time bins for each snippet
-        coord (str): 'y', 'x'
-
-    Returns:
-        figure handle
-    """
-
-    K = len(labels)
-    states = np.arange(K)
-    n_snippets = [np.min([len(s['x']), max_snippets]) for s in labels]
-
-    fig, axes = plt.subplots(
-        max(n_snippets), K, figsize=(4 * K, 2 * max(n_snippets)))
-    if len(axes.shape) == 1:
-        axes = axes[None, :]
-    for ax1 in axes:
-        for ax2 in ax1:
-            ax2.set_axis_off()
-
-    # get max length on time axis
-    n_ts = [
-        np.min([
-            max_t,
-            np.max([len(s) for s in labels[k]['x'][:n_snippets[k]]])])
-        for k in states]
-
-    # get max val of coordinate
-    max_val = np.max([np.max(np.concatenate(labels[k][coord], axis=0))
-                      for k in states])
-
-    for k in states:
-        for j in range(n_snippets[k]):
-            behavior = 4 * labels[k][coord][j] / max_val + \
-                np.arange(labels[k][coord][j].shape[1])
-            ax = axes[j, k]
-            ax.set_axis_on()
-            ax.plot(behavior)
-            ax.set_xlim([0, n_ts[k]])
-            ax.set_yticks([])
-            if ax.is_first_col():
-                ax.set_ylabel('Example %i' % j)
-            if ax.is_first_row():
-                ax.set_title(
-                    'DLC %s coordinates: state %i' % (coord.upper(), k))
-            if not ax.is_last_row():
-                ax.set_xticks([])
-            if ax.is_last_row():
-                ax.set_xlabel('Time (bins)')
-    plt.tight_layout()
-    plt.show()
-
-    return fig
 
 
 def make_labeled_movie(
