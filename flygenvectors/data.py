@@ -233,7 +233,7 @@ def zscore(data):
     return (np.copy(data) - mean) / std
 
 
-def cluster(data):
+def cluster(data, returnInd=False, cTh=0.1):
     """reorder axis 1 of a T x N matrix"""
 
     from scipy.cluster import hierarchy
@@ -258,7 +258,11 @@ def cluster(data):
     # ‘russellrao’, ‘seuclidean’, ‘sokalmichener’, ‘sokalsneath’,
     # ‘sqeuclidean’, ‘yule’
 
-    return data[:, leaves]
+    if(returnInd):
+        clustInd = hierarchy.fcluster(Z, cTh, 'distance')
+        return data[:, leaves], clustInd
+    else:
+        return data[:, leaves]
 
 
 def pca_reduce(data, n_components, indxs, trial_len):
