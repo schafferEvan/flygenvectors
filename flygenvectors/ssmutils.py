@@ -107,7 +107,8 @@ def split_trials(
 def fit_model(
         n_states, data_dim, input_dim, model_kwargs,
         data_tr, data_val, data_test,
-        inputs_tr=None, inputs_val=None, inputs_test=None, fit_kwargs=None):
+        inputs_tr=None, inputs_val=None, inputs_test=None,
+        save_tr_states=False, fit_kwargs=None):
 
     model = HMM(K=n_states, D=data_dim, M=input_dim, **model_kwargs)
     model.initialize(data_tr, inputs=inputs_tr)
@@ -130,7 +131,11 @@ def fit_model(
                  zip(data_tr, inputs_tr)]
     usage = np.bincount(np.concatenate(states_tr), minlength=n_states)
     model.permute(np.argsort(-usage))
-    states_tr = [model.most_likely_states(x, u) for x, u in zip(data_tr, inputs_tr)]
+    if save_tr_states:
+        states_tr = [
+            model.most_likely_states(x, u) for x, u in zip(data_tr, inputs_tr)]
+    else:
+        states_tr = []
 
     # combine results
     model_results = {
@@ -145,7 +150,19 @@ def fit_model(
 
 def get_save_file(n_states, model_kwargs, fit_kwargs):
     from flygenvectors.utils import get_dirs
+    model_name = get_model_name(n_states, model_kwargs)
+    model_name += '.pkl'
+    if fit_kwargs['save_dir'] is not None:
+        save_dir = fit_kwargs['save_dir']
+    else:
+        base_dir = get_dirs()['results']
+        model_dir = fit_kwargs['model_dir']
+        expt_dir = fit_kwargs['expt_id']
+        save_dir = os.path.join(base_dir, expt_dir, model_dir)
+    return os.path.join(save_dir, model_name)
 
+
+def get_model_name(n_states, model_kwargs):
     trans = model_kwargs['transitions']
     obs = model_kwargs['observations']
     if obs == 'ar':
@@ -156,22 +173,11 @@ def get_save_file(n_states, model_kwargs, fit_kwargs):
         kappa = model_kwargs['transition_kwargs']['kappa']
     else:
         kappa = ''
-
     model_name = str(
-        'hmm_%s_%s_%i-lags_K=%02i' % (trans, obs, lags, n_states))
+        'obs=%s_trans=%s_lags=%i_K=%02i' % (obs, trans, lags, n_states))
     if trans == 'sticky':
         model_name = str('%s_kappa=%1.0e' % (model_name, kappa))
-    model_name += '.pkl'
-
-    if fit_kwargs['save_dir'] is not None:
-        save_dir = fit_kwargs['save_dir']
-    else:
-        base_dir = get_dirs()['results']
-        model_dir = fit_kwargs['model_dir']
-        expt_dir = fit_kwargs['expt_id']
-        save_dir = os.path.join(base_dir, expt_dir, model_dir)
-
-    return os.path.join(save_dir, model_name)
+    return model_name
 
 
 def extract_high_likelihood_runs(
