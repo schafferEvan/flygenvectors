@@ -21,6 +21,7 @@ from matplotlib.cm import get_cmap
 from skimage.restoration import denoise_tv_chambolle
 from time import time
 import scipy.cluster.hierarchy as sch
+from sklearn.cluster import AgglomerativeClustering
 import colorsys
 from sklearn.decomposition import FastICA
 from numpy.polynomial.polynomial import Polynomial as poly
@@ -35,7 +36,8 @@ class dataObj:
         self.time = np.ndarray(shape=(1,1))    
         self.ball = np.ndarray(shape=(1,1))     
         self.dlc = np.ndarray(shape=(1,1))     
-        self.dims = np.ndarray(shape=(1,1))    
+        self.dims = np.ndarray(shape=(1,1))  
+        self.dims_in_um = np.ndarray(shape=(1,1))  
         self.im = np.ndarray(shape=(1,1))   
         self.scanRate = np.ndarray(shape=(1,1))
         self.A = np.ndarray(shape=(1,1))      
@@ -294,6 +296,22 @@ class scape:
         self.dRR = self.dRR[self.goodIds,:]
         self.good.A  = self.raw.A[:,self.goodIds]
 
+    def hierCluster(self, nClust):
+        # version with prespecified cluster number
+        cluster = AgglomerativeClustering(n_clusters=nClust, affinity='euclidean', linkage='ward')  
+
+        # version with specified cluster metric but not cluster number
+        # d = sch.distance.pdist(corrData)   # vector of ('55' choose 2) pairwise distances
+        # L = sch.linkage(d, method='weighted') #'complete' #average
+        # # self.clustInd = sch.fcluster(L, 0.1*d.max(), 'distance')
+        # # self.clustInd = sch.fcluster(L, 0.5, 'inconsistent')
+        # self.clustInd = sch.fcluster(L, 3.0, 'distance')
+
+        cluster.fit_predict(self.dOO)  
+        self.cluster_labels = cluster.labels_
+        # self.clustInd = np.argsort(cluster.labels_)
+        #io.savemat(fig_folder + exp_date + '_' + fly_num + '_clust.mat',{'clust':cluster.labels_,'idx':idx})
+
 
     def getIdxList(self, longList, shortList):
         #self.trialFlag, self.trialFlagUnique
@@ -340,10 +358,10 @@ class scape:
                 'rsq':self.rsq,'oIsGood':self.oIsGood,'goodIds':self.goodIds,
                 'ampIsGood':self.ampIsGood,'minIsGood':self.minIsGood,'maxIsGood':self.maxIsGood,
                 'magIsGood':self.magIsGood,'rgccIsGood':self.rgccIsGood,'oMoreGreen':self.oMoreGreen,
-                'redIsGood':self.redIsGood,'Ypopt':self.Ypopt,'Rpopt':self.Rpopt,
+                'redIsGood':self.redIsGood,'Ypopt':self.Ypopt,'Rpopt':self.Rpopt, 'cluster_labels':self.cluster_labels,
                 })
         np.savez( self.baseFolder+filename+'.npz', time=self.good.time, trialFlag=self.good.trialFlag,
-                dFF=self.dOO, ball=self.good.ball, dlc=self.good.dlc, dims=self.raw.dims, im=self.raw.im, 
+                dFF=self.dOO, ball=self.good.ball, dlc=self.good.dlc, dims=self.raw.dims, dims_in_um=self.raw.dims_in_um, im=self.raw.im, 
                 scanRate=self.good.scanRate) 
         sparse.save_npz(self.baseFolder+filename+'_A.npz', self.good.A)
 
@@ -372,6 +390,7 @@ class scape:
             self.raw.ball=d['ball']
             self.raw.dlc=d['dlc']
             self.raw.dims=d['dims']
+            self.raw.dims_in_um = d['tot_um_x'], d['tot_um_y'], d['tot_um_z']
             self.raw.im=d['im']
             self.raw.scanRate=d['scanRate']
             self.raw.A = sparse.load_npz( inputFile[:-7]+'A_raw.npz' )
@@ -464,6 +483,9 @@ class scape:
 
         # dataToCluster = self.dOO[np.flatnonzero(self.goodIds),:]
         # self.computeCorr(dataToCluster)
+        if savematfile:
+            print('clustering')
+            self.hierCluster(20)
         
         print('\n saving')
         self.saveSummary(outputFile, savematfile)
