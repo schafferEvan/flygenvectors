@@ -83,7 +83,7 @@ def plot_neural_activity(
 
 
 def plot_dlc_arhmm_states(
-        dlc_labels=None, states=None, state_probs=None, slc=(0, 1000)):
+        dlc_labels=None, states=None, state_probs=None, slc=(0, 1000), m=20):
     """
     states | state probs | x coords | y coords
 
@@ -125,7 +125,7 @@ def plot_dlc_arhmm_states(
 
     i += 1
     coord = 'x'
-    behavior = 4 * dlc_labels[coord] / np.max(np.abs(dlc_labels[coord])) + \
+    behavior = m * dlc_labels[coord] / np.max(np.abs(dlc_labels[coord])) + \
                np.arange(dlc_labels[coord].shape[1])
     axes[i].plot(np.arange(slc[0], slc[1]), behavior[slice(*slc), :])
     axes[i].set_xticks([])
@@ -136,7 +136,7 @@ def plot_dlc_arhmm_states(
 
     i += 1
     coord = 'y'
-    behavior = 4 * dlc_labels[coord] / np.max(np.abs(dlc_labels[coord])) + \
+    behavior = m * dlc_labels[coord] / np.max(np.abs(dlc_labels[coord])) + \
                np.arange(dlc_labels[coord].shape[1])
     axes[i].plot(np.arange(slc[0], slc[1]), behavior[slice(*slc), :])
     axes[i].set_xlim(slc[0], slc[1])
@@ -177,10 +177,26 @@ def plot_validation_likelihoods(all_results, T_val=1):
 def plot_dynamics_matrices(model, deridge=False):
     K = model.K
     n_lags = model.observations.lags
-    n_cols = 3
+    if n_lags == 1:
+        n_cols = 3
+        fac = 1
+    elif n_lags == 2:
+        n_cols = 3
+        fac = 1 / n_lags
+    elif n_lags == 3:
+        n_cols = 3
+        fac = 1.25 / n_lags
+    elif n_lags == 4:
+        n_cols = 3
+        fac = 1.50 / n_lags
+    elif n_lags == 5:
+        n_cols = 2
+        fac = 1.75 / n_lags
+    else:
+        n_cols = 1
+        fac = 1
     n_rows = int(np.ceil(K / n_cols))
-
-    fig = plt.figure(figsize=(4 * n_cols, 4 * n_rows / n_lags * 2))
+    fig = plt.figure(figsize=(4 * n_cols, 4 * n_rows * fac))
 
     mats = np.copy(model.observations.As)
     if deridge:

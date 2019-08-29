@@ -16,8 +16,11 @@ class DLCLabels(object):
         self.labels = {'x': [], 'y': [], 'l': []}
         self.labels_dict = {}
 
+        self.preproc = None
         self.means = {'x': [], 'y': []}
         self.stds = {'x': [], 'y': []}
+        self.mins = {'x': [], 'y': []}
+        self.maxs = {'x': [], 'y': []}
 
         self.dtypes = []
         self.dtype_lens = []
@@ -46,6 +49,24 @@ class DLCLabels(object):
         if self.verbose:
             print('done')
             print('total time points: %i' % dlc.shape[0])
+
+    def preprocess(self, preproc_dict):
+        """
+
+        Args:
+            preproc_dict (dict):
+        """
+        # store preprocessing steps
+        self.preproc = preproc_dict
+        for func_str, kwargs in preproc_dict.items():
+            if func_str == 'label_interpolation':
+                self.interpolate_labels(**kwargs)
+            elif func_str == 'standardize':
+                self.standardize(**kwargs)
+            elif func_str == ''
+
+    def interpolate_labels(self, thresh=0.8):
+        pass
 
     def interpolate_single_bad_labels(self, thresh=0.8):
         """
@@ -91,6 +112,33 @@ class DLCLabels(object):
 
         for c in ['x', 'y']:
             self.labels[c] = (self.labels[c] - self.means[c]) / self.stds[c]
+        if self.verbose:
+            print('done')
+
+    def unitize(self):
+        """place each label (mostly) in [0, 1]"""
+        if self.verbose:
+            print('unitizing labels...', end='')
+        for c in ['x', 'y']:
+            self.mins[c] = np.quantile(self.labels[c], 0.05, axis=0)
+            self.maxs[c] = np.quantile(self.labels[c], 0.95, axis=0)
+            self.labels[c] = (self.labels[c] - self.mins[c]) / \
+                             (self.maxs[c] - self.mins[c])
+        if self.verbose:
+            print('done')
+
+    def filter(self, filter_type):
+        if self.verbose:
+            print('applying %s filter to labels...' % filter_type, end='')
+        if filter_type == 'median':
+            from scipy.signal import medfilt
+            kernel_size = 5
+            for c in ['x', 'y']:
+                for i in range(self.labels[c].shape[1]):
+                    self.labels[c][:, i] = medfilt(
+                        self.labels[c][:, i], kernel_size=kernel_size)
+        else:
+            raise NotImplementedError
         if self.verbose:
             print('done')
 
