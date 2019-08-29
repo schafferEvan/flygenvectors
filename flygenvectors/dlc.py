@@ -1,6 +1,7 @@
 import os
 import glob
 import numpy as np
+import copy
 from flygenvectors.ssmutils import split_runs
 
 
@@ -24,6 +25,7 @@ class DLCLabels(object):
 
         self.dtypes = []
         self.dtype_lens = []
+        self.skip_idxs = None
         self.idxs_valid = []  # "good" indices
         self.idxs_dict = []  # indices separated by train/test/val
 
@@ -51,22 +53,63 @@ class DLCLabels(object):
             print('total time points: %i' % dlc.shape[0])
 
     def preprocess(self, preproc_dict):
-        """
-
-        Args:
-            preproc_dict (dict):
-        """
-        # store preprocessing steps
-        self.preproc = preproc_dict
+        self.preproc = copy.deepcopy(preproc_dict)
         for func_str, kwargs in preproc_dict.items():
-            if func_str == 'label_interpolation':
+            if func_str == 'interpolate_labels':
                 self.interpolate_labels(**kwargs)
             elif func_str == 'standardize':
                 self.standardize(**kwargs)
-            elif func_str == ''
+            elif func_str == 'unitize':
+                self.unitize(**kwargs)
+            elif func_str == 'filter':
+                self.filter(**kwargs)
+            elif func_str == 'remove_bad_runs':
+                self.remove_bad_runs(**kwargs)
+            else:
+                raise ValueError(
+                    '"%s" is not a valid preprocessing function' % func_str)
 
-    def interpolate_labels(self, thresh=0.8):
-        pass
+    def interpolate_labels(self, thresh=0.8, window=3):
+        """
+        For any label whose likelihood is below `thresh` for `window`
+        consecutive timepoints, linearly interpolate coordinates from
+        surrounding (good) coordinates.
+
+        Args:
+            thresh (int):
+            window (int):
+        """
+        if self.verbose:
+            print('linearly interpolating labels (window=%i)...' % window,
+                  end='')
+
+        old_likelihoods = np.copy(self.labels['l'])
+        T = self.labels['x'].shape[0]
+        n_labels = self.labels['x'].shape[1]
+
+        for l in range(n_labels):
+            interp_list = self.extract_runs_by_likelihood(
+                likelihoods=self.labels['l'][:, l], l_thresh=thresh,
+                min_length=1, max_length=np.inf, comparison='<',
+                dims='all', skip_idxs=None, return_vals=True, verbose=False)
+            for idxs in interp_list:
+                # check for bounaries
+                if (0 in idxs) or (T-1 in idxs):
+                    continue
+                if len(idxs) > window:
+                    continue
+                x0 = idxs[0] - 1
+                x1 = idxs[-1] + 1
+                for c in ['x', 'y', 'l']:
+                    f0 = self.labels[c][x0, l]
+                    f1 = self.labels[c][x1, l]
+                    self.labels[c][idxs, l] = np.interp(
+                        idxs, [x0, x1], [f0, f1])
+
+        if self.verbose:
+            print('done')
+            print('linearly interpolated %i labels' %
+                  np.sum(((old_likelihoods - self.labels['l']) != 0) * 1.0))
 
     def interpolate_single_bad_labels(self, thresh=0.8):
         """
@@ -115,7 +158,7 @@ class DLCLabels(object):
         if self.verbose:
             print('done')
 
-    def unitize(self):
+    def unitize(self, **kwargs):
         """place each label (mostly) in [0, 1]"""
         if self.verbose:
             print('unitizing labels...', end='')
@@ -127,12 +170,12 @@ class DLCLabels(object):
         if self.verbose:
             print('done')
 
-    def filter(self, filter_type):
+    def filter(self, filter_type='median', **kwargs):
         if self.verbose:
             print('applying %s filter to labels...' % filter_type, end='')
         if filter_type == 'median':
             from scipy.signal import medfilt
-            kernel_size = 5
+            kernel_size = 5 if 'kernel_size' not in kwargs else kwargs['kernel_size']
             for c in ['x', 'y']:
                 for i in range(self.labels[c].shape[1]):
                     self.labels[c][:, i] = medfilt(
@@ -142,28 +185,31 @@ class DLCLabels(object):
         if self.verbose:
             print('done')
 
-    def print_likelihood_info(self):
-        # percentage of time points below a certain threshold per label
-        thresh = 0.9
-        bad_frac = np.sum((self.labels['l'] < thresh) * 1.0, axis=0) / \
-            self.labels['l'].shape[0]
-        print('percentage of time points with likelihoods below {}: {}'.format(
-              thresh, bad_frac))
-        # percentage of time points below a certain threshold for any label
-        thresh = 0.5
-        bad_frac = np.sum((np.min(self.labels['l'], axis=1) < thresh)*1.0) / \
-            self.labels['l'].shape[0]
-        print('percentage of time points with likelihoods below {} for any '
-              'label: {}'.format(thresh, bad_frac))
+    def remove_bad_runs(self, thresh=0.8, min_length=10):
+        # get long runs of low likelihood to remove
+        skip_idxs_list = self.extract_runs_by_likelihood(
+            likelihoods=self.labels['l'], l_thresh=thresh,
+            min_length=min_length, max_length=np.inf,
+            comparison='<=', dims='any', return_vals=True)
+        self.skip_idxs = np.full(
+            shape=(self.labels['l'].shape[0], 1), fill_value=False)
+        for si in skip_idxs_list:
+            self.skip_idxs[si] = True
+        if self.verbose:
+            print(
+                'removing %i low-likelihood time points' %
+                np.sum(self.skip_idxs * 1.0))
 
     def extract_runs_by_likelihood(
-            self, l_thresh, min_length, max_length, comparison='>=',
-            dims='all', skip_idxs=None, return_vals=False):
+            self, likelihoods, l_thresh, min_length, max_length,
+            comparison='>=', dims='all', skip_idxs=None, return_vals=False,
+            verbose=None):
         """
         Find contiguous chunks of data with likelihoods consistent with a
         given condition
 
         Args:
+            likelihoods (array-like)
             l_thresh (float): minimum likelihood threshold
             min_length (int): minimum length of high likelihood runs
             max_length (int): maximum length of high likelihood runs; once a
@@ -177,10 +223,16 @@ class DLCLabels(object):
                 comparison
             return_vals (bool): return list of indices if `True`, otherwise
                 store in object as `indxs_valid`
+            verbose (bool or NoneType)
+        Returns:
+            list
         """
         import operator
 
-        if self.verbose:
+        if verbose is None:
+            verbose = self.verbose
+
+        if verbose:
             print('extracting runs of labels %s likelihood=%1.2f...' %
                   (comparison, l_thresh), end='')
 
@@ -203,7 +255,7 @@ class DLCLabels(object):
         else:
             raise ValueError('"%s" is an invalid boolean check' % dims)
 
-        T = self.labels['l'].shape[0]
+        T = likelihoods.shape[0]
         if skip_idxs is None:
             skip_idxs = np.full(shape=(T,), fill_value=False)
 
@@ -217,7 +269,7 @@ class DLCLabels(object):
         save_run = False
         for t in range(1, T):
 
-            if bool_check(op(self.labels['l'][t], l_thresh)) and not \
+            if bool_check(op(likelihoods[t], l_thresh)) and not \
                     skip_idxs[t]:
                 run_len += 1
                 i_end = t + 1
@@ -242,7 +294,7 @@ class DLCLabels(object):
         if run_len >= min_length:
             idxs.append(np.arange(i_beg, i_end))
 
-        if self.verbose:
+        if verbose:
             print('done')
             print('extracted %i runs for a total of %i time points' % (
                 len(idxs), np.sum([len(i) for i in idxs])))
@@ -277,3 +329,17 @@ class DLCLabels(object):
     def get_label_array(self):
         """concatenate x/y labels into a single array"""
         return np.concatenate([self.labels['x'], self.labels['y']], axis=1)
+
+    def print_likelihood_info(self):
+        # percentage of time points below a certain threshold per label
+        thresh = 0.9
+        bad_frac = np.sum((self.labels['l'] < thresh) * 1.0, axis=0) / \
+            self.labels['l'].shape[0]
+        print('percentage of time points with likelihoods below {}: {}'.format(
+              thresh, bad_frac))
+        # percentage of time points below a certain threshold for any label
+        thresh = 0.5
+        bad_frac = np.sum((np.min(self.labels['l'], axis=1) < thresh)*1.0) / \
+            self.labels['l'].shape[0]
+        print('percentage of time points with likelihoods below {} for any '
+              'label: {}'.format(thresh, bad_frac))
