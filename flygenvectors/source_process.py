@@ -276,7 +276,7 @@ class scape:
         ogCorr = self.dataCorr
         self.getDatacorr(self.dOO, self.good.R)
         orCorr = self.dataCorr
-        oMoreGreen = np.array(orCorr<ogCorr)
+        oMoreGreen = np.array(abs(orCorr)<abs(ogCorr))
         self.oMoreGreen = oMoreGreen.flatten()
 
         self.isNotMotion = np.array(Mo<motionTh)
@@ -341,7 +341,10 @@ class scape:
         self.good.trialFlag = self.raw.trialFlag[isAkeeper[:,0]>0]
         self.good.time = self.raw.time[isAkeeper[:,0]>0]
         self.good.ball = self.raw.ball[isAkeeper[:,0]>0]
-        self.good.dlc = self.raw.dlc[:,isAkeeper[:,0]>0]
+        if(self.raw.dlc.shape[0]>2):
+            self.good.dlc = self.raw.dlc[:,isAkeeper[:,0]>0]
+        else:
+            self.good.dlc = self.raw.dlc
         self.good.dlc = self.good.dlc.T
         
 
