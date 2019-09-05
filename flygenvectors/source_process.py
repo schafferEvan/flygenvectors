@@ -35,7 +35,8 @@ class dataObj:
         self.trialFlag = np.ndarray(shape=(1,1))  
         self.time = np.ndarray(shape=(1,1))    
         self.ball = np.ndarray(shape=(1,1))     
-        self.dlc = np.ndarray(shape=(1,1))     
+        self.dlc = np.ndarray(shape=(1,1))  
+        self.beh_labels = np.ndarray(shape=(1,1))   
         self.dims = np.ndarray(shape=(1,1))  
         self.dims_in_um = np.ndarray(shape=(1,1))  
         self.im = np.ndarray(shape=(1,1))   
@@ -322,7 +323,7 @@ class scape:
 
     def showProgress(self, i, printFreq):
         if(not np.mod(i,printFreq)):
-            print(i,end=" ")
+            print(i)
             sys.stdout.flush()
 
     def trimTrialStart(self,secsToTrim):
@@ -346,7 +347,10 @@ class scape:
         else:
             self.good.dlc = self.raw.dlc
         self.good.dlc = self.good.dlc.T
-        
+        if(len(self.raw.beh_labels)>2):
+            self.good.beh_labels = self.raw.beh_labels[isAkeeper[:,0]>0]
+        else:
+            self.good.beh_labels = self.raw.beh_labels
 
 
 
@@ -364,7 +368,7 @@ class scape:
                 'redIsGood':self.redIsGood,'Ypopt':self.Ypopt,'Rpopt':self.Rpopt, 'cluster_labels':self.cluster_labels,
                 })
         np.savez( self.baseFolder+filename+'.npz', time=self.good.time, trialFlag=self.good.trialFlag,
-                dFF=self.dOO, ball=self.good.ball, dlc=self.good.dlc, dims=self.raw.dims, dims_in_um=self.raw.dims_in_um, im=self.raw.im, 
+                dFF=self.dOO, ball=self.good.ball, dlc=self.good.dlc, beh_labels=self.good.beh_labels, dims=self.raw.dims, dims_in_um=self.raw.dims_in_um, im=self.raw.im, 
                 scanRate=self.raw.scanRate) 
         sparse.save_npz(self.baseFolder+filename+'_A.npz', self.good.A)
 
@@ -392,6 +396,7 @@ class scape:
             self.raw.time=d['time']
             self.raw.ball=d['ball']
             self.raw.dlc=d['dlc']
+            self.raw.beh_labels=d['states']
             self.raw.dims=d['dims']
             self.raw.dims_in_um = d['tot_um_x'], d['tot_um_y'], d['tot_um_z']
             self.raw.im=d['im']
