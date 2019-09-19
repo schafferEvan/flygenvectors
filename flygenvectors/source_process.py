@@ -261,11 +261,11 @@ class scape:
 
     def getGoodComponentsFull(self):
         
-        ampTh = 500 #1500 #2000 # discard if max of trace is below this
-        redTh = 100 #200 #2000 # discard if max of trace is below this
+        ampTh = 100 #500 #2000 # discard if max of trace is below this (not a cell)
+        redTh = 200 #100 #2000 # discard if max of trace is below this (not a cell)
         magTh = 50 #2 #1  #discard if mean of dOO is greater than this (motion)
-        minTh = 1 # discard if min is greater than this
-        maxTh = 0.2 #0.3 # discard if max is smaller than this
+        minTh = 2 #1 # discard if min is greater than this (motion)
+        maxTh = 0.1 #0.2 # discard if max is smaller than this (just noise)
         rgccTh = 0.98 #0.9 # discard units in which red and green are very correlated
         motionTh = 10 # signal this large is probably artifact
         
@@ -405,6 +405,12 @@ class scape:
 
         self.trialFlagUnique = np.unique(self.raw.trialFlag)
         self.trList = self.getIdxList(self.raw.trialFlag, self.trialFlagUnique)
+
+        # fix normalization of R and Y (in extractF, these were calculated as sum over ROI instead of mean)
+        Am = np.sum(self.raw.A,axis=0).T
+        self.raw.R = np.divide(self.raw.R, Am)
+        self.raw.Y = np.divide(self.raw.Y, Am)
+
 
 
 
