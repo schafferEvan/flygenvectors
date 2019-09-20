@@ -26,6 +26,7 @@ import colorsys
 from sklearn.decomposition import FastICA
 from numpy.polynomial.polynomial import Polynomial as poly
 from scipy.ndimage.filters import gaussian_filter1d as gsm
+import pdb
 
 
 class dataObj:
@@ -291,6 +292,7 @@ class scape:
         oIsGood = np.array(self.oIsGood>0)
         self.oIsGood = oIsGood.flatten()
         self.goodIds = self.isNotMotion & self.ampIsGood & self.minIsGood & self.maxIsGood & self.magIsGood & self.rgccIsGood & self.oMoreGreen & self.redIsGood
+        # pdb.set_trace()
 
         self.dOO = self.dOO[self.goodIds,:]
         self.dYY = self.dYY[self.goodIds,:]
@@ -298,20 +300,19 @@ class scape:
         self.good.A  = self.raw.A[:,self.goodIds]
 
     def hierCluster(self, nClust):
-        # version with prespecified cluster number
-        cluster = AgglomerativeClustering(n_clusters=nClust, affinity='euclidean', linkage='ward')  
+        # # version with prespecified cluster number
+        # cluster = AgglomerativeClustering(n_clusters=nClust, affinity='euclidean', linkage='ward')  
+        # cluster.fit_predict(self.dOO)  
+        # self.cluster_labels = cluster.labels_
 
-        # version with specified cluster metric but not cluster number
-        # d = sch.distance.pdist(corrData)   # vector of ('55' choose 2) pairwise distances
-        # L = sch.linkage(d, method='weighted') #'complete' #average
-        # # self.clustInd = sch.fcluster(L, 0.1*d.max(), 'distance')
-        # # self.clustInd = sch.fcluster(L, 0.5, 'inconsistent')
-        # self.clustInd = sch.fcluster(L, 3.0, 'distance')
-
+        # version using sklearn with variable cluster number
+        cluster = AgglomerativeClustering(
+            n_clusters=None, affinity='cosine', 
+            linkage='complete', distance_threshold=1.)  #0.8
         cluster.fit_predict(self.dOO)  
+        # idx_new = np.argsort(cluster.labels_)
         self.cluster_labels = cluster.labels_
-        # self.clustInd = np.argsort(cluster.labels_)
-        #io.savemat(fig_folder + exp_date + '_' + fly_num + '_clust.mat',{'clust':cluster.labels_,'idx':idx})
+        print('found '+str(len(np.unique(cluster.labels_)))+' clusters')
 
 
     def getIdxList(self, longList, shortList):
@@ -407,7 +408,8 @@ class scape:
         self.trList = self.getIdxList(self.raw.trialFlag, self.trialFlagUnique)
 
         # fix normalization of R and Y (in extractF, these were calculated as sum over ROI instead of mean)
-        Am = np.sum(self.raw.A,axis=0).T
+        Am = np.array(np.sum(self.raw.A,axis=0).T)
+        # pdb.set_trace()
         self.raw.R = np.divide(self.raw.R, Am)
         self.raw.Y = np.divide(self.raw.Y, Am)
 
