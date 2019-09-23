@@ -15,7 +15,7 @@ import numpy as np
 import pickle
 import warnings
 from scipy import sparse, optimize, io
-from scipy.optimize import minimize
+from scipy.optimize import minimize, nnls
 import matplotlib.pyplot as plt
 from matplotlib.cm import get_cmap
 from skimage.restoration import denoise_tv_chambolle
@@ -129,6 +129,38 @@ class scape:
             if ((sum(self.O[i,:])>0) and (sum(self.dOO[i,:])>0)):
                 self.oIsGood[i]=1
     
+
+    def makeNNLS_F0_multiExp(self, data):
+        # nonnegative lsq version 
+        self.F0 = np.zeros(np.shape(data))
+        self.Y0rescaled = np.zeros(np.shape(data))
+        self.rsq = np.zeros((np.shape(data)[0],1))
+
+        # make time/trail matrix
+        ftime = np.arange(0,len(self.good.trialFlag),1)
+        X = np.zeros((len(self.good.trialFlag),1+len(self.trList)))
+        for i in range(len(self.trList)):
+            if (i==len(self.trList)-1):
+                X[self.trList[i]:,i] = 1
+                X[self.trList[i]:,-1] = ftime[self.trList[i]:]-ftime[self.trList[i]]
+            else:
+                X[self.trList[i]:,i] = 1
+                X[self.trList[i]:self.trList[i+1]-1,-1] = ftime[self.trList[i]:self.trList[i+1]-1]-ftime[self.trList[i]]
+        X = -X
+
+        nC = np.shape(data)[0]
+        printFreq = int(nC/10)
+        for i in range(0, nC):
+            self.showProgress(i,printFreq)
+            pdb.set_trace()
+            betaR,rnorm = nnls(X,np.log(data[i,:]))
+            alphas = -np.cumsum(betaR[:-1])
+            self.F0[i,:] = multiExpFun(ftime, np.exp(alphas), 0, self.trList, 1/betaR[-1])
+            self.Y0rescaled[i,:] = np.multiply( self.F0[i,:], self.max[i]-self.min[i] ) + self.min[i]
+            c = np.cov(self.F0[i,:], data[i,:])
+            self.rsq[i] = (c[0,1]/np.sqrt(c[0,0]*c[1,1]))**2
+
+
 
     def makeQuantileF0_multiExp(self, data, bnds, poptPrev):
         # explicitly passing in data rather than referencing attribute, so data can be 'Y' or 'C'
@@ -455,11 +487,13 @@ class scape:
         # self.makeQuantileDF0(RsmoothData, bnds, self.Rpopt)
         # self.makeQuantileF0_multiExp(RsmoothData, bnds, self.Rpopt)
         print('\n calculate red F0')
+        # self.makeNNLS_F0_multiExp(self.RsmoothData)
         self.makeQuantileDF0(self.RsmoothData, bnds, self.Rpopt)
         self.R0 = self.F0
         self.Rpopt = self.popt
 
         print('\n calculate green F0')
+        # self.makeNNLS_F0_multiExp(self.YsmoothData)
         self.makeQuantileDF0(self.YsmoothData, bnds, self.Ypopt)
         self.Y0 = self.F0
         self.Ypopt = self.popt
