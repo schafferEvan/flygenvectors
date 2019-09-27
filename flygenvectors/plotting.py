@@ -3,6 +3,60 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
+def make_clust_fig(k_id, cIds, plot_time, dFF, data_dict, behavior, expt_id='', nToPlot=10):
+    from matplotlib import colors
+    from matplotlib import axes, gridspec
+
+    dims = np.squeeze(data_dict['dims'])
+    background_im = data_dict['im']
+    A = data_dict['A']
+
+    cmap = plt.cm.hsv #plt.cm.OrRd
+    plotMx = np.min((nToPlot,len(cIds)))
+    
+    
+    # plot sample traces
+    plt.rcParams.update({'font.size': 18})
+    #     fig, ax = plt.subplots(figsize=(20, 20))
+    plt.figure(figsize=(12, 12))
+    gridspec.GridSpec(6,6)
+    
+    
+    ax = plt.subplot2grid((8,1), (0,0), colspan=1, rowspan=1)
+    plt.plot(plot_time, behavior,'k')
+    plt.box()
+    plt.xticks([])
+    plt.yticks([])
+    plt.ylabel('Ball Motion')
+    plt.tight_layout()
+    plt.title(expt_id+': Cluster '+str(k_id)+', nCells='+str(len(cIds)))
+    
+
+    ax = plt.subplot2grid((8,1), (1,0), colspan=1, rowspan=3)
+    plt.plot(plot_time, dFF[cIds[:plotMx],:].T)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    plt.tight_layout()
+
+    plt.xlabel('Time (s)')
+    plt.ylabel('Ratiometric $\Delta F/F$')
+    
+    
+    # show all cells belonging to current cluster
+    nC = np.shape(A)[1]
+    cIdVec = np.zeros((nC,1))
+    cIdVec[cIds]=1
+    Ar = A*cIdVec #np.sum( A[:,cIds], axis=1 )
+    R = np.reshape(Ar,dims, order='F')
+    rIm = np.max(R,axis=2)
+    crs = colors.Normalize(0, 1, clip=True)(rIm)
+    crs = cmap(crs)
+    crs[..., -1] = rIm #setting alpha for transparency
+
+    ax = plt.subplot2grid((8,1), (4,0), colspan=1, rowspan=4)
+    plt.imshow(np.max(background_im,axis=2),cmap=plt.get_cmap('gray'));
+    plt.imshow(crs); ax.axis('off')
+
 def plot_pcs(pcs, color, cmap='inferno'):
     plt.scatter(pcs[:, 0], pcs[:, 1], c=color, cmap=cmap, s=5, linewidths=0)
     plt.xlabel('PC 1')
@@ -677,3 +731,147 @@ def _get_state_runs(states, include_edges=True):
                      range(max_state + 1)]
 
     return indexing_list
+
+
+def show_tau_scatter(tauList, corrMat, data_dict):
+    scanRate = data_dict['scanRate']
+
+    plt.figure(figsize=(5, 5))
+    left, width = 0.1, 0.65
+    bottom, height = 0.1, 0.65
+    spacing = 0.005
+    rect_scatter = [left, bottom, width, height]
+    rect_histx = [left, bottom + height + spacing, width, 0.2]
+    rect_histy = [left + width + spacing, bottom, 0.2, height]
+
+    ax_scatter = plt.axes(rect_scatter)
+    ax_scatter.tick_params(direction='in', top=True, right=True)
+    ax_histx = plt.axes(rect_histx)
+    ax_histx.tick_params(direction='in', labelbottom=False)
+    ax_histx.set_xscale('log')
+    ax_histx.axis('off')
+    ax_histy = plt.axes(rect_histy)
+    ax_histy.tick_params(direction='in', labelleft=False)
+    ax_histy.axis('off')
+
+
+    xmin = 1 #4/scanRate
+    xmax = 100 #1000/scanRate #6000
+    ymin = -0.15
+    ymax = 0.95
+
+    av = np.max(corrMat,axis=1)
+    am = np.argmax(corrMat,axis=1)
+    ax_scatter.scatter(tauList[am]/scanRate,av,marker='.',alpha=0.3)
+    ax_scatter.set_xscale('log')
+    ax_scatter.set_xlim((xmin,xmax))
+    ax_scatter.set_ylim((ymin,ymax))
+    ax_scatter.set_xlabel('Optimal time constant (s)')
+    ax_scatter.set_ylabel('Max Correlation Coefficient')
+
+    xbinwidth = 100
+    ybinwidth = 0.05
+    ybins = np.arange(ymin, ymax, ybinwidth)
+    xbins = np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
+    ax_histx.hist(tauList[am]/scanRate, bins=xbins,log=True)
+    ax_histy.hist(av, bins=ybins, orientation='horizontal')
+
+
+def make_colorCoded_cellMap(feature_vec, clrs, data_dict, cbounds=()):
+    # make brain volume with cells color coded by tau
+
+    from matplotlib import cm
+    if(not cbounds): cbounds = (-1,clrs+1)
+    c_space = np.linspace(cbounds[0], cbounds[1], num=clrs+2)
+    
+    A = data_dict['A']
+    x = np.linspace(0.0, 1.0, num=clrs)
+    # rgb_map = np.squeeze(cm.get_cmap(cmap)(x)[np.newaxis, :, :3])
+
+    # make mask volume transparent where there are cells, zero elsewhere
+    cell_loc = np.max(A, axis=1).toarray()>0
+    cell_loc_im = np.reshape(np.squeeze(cell_loc), data_dict['dims'], order='F') 
+    # mask_vol = np.concatenate( (np.zeros(np.concatenate((dims,[3]))),cell_loc_im[...,np.newaxis] ),axis=3 )
+    mask_vol = np.ones(np.concatenate((data_dict['dims'],[4])))
+    mask_vol[:,:,:,3] = cell_loc_im
+
+    R = np.zeros(data_dict['dims'])
+    for j in range(len(c_space)-1):
+        cli = np.flatnonzero(  (feature_vec>c_space[j]) & (feature_vec<c_space[j+1])  )
+        if(len(cli)>0):
+            A_cli = np.max(A[:,cli], axis=1).toarray()
+            R += np.reshape(np.squeeze(A_cli*j), data_dict['dims'], order='F')
+            
+    return R, mask_vol
+
+
+def make_labels_for_colorbar(label_list, fullList):
+    # fullList=tauList/data_dict['scanRate']
+    loc_list = np.zeros(len(label_list))
+    for i in range(len(label_list)):
+        loc_list[i] = np.argmin(np.abs(fullList-label_list[i]))
+    return loc_list
+
+
+def make_colorBar_for_colorCoded_cellMap(R, mask_vol, tauList, tau_label_list, tau_loc_list, data_dict, cmap='autumn'):
+    # make COLORBAR for 'slow' cells, color coded by tau
+    from matplotlib import cm
+    
+    fig, ax = plt.subplots()
+    cs = ax.imshow(np.max(R, axis=2), aspect='auto', cmap=cmap)
+    ax.imshow(1-np.max(mask_vol,axis=2), aspect='auto')
+    cs.set_clim(tau_loc_list[0], tau_loc_list[-1])
+    cbar = fig.colorbar(cs, ticks=tau_loc_list)
+    cbar.ax.set_yticklabels([str(x) for x in tau_label_list])
+
+
+def show_colorCoded_cellMap(R, mask_vol, color_lims, data_dict, cmap='autumn'):
+    dims_in_um = data_dict['dims_in_um']
+    dims = data_dict['dims']
+    
+    totScale = 1
+    totWidth = 1.1*(dims_in_um[2] + dims_in_um[1])
+    zpx = dims_in_um[2]/totWidth
+    ypx = dims_in_um[1]/totWidth
+    xpx = dims_in_um[0]/totWidth
+
+    totScale = 1
+    plt.figure(figsize=(8, 8*totScale))
+
+    totWidth = 1.1*(dims_in_um[2] + dims_in_um[1])
+    zpx = dims_in_um[2]/totWidth
+    ypx = dims_in_um[1]/totWidth
+    xpx = dims_in_um[0]/totWidth
+
+    ax2 = plt.axes([.05+zpx,  (.05+zpx)/totScale,  ypx,  xpx/totScale])
+    ax1 = plt.axes([.04,      (.05+zpx)/totScale,  zpx,  xpx/totScale])
+    ax3 = plt.axes([.05+zpx,  .04/totScale,      ypx,  zpx/totScale])
+
+    cs1 = ax1.imshow(np.max(R, axis=1), aspect='auto', cmap=cmap)
+    ax1.imshow(1-np.max(mask_vol,axis=1), aspect='auto')
+    cs1.set_clim(color_lims[0], color_lims[-1])
+    ax1.set_xticks([])
+    ax1.set_yticks([])
+    # axes[0, 0].set_title('Side')
+
+    cs2 = ax2.imshow(np.max(R, axis=2), aspect='auto', cmap=cmap)
+    ax2.imshow(1-np.max(mask_vol,axis=2), aspect='auto')
+    cs2.set_clim(color_lims[0], color_lims[-1])
+    ax2.set_xticks([])
+    ax2.set_yticks([])
+    # axes[0, 1].set_title('Top')
+
+    ypx_per_um = dims[1]/dims_in_um[1]
+    scaleBar_um = 50 #50 um
+    # bar_color = 'k' if cmap=='bwr' else 'w'
+    bar_color = 'w'
+    ax2.plot( dims[1]*.97-(scaleBar_um*ypx_per_um,0), (dims[0]*.93, dims[0]*.93),bar_color)
+
+    cs3 = ax3.imshow( np.max(R, axis=0).T, aspect='auto', cmap=cmap )
+    ax3.imshow(1-np.transpose(np.max(mask_vol,axis=0),(1,0,2)), aspect='auto')
+    cs3.set_clim(color_lims[0], color_lims[-1])
+    ax3.set_xticks([])
+    ax3.set_yticks([])
+    # axes[1, 1].set_title('Front')
+
+
