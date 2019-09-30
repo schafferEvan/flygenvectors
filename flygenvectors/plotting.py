@@ -3,10 +3,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def make_clust_fig(k_id, cIds, plot_time, dFF, data_dict, behavior, expt_id='', nToPlot=10):
+def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10):
     from matplotlib import colors
     from matplotlib import axes, gridspec
 
+    plot_time = data_dict['tPl']
+    dFF = data_dict['dFF']
+    behavior = data_dict['ball']
     dims = np.squeeze(data_dict['dims'])
     background_im = data_dict['im']
     A = data_dict['A']
@@ -18,7 +21,7 @@ def make_clust_fig(k_id, cIds, plot_time, dFF, data_dict, behavior, expt_id='', 
     # plot sample traces
     plt.rcParams.update({'font.size': 18})
     #     fig, ax = plt.subplots(figsize=(20, 20))
-    plt.figure(figsize=(12, 12))
+    plt.figure(figsize=(10.5, 10.5))
     gridspec.GridSpec(6,6)
     
     
@@ -813,9 +816,14 @@ def make_labels_for_colorbar(label_list, fullList):
     return loc_list
 
 
-def make_colorBar_for_colorCoded_cellMap(R, mask_vol, tauList, tau_label_list, tau_loc_list, data_dict, cmap='autumn'):
+def make_colorBar_for_colorCoded_cellMap(R, mask_vol, tauList, tau_label_list, tau_loc_list, data_dict, cmap=''):
     # make COLORBAR for 'slow' cells, color coded by tau
     from matplotlib import cm
+    if(not cmap): 
+        cmap = make_hot_without_black()
+        colorbar_title = ''
+    else:
+        colorbar_title = 'CC'
     
     fig, ax = plt.subplots()
     cs = ax.imshow(np.max(R, axis=2), aspect='auto', cmap=cmap)
@@ -823,11 +831,16 @@ def make_colorBar_for_colorCoded_cellMap(R, mask_vol, tauList, tau_label_list, t
     cs.set_clim(tau_loc_list[0], tau_loc_list[-1])
     cbar = fig.colorbar(cs, ticks=tau_loc_list)
     cbar.ax.set_yticklabels([str(x) for x in tau_label_list])
+    if(not colorbar_title):
+        cbar.ax.set_title(r'$\tau (s)$')
+    else:
+        cbar.ax.set_title(colorbar_title)
 
 
-def show_colorCoded_cellMap(R, mask_vol, color_lims, data_dict, cmap='autumn'):
+def show_colorCoded_cellMap(R, mask_vol, color_lims, data_dict, cmap=''):
     dims_in_um = data_dict['dims_in_um']
     dims = data_dict['dims']
+    if(not cmap): cmap = make_hot_without_black()
     
     totScale = 1
     totWidth = 1.1*(dims_in_um[2] + dims_in_um[1])
@@ -874,4 +887,128 @@ def show_colorCoded_cellMap(R, mask_vol, color_lims, data_dict, cmap='autumn'):
     ax3.set_yticks([])
     # axes[1, 1].set_title('Front')
 
+
+def trim_dynamic_range(data,q_min,q_max):
+    bmin = np.quantile(data, q_min)
+    bmax = np.quantile(data, q_max)
+    data = (data-bmin)/(bmax-bmin)
+    data[data<0]=0
+    data[data>1]=1
+    return data
+
+
+def show_raster_with_behav(data_dict,color_range=(0,0.4)):
+    f, axes = plt.subplots(2,1,gridspec_kw={'height_ratios':[8,1]},figsize=(10.5, 6))
+
+    if(color_range=='auto'):
+        dFF = trim_dynamic_range(data_dict['dFF'], 0.01, 0.95)
+        cmin, cmax = (0,1)
+    else:
+        dFF = data_dict['dFF']
+        cmin, cmax = color_range
+
+    tPl = data_dict['tPl']
+    behavior = data_dict['ball']
+
+    im = axes[0].imshow(
+        dFF, aspect='auto', 
+        cmap='inferno', vmin=cmin, vmax=cmax)
+    plt.sca(axes[0])
+    plt.title('Raw')
+    axes[0].set_xlim([0,len(behavior)])
+    plt.xticks([])
+    plt.ylabel('Neuron')
+
+    plt.sca(axes[-1])
+    axes[-1].plot(tPl,behavior,'k')
+    axes[-1].set_xlim([min(tPl),max(tPl)])
+    axes[-1].set_ylabel('ball')
+    plt.xlabel('Time (s)')
+
+    plt.subplots_adjust(right=0.8)
+    cbar_ax = f.add_axes([0.85, 0.4, 0.03, 0.4])
+    f.colorbar(im, cax=cbar_ax, ticks=[cmin,cmin+.5*(cmax-cmin),cmax])
+    cbar_ax.set_title(r'$\Delta R/R$')
+
+    
+
+
+def show_example_cells_bestTau(cell_ids, corrMat, tauList, data_dict):
+    from matplotlib.gridspec import GridSpec
+    scanRate = data_dict['scanRate']
+    dFFc = data_dict['dFF'] #trim_dynamic_range(data_dict['dFF'], 0.01, 0.95)
+    behavior = data_dict['ball']
+    
+    #,constrained_layout=True
+    fig = plt.figure(figsize=(16,8))
+    gs0 = GridSpec(4,len(cell_ids), height_ratios=[3.,1.,1.,1.],hspace=1.2) #,hspace=[.5,.2,.2,.2]
+    gs = GridSpec(4,len(cell_ids), height_ratios=[3.,1.,1.,1.],hspace=.05) #,hspace=[.5,.2,.2,.2]
+
+    for j in range(len(cell_ids)):
+        cell_id = cell_ids[j]
+        axes = fig.add_subplot(gs0[j])
+        #plt.subplot(3,len(cell_ids),j+1)
+        axes.plot(tauList/scanRate,corrMat[cell_id,:],label='CC')
+        axes.set_xscale('log')
+        axes.set_xlim((tauList[0]/scanRate,tauList[-1]/scanRate))
+        axes.set_xlabel('time constant (s)')
+        axes.set_title('cell '+str(j))
+        axes.spines['top'].set_visible(False)
+        axes.spines['right'].set_visible(False)
+        if(j==0):
+            axes.set_ylabel('CC')
+            #axes[0,j].legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+
+        mn = np.argmin(corrMat[cell_id,:])
+        mx = np.argmax(corrMat[cell_id,:])
+
+        x = np.array([i for i in range(500)])
+        cTau = tauList[mn]
+        eFilt = np.exp(-x/cTau)
+        c = np.convolve(eFilt,behavior,'valid')#,'same')
+        #print(np.corrcoef(dFFc[cell_id,len(eFilt)-1:], c)[0,1])
+
+        axes = fig.add_subplot(gs[len(cell_ids)+j])
+        #plt.subplot(3,len(cell_ids),len(cell_ids)+1+j)
+        npl = dFFc[cell_id,len(eFilt)-1:]
+        axes.plot(-1+(npl-npl.min())/(npl.max()-npl.min()),'b',label='dFF')
+        axes.set_xticks([])
+        axes.set_yticks([])
+        axes.spines['top'].set_visible(False)
+        axes.spines['right'].set_visible(False)
+        if(j==0):
+            axes.set_ylabel('dFF')
+            #axes[1,j].legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+
+        axes = fig.add_subplot(gs[2*len(cell_ids)+j])
+        axes.plot((c-c.min())/(c.max()-c.min()),'r',label='beh smoothed argmin')
+        axes.set_xticks([])
+        axes.set_yticks([])
+        axes.spines['top'].set_visible(False)
+        axes.spines['right'].set_visible(False)
+        if(j==0):
+            axes.set_ylabel('Beh\nMIN')
+            #axes[2,j].legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+
+        axes = fig.add_subplot(gs[3*len(cell_ids)+j])
+        #plt.subplot(3,len(cell_ids),2*len(cell_ids)+1+j)
+        cTau = tauList[mx]
+        eFilt = np.exp(-x/cTau)
+        c = np.convolve(eFilt,behavior,'valid')#,'same')
+        #plt.plot(-1+(npl-npl.min())/(npl.max()-npl.min()),'b',label='dFF')
+        axes.plot((c-c.min())/(c.max()-c.min()),'g',label='beh smoothed argmax')
+        axes.set_yticks([])
+        axes.spines['top'].set_visible(False)
+        axes.spines['right'].set_visible(False)
+        axes.set_xlabel('Time (frames)')
+        if(j==0):
+            axes.set_ylabel('Beh\nMAX')
+
+
+def make_hot_without_black(clrs=100, low_bnd=0.15):
+    from matplotlib import cm
+    from matplotlib.colors import ListedColormap
+    hot = cm.get_cmap('hot', clrs)
+    newcmp = ListedColormap(hot(np.linspace(low_bnd, 1, clrs)))
+    return newcmp
 

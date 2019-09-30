@@ -336,13 +336,7 @@ def subsample_cells(data, cell_indxs, indxs, trial_len):
 
     return data_sub_, data_sub
 
-def trim_dynamic_range(data,q_min,q_max):
-    bmin = np.quantile(data, q_min)
-    bmax = np.quantile(data, q_max)
-    data = (data-bmin)/(bmax-bmin)
-    data[data<0]=0
-    data[data>1]=1
-    return data
+
 
 def estimate_neuron_behav_tau(data_dict):
     # find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
