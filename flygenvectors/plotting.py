@@ -60,6 +60,8 @@ def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10):
     plt.imshow(np.max(background_im,axis=2),cmap=plt.get_cmap('gray'));
     plt.imshow(crs); ax.axis('off')
 
+    return R
+
 def plot_pcs(pcs, color, cmap='inferno'):
     plt.scatter(pcs[:, 0], pcs[:, 1], c=color, cmap=cmap, s=5, linewidths=0)
     plt.xlabel('PC 1')
@@ -838,6 +840,8 @@ def make_colorBar_for_colorCoded_cellMap(R, mask_vol, tauList, tau_label_list, t
 
 
 def show_colorCoded_cellMap(R, mask_vol, color_lims, data_dict, cmap=''):
+    from matplotlib import colors
+
     dims_in_um = data_dict['dims_in_um']
     dims = data_dict['dims']
     if(not cmap): cmap = make_hot_without_black()
@@ -860,15 +864,37 @@ def show_colorCoded_cellMap(R, mask_vol, color_lims, data_dict, cmap=''):
     ax1 = plt.axes([.04,      (.05+zpx)/totScale,  zpx,  xpx/totScale])
     ax3 = plt.axes([.05+zpx,  .04/totScale,      ypx,  zpx/totScale])
 
-    cs1 = ax1.imshow(np.max(R, axis=1), aspect='auto', cmap=cmap)
-    ax1.imshow(1-np.max(mask_vol,axis=1), aspect='auto')
+    if np.shape(mask_vol)[0]:
+        # if mask case, omit background im
+        cs1 = ax1.imshow(np.max(R, axis=1), aspect='auto', cmap=cmap)
+        ax1.imshow(1-np.max(mask_vol,axis=1), aspect='auto')
+    else:
+        # if no mask, show background im
+        rIm = np.max(R, axis=1)
+        crs = colors.Normalize(0, 1, clip=True)(rIm)
+        crs = cmap(crs)
+        crs[..., -1] = rIm #setting alpha for transparency
+        ax1.imshow(np.max(data_dict['im'],axis=1),cmap=plt.get_cmap('gray'));
+        cs1 = ax1.imshow(crs, aspect='auto')
+
     cs1.set_clim(color_lims[0], color_lims[-1])
     ax1.set_xticks([])
     ax1.set_yticks([])
     # axes[0, 0].set_title('Side')
 
-    cs2 = ax2.imshow(np.max(R, axis=2), aspect='auto', cmap=cmap)
-    ax2.imshow(1-np.max(mask_vol,axis=2), aspect='auto')
+    if np.shape(mask_vol)[0]:
+        # if mask case, omit background im
+        cs2 = ax2.imshow(np.max(R, axis=2), aspect='auto', cmap=cmap)
+        ax2.imshow(1-np.max(mask_vol,axis=2), aspect='auto')
+    else:
+        # if no mask, show background im
+        rIm = np.max(R, axis=2)
+        crs = colors.Normalize(0, 1, clip=True)(rIm)
+        crs = cmap(crs)
+        crs[..., -1] = rIm #setting alpha for transparency
+        ax2.imshow(np.max(data_dict['im'],axis=2),cmap=plt.get_cmap('gray'));
+        cs2 = ax2.imshow(crs, aspect='auto')
+
     cs2.set_clim(color_lims[0], color_lims[-1])
     ax2.set_xticks([])
     ax2.set_yticks([])
@@ -880,8 +906,19 @@ def show_colorCoded_cellMap(R, mask_vol, color_lims, data_dict, cmap=''):
     bar_color = 'w'
     ax2.plot( dims[1]*.97-(scaleBar_um*ypx_per_um,0), (dims[0]*.93, dims[0]*.93),bar_color)
 
-    cs3 = ax3.imshow( np.max(R, axis=0).T, aspect='auto', cmap=cmap )
-    ax3.imshow(1-np.transpose(np.max(mask_vol,axis=0),(1,0,2)), aspect='auto')
+    if np.shape(mask_vol)[0]:
+        # if mask case, omit background im
+        cs3 = ax3.imshow( np.max(R, axis=0).T, aspect='auto', cmap=cmap )
+        ax3.imshow(1-np.transpose(np.max(mask_vol,axis=0),(1,0,2)), aspect='auto')
+    else:
+        # if no mask, show background im
+        rIm = np.max(R, axis=0).T
+        crs = colors.Normalize(0, 1, clip=True)(rIm)
+        crs = cmap(crs)
+        crs[..., -1] = rIm #setting alpha for transparency
+        ax3.imshow(np.max(data_dict['im'],axis=0).T,cmap=plt.get_cmap('gray'));
+        cs3 = ax3.imshow(crs, aspect='auto')
+
     cs3.set_clim(color_lims[0], color_lims[-1])
     ax3.set_xticks([])
     ax3.set_yticks([])
