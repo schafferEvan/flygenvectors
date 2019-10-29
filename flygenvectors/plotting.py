@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10):
+def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10, include_feeding=False):
     from matplotlib import colors
     from matplotlib import axes, gridspec
 
@@ -23,19 +23,40 @@ def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10):
     #     fig, ax = plt.subplots(figsize=(20, 20))
     plt.figure(figsize=(10.5, 10.5))
     gridspec.GridSpec(6,6)
+
+    if(not include_feeding):
+        grid_tuple = (8,1)
+        beh_subplot = (0,0)
+        dff_subplot = (1,0)
+        roi_subplot = (4,0)
+    else:
+        grid_tuple = (9,1)
+        beh_subplot = (1,0)
+        dff_subplot = (2,0)
+        roi_subplot = (5,0)
+        ax = plt.subplot2grid(grid_tuple, (0,0), colspan=1, rowspan=1)
+        plt.plot(plot_time, data_dict['drink'],'k')
+        plt.box()
+        plt.xticks([])
+        plt.yticks([])
+        plt.ylabel('feeding')
+        plt.tight_layout()
+        plt.title(expt_id+': Cluster '+str(k_id)+', nCells='+str(len(cIds)))
+        
     
     
-    ax = plt.subplot2grid((8,1), (0,0), colspan=1, rowspan=1)
+    ax = plt.subplot2grid(grid_tuple, beh_subplot, colspan=1, rowspan=1)
     plt.plot(plot_time, behavior,'k')
     plt.box()
     plt.xticks([])
     plt.yticks([])
-    plt.ylabel('Ball Motion')
+    plt.ylabel('locomotion')
     plt.tight_layout()
-    plt.title(expt_id+': Cluster '+str(k_id)+', nCells='+str(len(cIds)))
+    if(not include_feeding):
+        plt.title(expt_id+': Cluster '+str(k_id)+', nCells='+str(len(cIds)))
     
 
-    ax = plt.subplot2grid((8,1), (1,0), colspan=1, rowspan=3)
+    ax = plt.subplot2grid(grid_tuple, dff_subplot, colspan=1, rowspan=3)
     plt.plot(plot_time, dFF[cIds[:plotMx],:].T)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -56,7 +77,7 @@ def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10):
     crs = cmap(crs)
     crs[..., -1] = rIm #setting alpha for transparency
 
-    ax = plt.subplot2grid((8,1), (4,0), colspan=1, rowspan=4)
+    ax = plt.subplot2grid(grid_tuple, roi_subplot, colspan=1, rowspan=4)
     plt.imshow(np.max(background_im,axis=2),cmap=plt.get_cmap('gray'));
     plt.imshow(crs); ax.axis('off')
 
