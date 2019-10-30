@@ -955,8 +955,15 @@ def trim_dynamic_range(data,q_min,q_max):
     return data
 
 
-def show_raster_with_behav(data_dict,color_range=(0,0.4)):
-    f, axes = plt.subplots(2,1,gridspec_kw={'height_ratios':[8,1]},figsize=(10.5, 6))
+def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,include_dlc=False):
+    if(include_dlc):
+        import matplotlib.pylab as pl
+        f, axes = plt.subplots(10,1,gridspec_kw={'height_ratios':[12,1,1,1,1,1,1,1,1,2]},figsize=(10.5, 9))
+        dlc_colors = pl.cm.jet(np.linspace(0,1,8))
+    elif(not include_feeding):
+        f, axes = plt.subplots(2,1,gridspec_kw={'height_ratios':[8,1]},figsize=(10.5, 6))
+    else:
+        f, axes = plt.subplots(3,1,gridspec_kw={'height_ratios':[8,1,1]},figsize=(10.5, 6))
 
     if(color_range=='auto'):
         dFF = trim_dynamic_range(data_dict['dFF'], 0.01, 0.95)
@@ -977,10 +984,31 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4)):
     plt.xticks([])
     plt.ylabel('Neuron')
 
+    if(include_dlc):
+        for i in range(8):
+            plt.sca(axes[1+i])
+            xdataChunk = np.diff(data_dict['dlc'][:,(i-1)*2]); 
+            ydataChunk = np.diff(data_dict['dlc'][:,1+(i-1)*2]);
+            legEnergy = xdataChunk**2 + ydataChunk**2;
+            m = np.quantile(legEnergy, 0.01)
+            M = np.quantile(legEnergy, 0.99)
+            legEnergy[legEnergy<m]=m
+            legEnergy[legEnergy>M]=M
+            axes[1+i].plot(tPl[1:],legEnergy,color=dlc_colors[i])
+            axes[1+i].set_xlim([min(tPl),max(tPl)])
+            axes[1+i].set_xticks([])
+            axes[1+i].set_yticks([])
+
+    if(include_feeding):
+        plt.sca(axes[-2])
+        axes[-2].plot(tPl,data_dict['drink'],'k')
+        axes[-2].set_xlim([min(tPl),max(tPl)])
+        axes[-2].set_ylabel('feeding')
+
     plt.sca(axes[-1])
     axes[-1].plot(tPl,behavior,'k')
     axes[-1].set_xlim([min(tPl),max(tPl)])
-    axes[-1].set_ylabel('ball')
+    axes[-1].set_ylabel('locomotion')
     plt.xlabel('Time (s)')
 
     plt.subplots_adjust(right=0.8)
