@@ -2,6 +2,7 @@ import os
 import glob
 import numpy as np
 from sklearn.decomposition import PCA
+from scipy.optimize import minimize
 import pdb
 
 
@@ -339,6 +340,7 @@ def subsample_cells(data, cell_indxs, indxs, trial_len):
 
 
 def estimate_neuron_behav_tau(data_dict):
+    # THIS IS THE LEGACY VERSION OF estimate_neuron_behav_reg_model in regression_model.py
     # find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
     dFF = data_dict['dFF']
     scanRate = data_dict['scanRate']
@@ -359,3 +361,7 @@ def estimate_neuron_behav_tau(data_dict):
         for j in range(dFF.shape[0]):
             a[j,i] = np.corrcoef(dFF[j,len(eFilt)-1:], c)[0,1] 
     return tauList, a
+
+
+
+

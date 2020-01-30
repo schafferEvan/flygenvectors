@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import pdb
 
 
 def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10, include_feeding=False):
@@ -759,7 +760,86 @@ def _get_state_runs(states, include_edges=True):
     return indexing_list
 
 
-def show_tau_scatter(tauList, corrMat, data_dict):
+def get_model_fit_as_dict(model_fit):
+    fit_dict = {}
+    tau = np.zeros(len(model_fit))
+    rsq = np.zeros(len(model_fit))
+    stat = np.zeros(len(model_fit))
+    success = []
+    for i in range(len(model_fit)):
+        tau[i] = model_fit[i]['tau']
+        rsq[i] = model_fit[i]['r_sq']
+        stat[i] = np.sign(model_fit[i]['r_sq']-model_fit[i]['r_sq_null'])*model_fit[i]['stat'][1]
+        success.append(model_fit[i]['success'])
+    fit_dict['tau'] = tau
+    fit_dict['rsq'] = rsq
+    fit_dict['stat'] = stat
+    fit_dict['success'] = success
+    return fit_dict
+
+
+def show_tau_scatter(model_fit, pval=1):
+
+    f = get_model_fit_as_dict(model_fit)
+    tau = f['tau']
+    rsq = f['rsq']
+    stat = f['stat']
+    success = f['success']
+
+    pval_text = 0.01
+    sig_text = (stat<pval_text)*(stat>0) # 1-sided test that behavior model > null model
+    tau_sig = tau[success*sig_text]
+    print('median tau of significant cells = '+str(np.median(tau_sig)))
+    print('frac of significant cells w/ tau above 60s = '+str( np.sum(tau_sig>60)/len(tau_sig) ))
+    print('fraction of cells with p<'+str(pval_text)+' = '+str( (success*sig_text).sum()/len(success) ))
+
+    sig = (stat<pval)*(stat>0) # 1-sided test that behavior model > null model
+    tau = tau[success*sig]
+    rsq = rsq[success*sig]
+
+    plt.figure(figsize=(5, 5))
+    left, width = 0.1, 0.65
+    bottom, height = 0.1, 0.65
+    spacing = 0.005
+    rect_scatter = [left, bottom, width, height]
+    rect_histx = [left, bottom + height + spacing, width, 0.2]
+    rect_histy = [left + width + spacing, bottom, 0.2, height]
+
+    ax_scatter = plt.axes(rect_scatter)
+    ax_scatter.tick_params(direction='in', top=True, right=True)
+    ax_histx = plt.axes(rect_histx)
+    ax_histx.tick_params(direction='in', labelbottom=False)
+    ax_histx.set_xscale('log')
+    ax_histx.axis('off')
+    ax_histy = plt.axes(rect_histy)
+    ax_histy.tick_params(direction='in', labelleft=False)
+    ax_histy.axis('off')
+
+
+    xmin = 1 #4/scanRate
+    xmax = 100 #1000/scanRate #6000
+    ymin = 0
+    ymax = 1
+
+    ax_scatter.scatter(tau,rsq,marker='.',alpha=0.3)
+    ax_scatter.set_xscale('log')
+    ax_scatter.set_xlim((xmin,xmax))
+    ax_scatter.set_ylim((ymin,ymax))
+    ax_scatter.set_xlabel('Optimal time constant (s)')
+    ax_scatter.set_ylabel(r'$r^2$')
+
+    xbinwidth = 100
+    ybinwidth = 0.05
+    ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
+    xbins = np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
+    ax_histx.hist(tau, bins=xbins,log=True)
+    ax_histx.set_xlim((xmin,xmax))
+    ax_histy.hist(rsq, bins=ybins, orientation='horizontal')
+    ax_histy.set_ylim((ymin,ymax))
+
+
+def show_tau_scatter_legacy(tauList, corrMat, data_dict):
+    print('legacy version')
     scanRate = data_dict['scanRate']
 
     plt.figure(figsize=(5, 5))
@@ -860,6 +940,144 @@ def make_colorBar_for_colorCoded_cellMap(R, mask_vol, tauList, tau_label_list, t
         cbar.ax.set_title(colorbar_title)
 
 
+def show_residual_raster(data_dict, model_fit):
+    import regression_model as model
+    tauLim = 100*data_dict['scanRate']
+    M = round(-tauLim*np.log(0.2)).astype(int)
+    t_exp = np.linspace(1,M,M)/data_dict['scanRate']
+    ball = data_dict['ball']
+    time = data_dict['time']-data_dict['time'][0]
+    model_residual = np.zeros(data_dict['dFF'][:,M-1:].shape)
+
+    for j in range(data_dict['dFF'].shape[0]):
+        d = model_fit[j]
+        pars = [d['alpha_0'], d['alpha_1'], d['beta_0'], 
+                d['beta_1'], d['tau'] ]
+        dFF = data_dict['dFF'][j,:]
+        data = [t_exp, time, ball, dFF]
+        dFF_fit = model.tau_reg_model(pars, data)
+        model_residual[j,:] = dFF[M-1:]-dFF_fit
+
+    data_dict_tmp = data_dict.copy()
+    data_dict_tmp['dFF'] = model_residual
+    data_dict_tmp['tPl'] = data_dict_tmp['tPl'][M-1:]
+    data_dict_tmp['ball'] = data_dict_tmp['ball'][M-1:]
+    axes = show_raster_with_behav(data_dict_tmp,color_range=(-0.1,0.1))
+    axes[0].set_title('Residual')
+
+
+def show_PC_residual_raster(data_dict):
+    # regress out smoothed behavior by predicting behavior from activity of all cells, then projecting out this dimension
+    import regression_model as model
+    from sklearn.linear_model import LinearRegression
+    from sklearn.decomposition import PCA
+
+    f = model.estimate_SINGLE_neuron_behav_reg_model(data_dict['dFF'].sum(axis=0), data_dict['ball'], data_dict['time'], data_dict['scanRate'])
+    tau = f[4]
+    tauLim = 100*data_dict['scanRate']
+    M = round(-tauLim*np.log(0.2)).astype(int)
+    t_exp = np.linspace(1,M,M)/data_dict['scanRate']
+    kern = (1/np.sqrt(tau))*np.exp(-t_exp/tau)
+    beh_conv = np.convolve(kern,data_dict['ball'],'valid')
+
+    dFF = data_dict['dFF'][:,M-1:].T
+    pca = PCA(n_components=4)
+    pca.fit(dFF)
+    regr = LinearRegression()
+    pcbasis = pca.transform(dFF)
+    # pdb.set_trace()
+    regr.fit(pcbasis, beh_conv)
+    b = regr.coef_.T/np.linalg.norm(regr.coef_.T)
+    aPr = np.dot(pcbasis,b)
+    # lowRankRegRes = pcbasis.T - np.outer(b,aPr)
+    lowRankReg = np.outer(b,aPr)
+    PCReg = pca.inverse_transform(lowRankReg.T)
+    PCRegRes = dFF-PCReg
+
+    # pdb.set_trace()
+    data_dict_tmp = data_dict.copy()
+    data_dict_tmp['dFF'] = PCRegRes.T
+    data_dict_tmp['tPl'] = data_dict_tmp['tPl'][M-1:]
+    data_dict_tmp['ball'] = data_dict_tmp['ball'][M-1:]
+    axes = show_raster_with_behav(data_dict_tmp,color_range=(-0.1,0.1))
+    axes[0].set_title('PC_reg Residual')
+
+    
+
+
+
+def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pval=0.01):
+    from matplotlib import colors
+    import matplotlib.cm as cm
+    from matplotlib.colors import ListedColormap
+
+    point_size = 2
+    dims_in_um = data_dict['template_dims_in_um']
+    template_dims = data_dict['template_dims']
+    dims = data_dict['dims']
+    if(not cmap): cmap = make_hot_without_black()
+    gry = cm.get_cmap('Greys', 15)
+    gry = ListedColormap(gry(np.linspace(.8, 1, 2)))
+
+    f = get_model_fit_as_dict(model_fit)
+    sig = f['success']*(f['stat']<pval)*(f['stat']>0) # 1-sided test that behavior model > null model
+    not_sig = np.logical_not(sig)
+    
+
+    totScale = 1
+    plt.figure(figsize=(8, 8*totScale))
+
+    totWidth = 1.1*(dims_in_um[2] + dims_in_um[1])
+    zpx = dims_in_um[2]/totWidth
+    ypx = dims_in_um[1]/totWidth
+    xpx = dims_in_um[0]/totWidth
+
+    ax2 = plt.axes([.05+zpx,  (.05+zpx)/totScale,  ypx,  xpx/totScale])
+    ax1 = plt.axes([.04,      (.05+zpx)/totScale,  zpx,  xpx/totScale])
+    ax3 = plt.axes([.05+zpx,  .04/totScale,      ypx,  zpx/totScale])
+
+    ax1.scatter(data_dict['aligned_centroids'][not_sig,2],
+                data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
+    ax1.scatter(data_dict['aligned_centroids'][sig,2],
+                data_dict['aligned_centroids'][sig,1], c=tau_argmax[sig], cmap=cmap, s=point_size)
+    ax1.set_facecolor((0.0, 0.0, 0.0))
+    ax1.set_xticks([])
+    ax1.set_yticks([])
+    ax1.set_xlim(0,template_dims[2])
+    ax1.set_ylim(0,template_dims[0])
+    ax1.invert_yaxis()
+
+    
+    ax2.scatter(data_dict['aligned_centroids'][not_sig,0],
+                data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
+    ax2.scatter(data_dict['aligned_centroids'][sig,0],
+                data_dict['aligned_centroids'][sig,1], c=tau_argmax[sig], cmap=cmap, s=point_size)
+    ax2.set_facecolor((0.0, 0.0, 0.0))
+    ax2.set_xticks([])
+    ax2.set_yticks([])
+    ax2.set_xlim(0,template_dims[1])
+    ax2.set_ylim(0,template_dims[0])
+    ax2.invert_yaxis()
+
+    ypx_per_um = template_dims[1]/dims_in_um[1]
+    scaleBar_um = 50 #50 um
+    bar_color = 'w'
+    ax2.plot( template_dims[1]*.97-(scaleBar_um*ypx_per_um,0), (template_dims[0]*.93, template_dims[0]*.93),bar_color)
+
+
+    ax3.scatter(data_dict['aligned_centroids'][not_sig,0],
+                data_dict['aligned_centroids'][not_sig,2], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
+    ax3.scatter(data_dict['aligned_centroids'][sig,0],
+                data_dict['aligned_centroids'][sig,2], c=tau_argmax[sig], cmap=cmap, s=point_size)
+    ax3.set_facecolor((0.0, 0.0, 0.0))
+    ax3.set_xticks([])
+    ax3.set_yticks([])
+    ax3.set_xlim(0,template_dims[1])
+    ax3.set_ylim(0,template_dims[2])
+    ax3.invert_yaxis()
+
+
+
 def show_colorCoded_cellMap(R, mask_vol, color_lims, data_dict, cmap=''):
     from matplotlib import colors
 
@@ -955,15 +1173,13 @@ def trim_dynamic_range(data,q_min,q_max):
     return data
 
 
-def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,include_dlc=False):
+def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,include_dlc=False,num_cells=[],time_lims=[]):
     if(include_dlc):
         import matplotlib.pylab as pl
         f, axes = plt.subplots(10,1,gridspec_kw={'height_ratios':[12,1,1,1,1,1,1,1,1,2]},figsize=(10.5, 9))
         dlc_colors = pl.cm.jet(np.linspace(0,1,8))
-    elif(not include_feeding):
-        f, axes = plt.subplots(2,1,gridspec_kw={'height_ratios':[8,1]},figsize=(10.5, 6))
     else:
-        f, axes = plt.subplots(3,1,gridspec_kw={'height_ratios':[8,1,1]},figsize=(10.5, 6))
+        f, axes = plt.subplots(2,1,gridspec_kw={'height_ratios':[8,1]},figsize=(10.5, 6))
 
     if(color_range=='auto'):
         dFF = trim_dynamic_range(data_dict['dFF'], 0.01, 0.95)
@@ -974,7 +1190,23 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
 
     tPl = data_dict['tPl']
     behavior = data_dict['ball']
+    if include_dlc:
+        dlc = data_dict['dlc']
+    if include_feeding:
+        feed = data_dict['drink']
 
+    if num_cells:
+        dFF = dFF[:num_cells,:]
+
+    if time_lims:
+        dFF = dFF[:,time_lims[0]:time_lims[1]]
+        tPl = tPl[time_lims[0]:time_lims[1]]
+        behavior = behavior[time_lims[0]:time_lims[1]]
+        if include_dlc:
+            dlc = dlc[time_lims[0]:time_lims[1],:]
+        if include_feeding:
+            feed = feed[time_lims[0]:time_lims[1]]
+        
     im = axes[0].imshow(
         dFF, aspect='auto', 
         cmap='inferno', vmin=cmin, vmax=cmax)
@@ -987,8 +1219,8 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
     if(include_dlc):
         for i in range(8):
             plt.sca(axes[1+i])
-            xdataChunk = np.diff(data_dict['dlc'][:,(i-1)*2]); 
-            ydataChunk = np.diff(data_dict['dlc'][:,1+(i-1)*2]);
+            xdataChunk = np.diff(dlc[:,(i-1)*2]); 
+            ydataChunk = np.diff(dlc[:,1+(i-1)*2]);
             legEnergy = xdataChunk**2 + ydataChunk**2;
             m = np.quantile(legEnergy, 0.01)
             M = np.quantile(legEnergy, 0.99)
@@ -999,22 +1231,23 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
             axes[1+i].set_xticks([])
             axes[1+i].set_yticks([])
 
-    if(include_feeding):
-        plt.sca(axes[-2])
-        axes[-2].plot(tPl,data_dict['drink'],'k')
-        axes[-2].set_xlim([min(tPl),max(tPl)])
-        axes[-2].set_ylabel('feeding')
+    
 
     plt.sca(axes[-1])
     axes[-1].plot(tPl,behavior,'k')
     axes[-1].set_xlim([min(tPl),max(tPl)])
-    axes[-1].set_ylabel('locomotion')
+    if(include_feeding):
+        axes[-1].plot(tPl,feed,'c')
+        axes[-1].set_ylabel('feeding\nlocomotion')
+    else:
+        axes[-1].set_ylabel('locomotion')
     plt.xlabel('Time (s)')
 
     plt.subplots_adjust(right=0.8)
     cbar_ax = f.add_axes([0.85, 0.4, 0.03, 0.4])
     f.colorbar(im, cax=cbar_ax, ticks=[cmin,cmin+.5*(cmax-cmin),cmax])
     cbar_ax.set_title(r'$\Delta R/R$')
+    return axes
 
     
 
@@ -1091,10 +1324,10 @@ def show_example_cells_bestTau(cell_ids, corrMat, tauList, data_dict):
             axes.set_ylabel('Beh\nMAX')
 
 
-def make_hot_without_black(clrs=100, low_bnd=0.15):
+def make_hot_without_black(clrs=100, low_bnd=0.1):
     from matplotlib import cm
     from matplotlib.colors import ListedColormap
     hot = cm.get_cmap('hot', clrs)
-    newcmp = ListedColormap(hot(np.linspace(low_bnd, 1, clrs)))
+    newcmp = ListedColormap(hot(np.linspace(low_bnd, .9, clrs)))
     return newcmp
 
