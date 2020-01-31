@@ -79,7 +79,7 @@ def estimate_neuron_behav_reg_model(data_dict, initial_conds=[]):
     M = round(-tauLim*np.log(0.2)).astype(int)
     t_exp = np.linspace(1,M,M)/data_dict['scanRate']
 
-    ball = data_dict['ball']
+    ball = data_dict['behavior']
     time = data_dict['time']-data_dict['time'][0]
     # bnds = ((-10, 10),(-10, 10),(-10, 10),(-10, 10), (0, 100))
     tau_max = 100
@@ -87,6 +87,8 @@ def estimate_neuron_behav_reg_model(data_dict, initial_conds=[]):
     if not initial_conds:
         initial_conds=[[0,.0001,0.5,-1,1],
                         [0,.0001,0.5,-1,99],
+                        [0,.0001,0.5,-1,99],
+                        [0,.0001,1,-0.5,20],
                         [0,.0001,1,-0.5,1]]
 
     model_fit = []

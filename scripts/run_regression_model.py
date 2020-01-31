@@ -28,6 +28,7 @@ import data as dataUtils
 import regression_model as model
 import plotting
 import flygenvectors.ssmutils as utils
+import pdb
 
 # from IPython.display import set_matplotlib_formats
 # set_matplotlib_formats('png', 'pdf')
@@ -52,7 +53,7 @@ main_fig_dir = '/Users/evan/Dropbox/_AxelLab/__flygenvectors/figs/'
 
 exp_date = '2019_10_14' #'2019_10_02' #'2019_07_01' #'2018_08_24' 
 fly_num = 'fly3' #'fly2' #'fly3_run1'
-remake_pickle = False
+remake_pickle = True
 pval = 0.01
 
 data_dict = dataUtils.load_timeseries_simple(exp_date,fly_num,main_dir)
@@ -68,22 +69,22 @@ if not os.path.exists(fig_folder):
     os.mkdir(clustfig_folder)
     
 
+# CHOOSE BEHAVIOR TIMESERIES WITH WHICH TO DO ANALYSES -----------------------------------
+behavior_source = 'dlc_med' #{dlc_med, ball_raw, ball_binary}
 
+if (behavior_source == 'dlc_med'):
+    dlc_energy = dataUtils.get_dlc_motion_energy(data_dict)
+    data_dict['behavior'] = np.median(dlc_energy,axis=1)
+    data_dict['behavior'] = np.concatenate((data_dict['behavior'],[data_dict['behavior'][-1]]))
+    # data_dict['time'] = data_dict['time'][:-1]
+    # data_dict['ball'] = data_dict['ball'][:-1]
+    # data_dict['dFF'] = data_dict['dFF'][:,:-1]
+elif (behavior_source == 'ball_raw'):
+    data_dict['behavior'] = data_dict['ball'].flatten()
+elif (behavior_source == 'ball_binary'):
+    data_dict['behavior'] = dataUtils.binarize_timeseries(data_dict['ball'])
 
-# # BINARIZE BEHAVIOR --------------------------------------------------------------------
-# gmm = GaussianMixture(n_components=2, means_init=[[0.5],[0.8]])
-# log_beh = np.log(data_dict['ball'])-np.log(data_dict['ball']).min()
-# log_beh = log_beh/log_beh.max()
-# gmm_beh_fit = gmm.fit_predict(log_beh) #np.expand_dims(data_dict['ball'],axis=1))
-# mean_0 = log_beh[gmm_beh_fit==0].mean()
-# mean_1 = log_beh[gmm_beh_fit==1].mean()
-# if (mean_0<mean_1):
-#     beh = gmm_beh_fit
-# else:
-#     beh = np.logical_not(gmm_beh_fit)
-# data_dict['ball'] = beh.copy()
-data_dict['ball'] = data_dict['ball'].flatten()
-
+# pdb.set_trace()
 
 # VISUALIZE RAW DATA --------------------------------------------------------------------
 # Note: optional second arg of show_raster_with_behav is color range,

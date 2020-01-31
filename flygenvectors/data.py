@@ -380,5 +380,17 @@ def binarize_timeseries(data_in):
     return beh
     # data_dict['ball'] = data_dict['ball'].flatten()
 
+def get_dlc_motion_energy(data_dict):
+    dlc = data_dict['dlc']
+    dlc_energy = np.zeros((dlc.shape[0]-1,8))
 
-
+    for i in range(8):
+        xdataChunk = np.diff(dlc[:,(i-1)*2]); 
+        ydataChunk = np.diff(dlc[:,1+(i-1)*2]);
+        legEnergy = xdataChunk**2 + ydataChunk**2;
+        m = np.quantile(legEnergy, 0.01)
+        M = np.quantile(legEnergy, 0.99)
+        legEnergy[legEnergy<m]=m
+        legEnergy[legEnergy>M]=M
+        dlc_energy[:,i] = legEnergy
+    return dlc_energy
