@@ -363,5 +363,22 @@ def estimate_neuron_behav_tau(data_dict):
     return tauList, a
 
 
+def binarize_timeseries(data_in):
+    # use GMM to turn scalar-valued timeseries into binary
+    from sklearn.mixture import GaussianMixture
+
+    gmm = GaussianMixture(n_components=2, means_init=[[0.5],[0.8]])
+    log_beh = np.log(data_in)-np.log(data_in).min()
+    log_beh = log_beh/log_beh.max()
+    gmm_beh_fit = gmm.fit_predict(log_beh)
+    mean_0 = log_beh[gmm_beh_fit==0].mean()
+    mean_1 = log_beh[gmm_beh_fit==1].mean()
+    if (mean_0<mean_1):
+        beh = gmm_beh_fit
+    else:
+        beh = np.logical_not(gmm_beh_fit)
+    return beh
+    # data_dict['ball'] = data_dict['ball'].flatten()
+
 
 

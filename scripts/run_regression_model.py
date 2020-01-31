@@ -50,9 +50,9 @@ main_fig_dir = '/Users/evan/Dropbox/_AxelLab/__flygenvectors/figs/'
 # main_dir = '/Volumes/data1/_flygenvectors_dataShare/_main/_sparseLines/'
 # main_fig_dir = '/Volumes/data1/figsAndMovies/figures/'
 
-exp_date = '2019_07_01' #'2018_08_24' 
-fly_num = 'fly2' #'fly3_run1'
-remake_pickle = True
+exp_date = '2019_10_14' #'2019_10_02' #'2019_07_01' #'2018_08_24' 
+fly_num = 'fly3' #'fly2' #'fly3_run1'
+remake_pickle = False
 pval = 0.01
 
 data_dict = dataUtils.load_timeseries_simple(exp_date,fly_num,main_dir)
@@ -70,19 +70,19 @@ if not os.path.exists(fig_folder):
 
 
 
-# BINARIZE BEHAVIOR --------------------------------------------------------------------
-gmm = GaussianMixture(n_components=2, means_init=[[0.5],[0.8]])
-log_beh = np.log(data_dict['ball'])-np.log(data_dict['ball']).min()
-log_beh = log_beh/log_beh.max()
-gmm_beh_fit = gmm.fit_predict(log_beh) #np.expand_dims(data_dict['ball'],axis=1))
-mean_0 = log_beh[gmm_beh_fit==0].mean()
-mean_1 = log_beh[gmm_beh_fit==1].mean()
-if (mean_0<mean_1):
-    beh = gmm_beh_fit
-else:
-    beh = np.logical_not(gmm_beh_fit)
-data_dict['ball'] = beh.copy()
-
+# # BINARIZE BEHAVIOR --------------------------------------------------------------------
+# gmm = GaussianMixture(n_components=2, means_init=[[0.5],[0.8]])
+# log_beh = np.log(data_dict['ball'])-np.log(data_dict['ball']).min()
+# log_beh = log_beh/log_beh.max()
+# gmm_beh_fit = gmm.fit_predict(log_beh) #np.expand_dims(data_dict['ball'],axis=1))
+# mean_0 = log_beh[gmm_beh_fit==0].mean()
+# mean_1 = log_beh[gmm_beh_fit==1].mean()
+# if (mean_0<mean_1):
+#     beh = gmm_beh_fit
+# else:
+#     beh = np.logical_not(gmm_beh_fit)
+# data_dict['ball'] = beh.copy()
+data_dict['ball'] = data_dict['ball'].flatten()
 
 
 # VISUALIZE RAW DATA --------------------------------------------------------------------
@@ -91,7 +91,7 @@ data_dict['ball'] = beh.copy()
 dt = data_dict['time'][1]-data_dict['time'][0]
 tPl = data_dict['time'][0]+np.linspace(0,dt*len(data_dict['time']),len(data_dict['time']))
 data_dict['tPl'] = tPl
-plotting.show_raster_with_behav(data_dict,(0,0.2))
+plotting.show_raster_with_behav(data_dict,color_range=(0,0.2),include_feeding=False,include_dlc=True)
 plt.savefig(fig_folder + exp_date + '_' + fly_num +'_raster.pdf',transparent=True, bbox_inches='tight')
 
 
@@ -106,8 +106,8 @@ if remake_pickle:
 else:
     model_fit = pickle.load( open( fig_folder + exp_date + '_' + fly_num +'_reg_model.pkl', "rb" ) )
 tauList = np.logspace(np.log10(data_dict['scanRate']),np.log10(100*data_dict['scanRate']),num=200)  
-# plotting.show_tau_scatter(model_fit)
-# plt.savefig(fig_folder + exp_date + '_' + fly_num +'_tauScatter.pdf',transparent=True, bbox_inches='tight')
+plotting.show_tau_scatter(model_fit)
+plt.savefig(fig_folder + exp_date + '_' + fly_num +'_tauScatter.pdf',transparent=True, bbox_inches='tight')
 
 
 
