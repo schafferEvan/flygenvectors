@@ -45,6 +45,23 @@ def fit_reg(params, data):
     obj = ((dFF[len(t_exp)-1:]-dFF_fit)**2).sum()
     return obj
 
+def fit_reg_taulist(params_hat, data_hat):
+    [t_exp, time, ball, dFF, tau] = data_hat
+    data = [t_exp, time, ball, dFF]
+    params = np.concatenate((params_hat,[tau]))
+    dFF_fit = tau_reg_model(params, data)
+    obj = ((dFF[len(t_exp)-1:]-dFF_fit)**2).sum()
+    return obj
+
+def fit_reg_linear(data):
+    # for a given tau, fit for other parameters is linear, solved by pseudoinverse
+    [D, Dinv, dFF] = data
+    dFF = np.expand_dims(dFF, axis=0)
+    p = np.matmul( np.matmul(dFF,D.T), Dinv )
+    dFF_fit = np.matmul(p,D)
+    obj = ((dFF-dFF_fit)**2).sum()
+    return p, obj
+
 def estimate_SINGLE_neuron_behav_reg_model(dFF, ball, time, scanRate, initial_conds=[]):
     # find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
     tauLim = 100*scanRate
@@ -141,3 +158,93 @@ def estimate_neuron_behav_reg_model(data_dict, initial_conds=[]):
         d['success'] = res['success']
         model_fit.append(d)
     return model_fit
+
+
+def estimate_neuron_behav_reg_model_taulist(data_dict):
+    # find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
+    tauLimSec = 100
+    tauLim = tauLimSec*data_dict['scanRate']
+    M = round(-tauLim*np.log(0.2)).astype(int)
+    t_exp = np.linspace(1,M,M)/data_dict['scanRate']
+    ball = data_dict['behavior']
+    time = data_dict['time']-data_dict['time'][0]
+    ts = np.squeeze(time[:-M+1])
+    tauList = np.logspace(0,np.log10(tauLimSec),num=200)
+    tau_star = np.zeros(data_dict['dFF'].shape[0])
+    fn_min = np.inf*np.ones(data_dict['dFF'].shape[0])
+    P = np.zeros((data_dict['dFF'].shape[0],4))
+
+    for i in range(len(tauList)):
+        if not np.mod(i,10): print(i, end=' ')
+        # [t_exp, time, ball, dFF] = data
+        tau = tauList[i]
+        kern = (1/np.sqrt(tau))*np.exp(-t_exp/tau)
+        x_c = np.convolve(kern,ball,'valid')
+        D = np.array( [np.ones(len(x_c)), ts, x_c, ts*x_c/ts[-1]] )
+        Dinv = np.linalg.inv( np.matmul(D,D.T))
+
+        for j in range(data_dict['dFF'].shape[0]):
+            dFF = data_dict['dFF'][j,M-1:]
+            data = [D, Dinv, dFF]
+            p, obj = fit_reg_linear(data)
+            if (obj<fn_min[j]):
+                tau_star[j] = tauList[i]
+                P[j,:] = p
+                fn_min[j] = obj
+
+    # IN LOOP BELOW, NEED TO USE TAU_STAR[j] AND P TO COMPUTE STUFF AND SAVE IN CORRECT FORMAT
+
+    model_fit = []
+    for j in range(data_dict['dFF'].shape[0]):
+        dFF = data_dict['dFF'][j,M-1:]
+        p = P[j,:]
+        tau = tau_star[j]
+        kern = (1/np.sqrt(tau))*np.exp(-t_exp/tau)
+        x_c = np.convolve(kern,ball,'valid')
+        D = np.array( [np.ones(len(x_c)), ts, x_c, ts*x_c/ts[-1]] )
+        dFF_fit = np.matmul(p,D)
+        p_lin = p.copy()
+        p_lin[2:] = 0
+        dFF_fit_linpart = np.matmul(p_lin,D)
+
+        # null model
+        D_n = np.array( [np.ones(len(x_c)), ts] )
+        Dinv_n = np.linalg.inv( np.matmul(D_n,D_n.T))
+        p_n, obj = fit_reg_linear([D_n, Dinv_n, dFF])
+        dFF_fit_null = np.squeeze(np.matmul(p_n,D_n))
+        
+        # r squared
+        # pdb.set_trace()
+        # print(dFF_fit_linpart.shape)
+        # print(dFF.shape)
+        # print(dFF_fit.shape)
+        # print(dFF_fit_null.shape)
+        SS_tot = ( (dFF-dFF.mean()-dFF_fit_linpart)**2 )
+        SS_res = ( (dFF-dFF_fit)**2 )
+        SS_tot_0 = ( (dFF-dFF.mean())**2 )
+        SS_res_0 = ( (dFF-dFF_fit_null)**2 )
+        stat = stats.wilcoxon(SS_res_0,SS_res)
+
+        # CC
+        CC = np.corrcoef(dFF, dFF_fit)[0,1] 
+        CC_null = np.corrcoef(dFF, dFF_fit_null)[0,1] 
+
+        # collecting
+        d = {}
+        d['alpha_0_null'] = p_n[0,0]
+        d['alpha_1_null'] = p_n[0,1]
+        d['alpha_0'] = p[0]
+        d['alpha_1'] = p[1]
+        d['beta_0'] = p[2]
+        d['beta_1'] = p[3]
+        d['tau'] = tau_star[j]
+        d['r_sq'] = 1-SS_res.sum()/SS_tot.sum()
+        d['r_sq_null'] = 1-SS_res_0.sum()/SS_tot_0.sum()
+        d['CC'] = CC
+        d['CC_null'] = CC_null
+        d['stat'] = stat
+        d['success'] = True #res['success']
+        model_fit.append(d)
+    return model_fit
+
+

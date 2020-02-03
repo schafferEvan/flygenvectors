@@ -51,8 +51,8 @@ main_fig_dir = '/Users/evan/Dropbox/_AxelLab/__flygenvectors/figs/'
 # main_dir = '/Volumes/data1/_flygenvectors_dataShare/_main/_sparseLines/'
 # main_fig_dir = '/Volumes/data1/figsAndMovies/figures/'
 
-exp_date = '2019_10_14' #'2019_10_02' #'2019_07_01' #'2018_08_24' 
-fly_num = 'fly3' #'fly2' #'fly3_run1'
+exp_date = '2018_08_24' #'2019_10_14' #'2019_10_02' #'2019_07_01' #
+fly_num = 'fly2_run2' #'fly3_run1' #'fly3' #'fly2' #
 remake_pickle = True
 pval = 0.01
 
@@ -70,7 +70,7 @@ if not os.path.exists(fig_folder):
     
 
 # CHOOSE BEHAVIOR TIMESERIES WITH WHICH TO DO ANALYSES -----------------------------------
-behavior_source = 'dlc_med' #{dlc_med, ball_raw, ball_binary}
+behavior_source = 'ball_raw' #{dlc_med, ball_raw, ball_binary}
 
 if (behavior_source == 'dlc_med'):
     dlc_energy = dataUtils.get_dlc_motion_energy(data_dict)
@@ -92,7 +92,10 @@ elif (behavior_source == 'ball_binary'):
 dt = data_dict['time'][1]-data_dict['time'][0]
 tPl = data_dict['time'][0]+np.linspace(0,dt*len(data_dict['time']),len(data_dict['time']))
 data_dict['tPl'] = tPl
-plotting.show_raster_with_behav(data_dict,color_range=(0,0.2),include_feeding=False,include_dlc=True)
+if (exp_date == '2018_08_24'):
+	plotting.show_raster_with_behav(data_dict,color_range=(0,0.2),include_feeding=False,include_dlc=False)
+else:
+	plotting.show_raster_with_behav(data_dict,color_range=(0,0.2),include_feeding=False,include_dlc=True)
 plt.savefig(fig_folder + exp_date + '_' + fly_num +'_raster.pdf',transparent=True, bbox_inches='tight')
 
 
@@ -102,7 +105,8 @@ plt.savefig(fig_folder + exp_date + '_' + fly_num +'_raster.pdf',transparent=Tru
 # find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
 # tauList, corrMat = dataUtils.estimate_neuron_behav_tau(data_dict)
 if remake_pickle:
-    model_fit = model.estimate_neuron_behav_reg_model(data_dict)
+    # model_fit = model.estimate_neuron_behav_reg_model(data_dict)
+    model_fit = model.estimate_neuron_behav_reg_model_taulist(data_dict)
     pickle.dump( model_fit, open( fig_folder + exp_date + '_' + fly_num +'_reg_model.pkl', "wb" ) )
 else:
     model_fit = pickle.load( open( fig_folder + exp_date + '_' + fly_num +'_reg_model.pkl', "rb" ) )
@@ -113,7 +117,7 @@ plt.savefig(fig_folder + exp_date + '_' + fly_num +'_tauScatter.pdf',transparent
 
 
 # SHOW MODEL RESIDUAL -------------------------------------------------------
-plotting.show_residual_raster(data_dict, model_fit)
+plotting.show_residual_raster(data_dict, model_fit, exp_date)
 plt.savefig(fig_folder + exp_date + '_' + fly_num +'_residual.pdf',transparent=True,bbox_inches='tight')
 
 # # SHOW older PCA MODEL RESIDUAL -------------------------------------------------------
