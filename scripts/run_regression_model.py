@@ -51,8 +51,8 @@ main_fig_dir = '/Users/evan/Dropbox/_AxelLab/__flygenvectors/figs/'
 # main_dir = '/Volumes/data1/_flygenvectors_dataShare/_main/_sparseLines/'
 # main_fig_dir = '/Volumes/data1/figsAndMovies/figures/'
 
-exp_date = '2018_08_24' #'2019_10_14' #'2019_10_02' #'2019_07_01' #
-fly_num = 'fly2_run2' #'fly3_run1' #'fly3' #'fly2' #
+exp_date = '2019_06_28' #'2019_10_14' #'2019_07_01' #'2018_08_24' #'2019_10_21' #'2019_10_02' #
+fly_num = 'fly2' #'fly3' #'fly2_run2' #'fly3_run1' #
 remake_pickle = True
 pval = 0.01
 
@@ -111,6 +111,7 @@ if remake_pickle:
 else:
     model_fit = pickle.load( open( fig_folder + exp_date + '_' + fly_num +'_reg_model.pkl', "rb" ) )
 tauList = np.logspace(np.log10(data_dict['scanRate']),np.log10(100*data_dict['scanRate']),num=200)  
+tauList_signed = np.concatenate((-tauList[::-1],tauList))
 plotting.show_tau_scatter(model_fit)
 plt.savefig(fig_folder + exp_date + '_' + fly_num +'_tauScatter.pdf',transparent=True, bbox_inches='tight')
 
@@ -128,12 +129,16 @@ plt.savefig(fig_folder + exp_date + '_' + fly_num +'_residual.pdf',transparent=T
 
 # MAKE BRAIN VOLUME WITH CELLS COLOR CODED BY TAU -----------------------------------------
 f = plotting.get_model_fit_as_dict(model_fit)
-f['sig'] = (f['stat']<pval)*(f['stat']>0)
+f['sig'] = (f['stat']<pval)*(f['rsq']>f['rsq_null'])
 tau_argmax = np.zeros(f['tau'].shape)
+tau_argmax_signed = np.zeros(f['tau'].shape)
 for i in range(len(tau_argmax)):
-    tau_argmax[i] = np.argmin(np.abs(f['tau'][i]-tauList/data_dict['scanRate']))
+    tau_argmax[i] = np.argmin(abs( abs(f['tau'][i]) - tauList/data_dict['scanRate'] ))
+    tau_argmax_signed[i] = np.argmin(abs( f['tau'][i] - tauList_signed/data_dict['scanRate'] ))
 tau_argmax = tau_argmax.astype(int)
 tau_argmax[np.logical_not(f['success']*f['sig'])] = 0
+tau_argmax_signed = tau_argmax_signed.astype(int)
+tau_argmax_signed[np.logical_not(f['success']*f['sig'])] = 0
 clrs = len(tauList)
 R, mask_vol = plotting.make_colorCoded_cellMap(tau_argmax, clrs, data_dict)
 
@@ -173,6 +178,12 @@ plt.savefig(fig_folder + exp_date + '_' + fly_num +'_tauMap.pdf',transparent=Tru
 # MAKE BRAIN VOLUME WITH CELLS *as points* COLOR CODED BY TAU ---------------------------------
 plotting.show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax)
 plt.savefig(fig_folder + exp_date + '_' + fly_num +'_tauMap_pts.pdf',bbox_inches='tight')
+
+# MAKE BRAIN VOLUME WITH CELLS *as points* COLOR CODED BY signed TAU --------------------------
+# ryb = cm.get_cmap('RdYlBu', 101)
+# ryb = ListedColormap(ryb(np.linspace(-100, 100, 101)))
+plotting.show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax_signed, cmap='RdYlBu', pval=0.01, color_lims=[0, len(tauList_signed)-1])
+plt.savefig(fig_folder + exp_date + '_' + fly_num +'_tauMap_signed_pts.pdf',bbox_inches='tight')
 
 
 

@@ -31,10 +31,14 @@ def tau_reg_model(params, data):
     b1 = params[3]
     tau = params[4]
     [t_exp, time, ball, dFF] = data
-    kern = (1/np.sqrt(tau))*np.exp(-t_exp/tau)
-    x_c = np.convolve(kern,ball,'valid')
-    ts = np.squeeze(time[:len(x_c)]/time[len(x_c)])
 
+    if (tau>=0):
+        kern = (1/np.sqrt(tau))*np.exp(-t_exp/tau)
+        x_c = np.convolve(kern,ball,'valid')
+    else:
+        kern = (1/np.sqrt(-tau))*np.exp(t_exp/tau)
+        x_c = np.convolve(kern[::-1],ball,'valid')
+    ts = np.squeeze(time[:len(x_c)]/time[len(x_c)])
     lin_piece = a0 + a1*time
     dFF_fit =  np.squeeze(lin_piece[:len(x_c)]) + b0*x_c + b1*(x_c*ts )
     return dFF_fit
@@ -160,7 +164,7 @@ def estimate_neuron_behav_reg_model(data_dict, initial_conds=[]):
     return model_fit
 
 
-def estimate_neuron_behav_reg_model_taulist(data_dict):
+def estimate_neuron_behav_reg_model_taulist(data_dict,both_directions=True):
     # find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
     tauLimSec = 100
     tauLim = tauLimSec*data_dict['scanRate']
@@ -170,6 +174,9 @@ def estimate_neuron_behav_reg_model_taulist(data_dict):
     time = data_dict['time']-data_dict['time'][0]
     ts = np.squeeze(time[:-M+1])
     tauList = np.logspace(0,np.log10(tauLimSec),num=200)
+    if both_directions:
+        tauList = np.concatenate((-tauList[::-1],tauList))
+
     tau_star = np.zeros(data_dict['dFF'].shape[0])
     fn_min = np.inf*np.ones(data_dict['dFF'].shape[0])
     P = np.zeros((data_dict['dFF'].shape[0],4))
@@ -177,14 +184,20 @@ def estimate_neuron_behav_reg_model_taulist(data_dict):
     for i in range(len(tauList)):
         if not np.mod(i,10): print(i, end=' ')
         # [t_exp, time, ball, dFF] = data
-        tau = tauList[i]
+        tau = abs(tauList[i])
         kern = (1/np.sqrt(tau))*np.exp(-t_exp/tau)
-        x_c = np.convolve(kern,ball,'valid')
+        if (tauList[i]>=0):
+            x_c = np.convolve(kern,ball,'valid')
+        else:
+            x_c = np.convolve(kern[::-1],ball,'valid')
         D = np.array( [np.ones(len(x_c)), ts, x_c, ts*x_c/ts[-1]] )
         Dinv = np.linalg.inv( np.matmul(D,D.T))
 
         for j in range(data_dict['dFF'].shape[0]):
-            dFF = data_dict['dFF'][j,M-1:]
+            if (tauList[i]>=0):
+                dFF = data_dict['dFF'][j,M-1:]
+            else:
+                dFF = data_dict['dFF'][j,:-M+1]
             data = [D, Dinv, dFF]
             p, obj = fit_reg_linear(data)
             if (obj<fn_min[j]):
@@ -192,37 +205,35 @@ def estimate_neuron_behav_reg_model_taulist(data_dict):
                 P[j,:] = p
                 fn_min[j] = obj
 
-    # IN LOOP BELOW, NEED TO USE TAU_STAR[j] AND P TO COMPUTE STUFF AND SAVE IN CORRECT FORMAT
-
     model_fit = []
     for j in range(data_dict['dFF'].shape[0]):
-        dFF = data_dict['dFF'][j,M-1:]
-        p = P[j,:]
-        tau = tau_star[j]
+        tau = abs(tau_star[j])
         kern = (1/np.sqrt(tau))*np.exp(-t_exp/tau)
-        x_c = np.convolve(kern,ball,'valid')
+        if (tau_star[j]>=0):
+            dFF = data_dict['dFF'][j,M-1:]
+            x_c = np.convolve(kern,ball,'valid')
+        else:
+            dFF = data_dict['dFF'][j,:-M+1]
+            x_c = np.convolve(kern[::-1],ball,'valid')
+        p = P[j,:]
         D = np.array( [np.ones(len(x_c)), ts, x_c, ts*x_c/ts[-1]] )
         dFF_fit = np.matmul(p,D)
         p_lin = p.copy()
         p_lin[2:] = 0
         dFF_fit_linpart = np.matmul(p_lin,D)
+        dFF_without_linpart = dFF-dFF_fit_linpart         #  FINISH THIS ---------------
 
-        # null model
+        # null model (linear fit, after subtracting linear part of full model)
         D_n = np.array( [np.ones(len(x_c)), ts] )
         Dinv_n = np.linalg.inv( np.matmul(D_n,D_n.T))
-        p_n, obj = fit_reg_linear([D_n, Dinv_n, dFF])
+        p_n, obj = fit_reg_linear([D_n, Dinv_n, dFF_without_linpart])
         dFF_fit_null = np.squeeze(np.matmul(p_n,D_n))
         
-        # r squared
-        # pdb.set_trace()
-        # print(dFF_fit_linpart.shape)
-        # print(dFF.shape)
-        # print(dFF_fit.shape)
-        # print(dFF_fit_null.shape)
-        SS_tot = ( (dFF-dFF.mean()-dFF_fit_linpart)**2 )
+        # r squared: comparing model to null (linear)
+        SS_tot = ( (dFF_without_linpart-dFF_without_linpart.mean())**2 )
         SS_res = ( (dFF-dFF_fit)**2 )
-        SS_tot_0 = ( (dFF-dFF.mean())**2 )
-        SS_res_0 = ( (dFF-dFF_fit_null)**2 )
+        SS_tot_0 = SS_tot #( (dFF-dFF.mean())**2 )
+        SS_res_0 = ( (dFF_without_linpart-dFF_fit_null)**2 )
         stat = stats.wilcoxon(SS_res_0,SS_res)
 
         # CC

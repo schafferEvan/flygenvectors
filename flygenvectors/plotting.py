@@ -764,38 +764,48 @@ def get_model_fit_as_dict(model_fit):
     fit_dict = {}
     tau = np.zeros(len(model_fit))
     rsq = np.zeros(len(model_fit))
+    rsq_null = np.zeros(len(model_fit))
     stat = np.zeros(len(model_fit))
     success = []
     for i in range(len(model_fit)):
         tau[i] = model_fit[i]['tau']
         rsq[i] = model_fit[i]['r_sq']
-        stat[i] = np.sign(model_fit[i]['r_sq']-model_fit[i]['r_sq_null'])*model_fit[i]['stat'][1]
+        rsq_null[i] = model_fit[i]['r_sq_null']
+        stat[i] = model_fit[i]['stat'][1] #np.sign(model_fit[i]['r_sq']-model_fit[i]['r_sq_null'])*
         success.append(model_fit[i]['success'])
     fit_dict['tau'] = tau
     fit_dict['rsq'] = rsq
+    fit_dict['rsq_null'] = rsq_null
     fit_dict['stat'] = stat
     fit_dict['success'] = success
     return fit_dict
 
 
-def show_tau_scatter(model_fit, pval=1):
-
+def show_tau_scatter(model_fit, pval=.01):
     f = get_model_fit_as_dict(model_fit)
-    tau = f['tau']
+    tau = abs(f['tau'])
+    tau_is_pos = (f['tau']>=0)
     rsq = f['rsq']
+    rsq_null = f['rsq_null']
     stat = f['stat']
     success = f['success']
 
-    pval_text = 0.01
-    sig_text = (stat<pval_text)*(stat>0) # 1-sided test that behavior model > null model
-    tau_sig = tau[success*sig_text]
+    pval_text = pval #0.01
+    sig = (stat<pval)*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
+    # sig_text = (stat<pval_text)*(rsq>rsq_null) # 1-sided test that behavior model > null model
+    tau_sig = tau[success*sig]
+    tau_notsig = tau[np.logical_not(success*sig)]
+    rsq_sig = rsq[success*sig]
+    rsq_notsig = rsq[np.logical_not(success*sig)]
+    tau_is_pos_sig = tau_is_pos[success*sig]
+    tau_is_neg_sig = np.logical_not(tau_is_pos_sig)
+    # print('sum of neg is '+str(sum(tau_is_neg_sig)))
+    # print('sum of neg init is '+str(sum(np.logical_not(tau_is_pos))/len(tau_is_pos)))
+    # print('sum of neg post is '+str( sum( np.logical_not(tau_is_pos)[success*sig] ) ))
+
     print('median tau of significant cells = '+str(np.median(tau_sig)))
     print('frac of significant cells w/ tau above 60s = '+str( np.sum(tau_sig>60)/len(tau_sig) ))
-    print('fraction of cells with p<'+str(pval_text)+' = '+str( (success*sig_text).sum()/len(success) ))
-
-    sig = (stat<pval)*(stat>0) # 1-sided test that behavior model > null model
-    tau = tau[success*sig]
-    rsq = rsq[success*sig]
+    print('fraction of cells with p<'+str(pval)+' = '+str( (success*sig).sum()/len(success) ))
 
     plt.figure(figsize=(5, 5))
     left, width = 0.1, 0.65
@@ -821,7 +831,9 @@ def show_tau_scatter(model_fit, pval=1):
     ymin = 0
     ymax = 1
 
-    ax_scatter.scatter(tau,rsq,marker='.',alpha=0.3)
+    ax_scatter.scatter(tau_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=0.3)
+    ax_scatter.scatter(tau_sig[tau_is_pos_sig],rsq_sig[tau_is_pos_sig],c='tab:blue',marker='.',alpha=0.3) #'#1f77b4'
+    ax_scatter.scatter(tau_sig[tau_is_neg_sig],rsq_sig[tau_is_neg_sig],c='tab:red',marker='.',alpha=0.3)
     ax_scatter.set_xscale('log')
     ax_scatter.set_xlim((xmin,xmax))
     ax_scatter.set_ylim((ymin,ymax))
@@ -832,9 +844,9 @@ def show_tau_scatter(model_fit, pval=1):
     ybinwidth = 0.05
     ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
     xbins = np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
-    ax_histx.hist(tau, bins=xbins,log=True)
+    ax_histx.hist(tau, bins=xbins,log=True,color='#929591')
     ax_histx.set_xlim((xmin,xmax))
-    ax_histy.hist(rsq, bins=ybins, orientation='horizontal')
+    ax_histy.hist(rsq, bins=ybins, orientation='horizontal',color='#929591')
     ax_histy.set_ylim((ymin,ymax))
 
 
@@ -940,12 +952,12 @@ def make_colorBar_for_colorCoded_cellMap(R, mask_vol, tauList, tau_label_list, t
         cbar.ax.set_title(colorbar_title)
 
 
-def show_residual_raster(data_dict, model_fit):
+def show_residual_raster(data_dict, model_fit, exp_date):
     import regression_model as model
     tauLim = 100*data_dict['scanRate']
     M = round(-tauLim*np.log(0.2)).astype(int)
     t_exp = np.linspace(1,M,M)/data_dict['scanRate']
-    ball = data_dict['ball']
+    ball = data_dict['behavior']
     time = data_dict['time']-data_dict['time'][0]
     model_residual = np.zeros(data_dict['dFF'][:,M-1:].shape)
 
@@ -956,13 +968,22 @@ def show_residual_raster(data_dict, model_fit):
         dFF = data_dict['dFF'][j,:]
         data = [t_exp, time, ball, dFF]
         dFF_fit = model.tau_reg_model(pars, data)
-        model_residual[j,:] = dFF[M-1:]-dFF_fit
+        if (d['tau']>=0):
+            model_residual[j,:] = dFF[M-1:]-dFF_fit
+        else:
+            model_residual[j,:] = dFF[:-M+1]-dFF_fit
+        
 
+    # pdb.set_trace()
     data_dict_tmp = data_dict.copy()
     data_dict_tmp['dFF'] = model_residual
     data_dict_tmp['tPl'] = data_dict_tmp['tPl'][M-1:]
-    data_dict_tmp['ball'] = data_dict_tmp['ball'][M-1:]
-    axes = show_raster_with_behav(data_dict_tmp,color_range=(-0.1,0.1))
+    data_dict_tmp['ball'] = data_dict_tmp['ball'][M-1:].flatten()
+    if (exp_date == '2018_08_24'):
+        axes = show_raster_with_behav(data_dict_tmp,color_range=(-0.1,0.1),include_feeding=False,include_dlc=False)
+    else:
+        data_dict_tmp['dlc'] = data_dict_tmp['dlc'][M-1:,:]
+        axes = show_raster_with_behav(data_dict_tmp,color_range=(-0.1,0.1),include_feeding=False,include_dlc=True)
     axes[0].set_title('Residual')
 
 
@@ -1006,7 +1027,7 @@ def show_PC_residual_raster(data_dict):
 
 
 
-def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pval=0.01):
+def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pval=0.01, color_lims=[0,200]):
     from matplotlib import colors
     import matplotlib.cm as cm
     from matplotlib.colors import ListedColormap
@@ -1020,7 +1041,7 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pv
     gry = ListedColormap(gry(np.linspace(.8, 1, 2)))
 
     f = get_model_fit_as_dict(model_fit)
-    sig = f['success']*(f['stat']<pval)*(f['stat']>0) # 1-sided test that behavior model > null model
+    sig = f['success']*(f['stat']<pval)*(f['rsq']>f['rsq_null']) # 1-sided test that behavior model > null model
     not_sig = np.logical_not(sig)
     
 
@@ -1034,12 +1055,12 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pv
 
     ax2 = plt.axes([.05+zpx,  (.05+zpx)/totScale,  ypx,  xpx/totScale])
     ax1 = plt.axes([.04,      (.05+zpx)/totScale,  zpx,  xpx/totScale])
-    ax3 = plt.axes([.05+zpx,  .04/totScale,      ypx,  zpx/totScale])
+    ax3 = plt.axes([.05+zpx,  .04/totScale,        ypx,  zpx/totScale])
 
     ax1.scatter(data_dict['aligned_centroids'][not_sig,2],
                 data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
     ax1.scatter(data_dict['aligned_centroids'][sig,2],
-                data_dict['aligned_centroids'][sig,1], c=tau_argmax[sig], cmap=cmap, s=point_size)
+                data_dict['aligned_centroids'][sig,1], c=tau_argmax[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
     ax1.set_facecolor((0.0, 0.0, 0.0))
     ax1.set_xticks([])
     ax1.set_yticks([])
@@ -1051,13 +1072,14 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pv
     ax2.scatter(data_dict['aligned_centroids'][not_sig,0],
                 data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
     ax2.scatter(data_dict['aligned_centroids'][sig,0],
-                data_dict['aligned_centroids'][sig,1], c=tau_argmax[sig], cmap=cmap, s=point_size)
+                data_dict['aligned_centroids'][sig,1], c=tau_argmax[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
     ax2.set_facecolor((0.0, 0.0, 0.0))
     ax2.set_xticks([])
     ax2.set_yticks([])
     ax2.set_xlim(0,template_dims[1])
     ax2.set_ylim(0,template_dims[0])
     ax2.invert_yaxis()
+
 
     ypx_per_um = template_dims[1]/dims_in_um[1]
     scaleBar_um = 50 #50 um
@@ -1068,7 +1090,7 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pv
     ax3.scatter(data_dict['aligned_centroids'][not_sig,0],
                 data_dict['aligned_centroids'][not_sig,2], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
     ax3.scatter(data_dict['aligned_centroids'][sig,0],
-                data_dict['aligned_centroids'][sig,2], c=tau_argmax[sig], cmap=cmap, s=point_size)
+                data_dict['aligned_centroids'][sig,2], c=tau_argmax[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
     ax3.set_facecolor((0.0, 0.0, 0.0))
     ax3.set_xticks([])
     ax3.set_yticks([])
@@ -1230,6 +1252,8 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
             axes[1+i].set_xlim([min(tPl),max(tPl)])
             axes[1+i].set_xticks([])
             axes[1+i].set_yticks([])
+            if (i==3):
+                axes[1+i].set_ylabel('DLC point      \n') #extra space here centers label
 
     
 
@@ -1240,7 +1264,8 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
         axes[-1].plot(tPl,feed,'c')
         axes[-1].set_ylabel('feeding\nlocomotion')
     else:
-        axes[-1].set_ylabel('locomotion')
+        axes[-1].set_ylabel('ball\n')
+    axes[-1].set_yticks([])
     plt.xlabel('Time (s)')
 
     plt.subplots_adjust(right=0.8)
@@ -1324,7 +1349,8 @@ def show_example_cells_bestTau(cell_ids, corrMat, tauList, data_dict):
             axes.set_ylabel('Beh\nMAX')
 
 
-def make_hot_without_black(clrs=100, low_bnd=0.1):
+def make_hot_without_black(clrs=100, low_bnd=0.15):
+    # old low_bnd=0.1
     from matplotlib import cm
     from matplotlib.colors import ListedColormap
     hot = cm.get_cmap('hot', clrs)
