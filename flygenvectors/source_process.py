@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 """ Suite of functions to process scape data after source extraction
-
 @author evan schaffer
 """
 # Created Jan 3 2019
@@ -15,7 +14,7 @@ import numpy as np
 import pickle
 import warnings
 from scipy import sparse, optimize, io
-from scipy.optimize import minimize
+from scipy.optimize import minimize, nnls
 import matplotlib.pyplot as plt
 from matplotlib.cm import get_cmap
 from skimage.restoration import denoise_tv_chambolle
@@ -26,6 +25,7 @@ import colorsys
 from sklearn.decomposition import FastICA
 from numpy.polynomial.polynomial import Polynomial as poly
 from scipy.ndimage.filters import gaussian_filter1d as gsm
+import pdb
 
 
 class dataObj:
@@ -35,7 +35,8 @@ class dataObj:
         self.trialFlag = np.ndarray(shape=(1,1))  
         self.time = np.ndarray(shape=(1,1))    
         self.ball = np.ndarray(shape=(1,1))     
-        self.dlc = np.ndarray(shape=(1,1))     
+        self.dlc = np.ndarray(shape=(1,1))  
+        self.beh_labels = np.ndarray(shape=(1,1))   
         self.dims = np.ndarray(shape=(1,1))  
         self.dims_in_um = np.ndarray(shape=(1,1))  
         self.im = np.ndarray(shape=(1,1))   
@@ -127,6 +128,38 @@ class scape:
             if ((sum(self.O[i,:])>0) and (sum(self.dOO[i,:])>0)):
                 self.oIsGood[i]=1
     
+
+    def makeNNLS_F0_multiExp(self, data):
+        # nonnegative lsq version 
+        self.F0 = np.zeros(np.shape(data))
+        self.Y0rescaled = np.zeros(np.shape(data))
+        self.rsq = np.zeros((np.shape(data)[0],1))
+
+        # make time/trail matrix
+        ftime = np.arange(0,len(self.good.trialFlag),1)
+        X = np.zeros((len(self.good.trialFlag),1+len(self.trList)))
+        for i in range(len(self.trList)):
+            if (i==len(self.trList)-1):
+                X[self.trList[i]:,i] = 1
+                X[self.trList[i]:,-1] = ftime[self.trList[i]:]-ftime[self.trList[i]]
+            else:
+                X[self.trList[i]:,i] = 1
+                X[self.trList[i]:self.trList[i+1]-1,-1] = ftime[self.trList[i]:self.trList[i+1]-1]-ftime[self.trList[i]]
+        X = -X
+
+        nC = np.shape(data)[0]
+        printFreq = int(nC/10)
+        for i in range(0, nC):
+            self.showProgress(i,printFreq)
+            pdb.set_trace()
+            betaR,rnorm = nnls(X,np.log(data[i,:]))
+            alphas = -np.cumsum(betaR[:-1])
+            self.F0[i,:] = multiExpFun(ftime, np.exp(alphas), 0, self.trList, 1/betaR[-1])
+            self.Y0rescaled[i,:] = np.multiply( self.F0[i,:], self.max[i]-self.min[i] ) + self.min[i]
+            c = np.cov(self.F0[i,:], data[i,:])
+            self.rsq[i] = (c[0,1]/np.sqrt(c[0,0]*c[1,1]))**2
+
+
 
     def makeQuantileF0_multiExp(self, data, bnds, poptPrev):
         # explicitly passing in data rather than referencing attribute, so data can be 'Y' or 'C'
@@ -258,59 +291,62 @@ class scape:
         self.cc = np.matmul(X, np.transpose(X))/np.shape(X)[1]
 
 
-    def getGoodComponentsFull(self):
+    def getGoodComponentsFull(self, redTh=100, grnTh=0):
         
-        ampTh = 500 #1500 #2000 # discard if max of trace is below this
-        redTh = 100 #200 #2000 # discard if max of trace is below this
-        magTh = 50 #2 #1  #discard if mean of dOO is greater than this (motion)
-        minTh = 1 # discard if min is greater than this
-        maxTh = 0.2 #0.3 # discard if max is smaller than this
-        rgccTh = 0.98 #0.9 # discard units in which red and green are very correlated
-        motionTh = 10 # signal this large is probably artifact
+        # grnTh = 25  # discard if max of trace is below this (not a cell). By design, this is a weak threshold to allow for inactive cells
+        # redTh = 200 # discard if max of trace is below this (not a cell). This is the main threshold for accepting ROIs as cells
+        # magTh = 50 #2 #1  #discard if mean of dOO is greater than this (motion)
+        # minTh = 2 #1 # discard if min is greater than this (motion)
+        # maxTh = 0.1 #0.2 # discard if max is smaller than this (just noise)
+        rgccTh = 0.95 #0.9 # discard units in which red and green are very correlated
+        motionTh = 10 # signal this large is probably motion artifact
         
         My = np.max(self.good.Y, axis=1)
         Mr = np.max(self.good.R, axis=1)
         Mo = np.max(self.dOO, axis=1)
 
-        self.getDatacorr(self.dOO, self.good.Y)
-        ogCorr = self.dataCorr
-        self.getDatacorr(self.dOO, self.good.R)
-        orCorr = self.dataCorr
-        oMoreGreen = np.array(orCorr<ogCorr)
-        self.oMoreGreen = oMoreGreen.flatten()
+        # self.getDatacorr(self.dOO, self.good.Y)
+        # ogCorr = self.dataCorr
+        # self.getDatacorr(self.dOO, self.good.R)
+        # orCorr = self.dataCorr
+        # oMoreGreen = np.array(abs(orCorr)<abs(ogCorr))
+        # self.oMoreGreen = oMoreGreen.flatten()
 
         self.isNotMotion = np.array(Mo<motionTh)
-        self.ampIsGood = np.array(My>ampTh)
+        self.ampIsGood = np.array(My>grnTh)
         self.redIsGood = np.array(Mr>redTh)
         rgccIsGood = np.array(self.rgCorr<rgccTh)
         self.rgccIsGood = rgccIsGood.flatten()
-        self.minIsGood = np.array(np.min(self.dOO, axis=1)<minTh)
-        self.maxIsGood = np.array(np.max(self.dOO, axis=1)>maxTh)
-        self.magIsGood = np.array(np.mean(self.dOO, axis=1)<magTh)
+        # self.minIsGood = np.array(np.min(self.dOO, axis=1)<minTh)
+        # self.maxIsGood = np.array(np.max(self.dOO, axis=1)>maxTh)
+        # self.magIsGood = np.array(np.mean(self.dOO, axis=1)<magTh)
         oIsGood = np.array(self.oIsGood>0)
         self.oIsGood = oIsGood.flatten()
-        self.goodIds = self.isNotMotion & self.ampIsGood & self.minIsGood & self.maxIsGood & self.magIsGood & self.rgccIsGood & self.oMoreGreen & self.redIsGood
+        self.goodIds = self.isNotMotion & self.ampIsGood & self.rgccIsGood & self.redIsGood
+        # self.activeIds = self.maxIsGood
+        #& self.minIsGood
+        # pdb.set_trace()
 
         self.dOO = self.dOO[self.goodIds,:]
         self.dYY = self.dYY[self.goodIds,:]
         self.dRR = self.dRR[self.goodIds,:]
         self.good.A  = self.raw.A[:,self.goodIds]
 
-    def hierCluster(self, nClust):
+    def hierCluster_fixedN(self,nClust):
         # version with prespecified cluster number
         cluster = AgglomerativeClustering(n_clusters=nClust, affinity='euclidean', linkage='ward')  
-
-        # version with specified cluster metric but not cluster number
-        # d = sch.distance.pdist(corrData)   # vector of ('55' choose 2) pairwise distances
-        # L = sch.linkage(d, method='weighted') #'complete' #average
-        # # self.clustInd = sch.fcluster(L, 0.1*d.max(), 'distance')
-        # # self.clustInd = sch.fcluster(L, 0.5, 'inconsistent')
-        # self.clustInd = sch.fcluster(L, 3.0, 'distance')
-
         cluster.fit_predict(self.dOO)  
         self.cluster_labels = cluster.labels_
-        # self.clustInd = np.argsort(cluster.labels_)
-        #io.savemat(fig_folder + exp_date + '_' + fly_num + '_clust.mat',{'clust':cluster.labels_,'idx':idx})
+
+    def hierCluster(self):
+        # version using sklearn with variable cluster number
+        cluster = AgglomerativeClustering(
+            n_clusters=None, affinity='cosine', 
+            linkage='complete', distance_threshold=0.8)  #1.
+        cluster.fit_predict(self.dOO)  
+        # idx_new = np.argsort(cluster.labels_)
+        self.cluster_labels = cluster.labels_
+        print('found '+str(len(np.unique(cluster.labels_)))+' clusters')
 
 
     def getIdxList(self, longList, shortList):
@@ -322,7 +358,7 @@ class scape:
 
     def showProgress(self, i, printFreq):
         if(not np.mod(i,printFreq)):
-            print(i,end=" ")
+            print(i)
             sys.stdout.flush()
 
     def trimTrialStart(self,secsToTrim):
@@ -341,9 +377,15 @@ class scape:
         self.good.trialFlag = self.raw.trialFlag[isAkeeper[:,0]>0]
         self.good.time = self.raw.time[isAkeeper[:,0]>0]
         self.good.ball = self.raw.ball[isAkeeper[:,0]>0]
-        self.good.dlc = self.raw.dlc[:,isAkeeper[:,0]>0]
+        if(self.raw.dlc.shape[0]>2):
+            self.good.dlc = self.raw.dlc[:,isAkeeper[:,0]>0]
+        else:
+            self.good.dlc = self.raw.dlc
         self.good.dlc = self.good.dlc.T
-        
+        if(len(self.raw.beh_labels)>2):
+            self.good.beh_labels = self.raw.beh_labels[isAkeeper[:,0]>0]
+        else:
+            self.good.beh_labels = self.raw.beh_labels
 
 
 
@@ -356,13 +398,14 @@ class scape:
                 'Ygoodsc':self.Ygoodsc,'Rgoodsc':self.Rgoodsc,
                 'Y0sc':self.Y0sc,'R0sc':self.R0sc,'Fexp':self.Y0,'Rexp':self.R0,'O':self.O,
                 'rsq':self.rsq,'oIsGood':self.oIsGood,'goodIds':self.goodIds,
-                'ampIsGood':self.ampIsGood,'minIsGood':self.minIsGood,'maxIsGood':self.maxIsGood,
-                'magIsGood':self.magIsGood,'rgccIsGood':self.rgccIsGood,'oMoreGreen':self.oMoreGreen,
+                'ampIsGood':self.ampIsGood,'rgccIsGood':self.rgccIsGood, 'redTh':self.redTh, 'grnTh':self.grnTh,
                 'redIsGood':self.redIsGood,'Ypopt':self.Ypopt,'Rpopt':self.Rpopt, 'cluster_labels':self.cluster_labels,
                 })
+            io.savemat(self.baseFolder+filename+'_Agood.mat',{'goodIds':self.goodIds, 'A':self.good.A, 'dims':self.raw.dims, 'centroids':self.raw.centroids})
+
         np.savez( self.baseFolder+filename+'.npz', time=self.good.time, trialFlag=self.good.trialFlag,
-                dFF=self.dOO, ball=self.good.ball, dlc=self.good.dlc, dims=self.raw.dims, dims_in_um=self.raw.dims_in_um, im=self.raw.im, 
-                scanRate=self.good.scanRate) 
+                dFF=self.dOO, ball=self.good.ball, dlc=self.good.dlc, beh_labels=self.good.beh_labels, dims=self.raw.dims, dims_in_um=self.raw.dims_in_um, im=self.raw.im, 
+                scanRate=self.raw.scanRate, redTh=self.redTh, grnTh=self.grnTh, aligned_centroids=[]) 
         sparse.save_npz(self.baseFolder+filename+'_A.npz', self.good.A)
 
 
@@ -389,20 +432,31 @@ class scape:
             self.raw.time=d['time']
             self.raw.ball=d['ball']
             self.raw.dlc=d['dlc']
+            self.raw.beh_labels=d['states']
             self.raw.dims=d['dims']
             self.raw.dims_in_um = d['tot_um_x'], d['tot_um_y'], d['tot_um_z']
             self.raw.im=d['im']
             self.raw.scanRate=d['scanRate']
+            self.raw.centroids=d['centroids']
             self.raw.A = sparse.load_npz( inputFile[:-7]+'A_raw.npz' )
 
         self.trialFlagUnique = np.unique(self.raw.trialFlag)
         self.trList = self.getIdxList(self.raw.trialFlag, self.trialFlagUnique)
 
+        # fix normalization of R and Y (in extractF, these were calculated as sum over ROI instead of mean)
+        Am = np.array(np.sum(self.raw.A,axis=0).T)
+        # pdb.set_trace()
+        self.raw.R = np.divide(self.raw.R, Am)
+        self.raw.Y = np.divide(self.raw.Y, Am)
+
+
 
 
 
   
-    def process(self, inputFile, outputFile, secsToTrim=10., savematfile=False):
+    def process(self, inputFile, outputFile, secsToTrim=10., savematfile=False, redTh=100, grnTh=0):
+        self.redTh = redTh
+        self.grnTh = grnTh
         self.importdata(self.baseFolder+inputFile)
         self.trimTrialStart(secsToTrim)
 
@@ -439,11 +493,13 @@ class scape:
         # self.makeQuantileDF0(RsmoothData, bnds, self.Rpopt)
         # self.makeQuantileF0_multiExp(RsmoothData, bnds, self.Rpopt)
         print('\n calculate red F0')
+        # self.makeNNLS_F0_multiExp(self.RsmoothData)
         self.makeQuantileDF0(self.RsmoothData, bnds, self.Rpopt)
         self.R0 = self.F0
         self.Rpopt = self.popt
 
         print('\n calculate green F0')
+        # self.makeNNLS_F0_multiExp(self.YsmoothData)
         self.makeQuantileDF0(self.YsmoothData, bnds, self.Ypopt)
         self.Y0 = self.F0
         self.Ypopt = self.popt
@@ -479,13 +535,13 @@ class scape:
         self.make_O_and_dOO()
 
         print('\n find and remove bad units')
-        self.getGoodComponentsFull()
+        self.getGoodComponentsFull(redTh, grnTh)
 
         # dataToCluster = self.dOO[np.flatnonzero(self.goodIds),:]
         # self.computeCorr(dataToCluster)
         if savematfile:
             print('clustering')
-            self.hierCluster(20)
+            self.hierCluster() #_fixedN(20)
         
         print('\n saving')
         self.saveSummary(outputFile, savematfile)
@@ -556,6 +612,7 @@ if __name__ == '__main__':
     obj = scape(baseFolder)
     # obj.postProcess('F_fromRed.mat', 'post_fromRcc.mat')
     obj.process('2019_06_26_Nsyb_NLS6s_walk_fly2_raw.npz', '2019_06_26_Nsyb_NLS6s_walk_fly2.npz',secsToTrim, savematfile)
+
 
 
 

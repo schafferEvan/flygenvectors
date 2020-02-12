@@ -2,6 +2,41 @@ import os
 import glob
 import numpy as np
 from sklearn.decomposition import PCA
+from scipy.optimize import minimize
+import pdb
+
+
+def load_timeseries_simple(expt_id, fly_num, base_data_dir=None):
+    """
+    Helper function to load neural and behavioral data
+
+    Args:
+        expt_id (str)
+        base_data_dir (str)
+
+    Returns:
+        dict
+    """
+
+    import scipy.io as sio
+    from scipy import sparse
+    from flygenvectors.utils import get_dirs
+
+    exp_folder = expt_id + '_' + fly_num + '/'
+    file_name_main = expt_id + '*' + fly_num + '.npz'
+    file_name_A = expt_id + '*' + fly_num + '_A.npz'
+
+    file_path_main = glob.glob(base_data_dir+exp_folder+file_name_main)[0]
+    file_path_A = glob.glob(base_data_dir+exp_folder+file_name_A)[0]
+
+    data = np.load(file_path_main)
+    data_dict = {}
+    for key, val in data.items():
+        data_dict[key] = val
+
+    data_dict['A'] = sparse.load_npz(file_path_A)
+
+    return data_dict
 
 
 def load_timeseries(expt_id, base_data_dir=None):
@@ -54,8 +89,9 @@ def load_timeseries(expt_id, base_data_dir=None):
         t = np.max(data['time'].shape)
         data_dict = {}
         for key, val in data.items():
-            # put time dim first
-            data_dict[key] = val if val.shape[0] == t else val.T
+            # put time dim first for items with a temporal dimension
+            # pdb.set_trace()
+            data_dict[key] = val.T if val.shape[1] == t else val
 
         # load
         file_name = str('%s_Nsyb_NLS6s_walk_%s_A.npz' % (datestr, fly))
@@ -300,3 +336,61 @@ def subsample_cells(data, cell_indxs, indxs, trial_len):
     data_sub['val_all'] = np.concatenate(data_sub['val'], axis=0)
 
     return data_sub_, data_sub
+
+
+
+def estimate_neuron_behav_tau(data_dict):
+    # THIS IS THE LEGACY VERSION OF estimate_neuron_behav_reg_model in regression_model.py
+    # find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
+    dFF = data_dict['dFF']
+    scanRate = data_dict['scanRate']
+
+    tauList = np.logspace(np.log10(scanRate),np.log10(100*scanRate),num=200)
+    xlen = round(-tauList[-1]*np.log(0.05)).astype(int)
+    x = np.array([i for i in range(xlen)])
+
+    # tauList = np.logspace(0,5,num=300) #range(10,1000,10)
+    a = np.zeros((dFF.shape[0],len(tauList)))
+    for i in range(len(tauList)):
+        # if(not np.mod(i,20)):
+        #     print(str(np.round(100*i/len(tauList)))+'%', end =" ")
+        cTau = tauList[i]
+        eFilt = np.exp(-x/cTau)
+
+        c = np.convolve(eFilt,data_dict['ball'],'valid')#,'same')
+        for j in range(dFF.shape[0]):
+            a[j,i] = np.corrcoef(dFF[j,len(eFilt)-1:], c)[0,1] 
+    return tauList, a
+
+
+def binarize_timeseries(data_in):
+    # use GMM to turn scalar-valued timeseries into binary
+    from sklearn.mixture import GaussianMixture
+
+    gmm = GaussianMixture(n_components=2, means_init=[[0.5],[0.8]])
+    log_beh = np.log(data_in)-np.log(data_in).min()
+    log_beh = log_beh/log_beh.max()
+    gmm_beh_fit = gmm.fit_predict(log_beh)
+    mean_0 = log_beh[gmm_beh_fit==0].mean()
+    mean_1 = log_beh[gmm_beh_fit==1].mean()
+    if (mean_0<mean_1):
+        beh = gmm_beh_fit
+    else:
+        beh = np.logical_not(gmm_beh_fit)
+    return beh
+    # data_dict['ball'] = data_dict['ball'].flatten()
+
+def get_dlc_motion_energy(data_dict):
+    dlc = data_dict['dlc']
+    dlc_energy = np.zeros((dlc.shape[0]-1,8))
+
+    for i in range(8):
+        xdataChunk = np.diff(dlc[:,(i-1)*2]); 
+        ydataChunk = np.diff(dlc[:,1+(i-1)*2]);
+        legEnergy = xdataChunk**2 + ydataChunk**2;
+        m = np.quantile(legEnergy, 0.01)
+        M = np.quantile(legEnergy, 0.99)
+        legEnergy[legEnergy<m]=m
+        legEnergy[legEnergy>M]=M
+        dlc_energy[:,i] = legEnergy
+    return dlc_energy
