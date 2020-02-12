@@ -180,6 +180,7 @@ def get_model_name(n_states, model_kwargs):
     return model_name
 
 
+# TODO: get rid of?
 def extract_high_likelihood_runs(
         likelihoods, l_thresh=0.8, min_length=100, max_length=500,
         comparison='>=', dims='all', skip_indxs=None):

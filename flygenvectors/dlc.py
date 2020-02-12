@@ -36,9 +36,7 @@ class DLCLabels(object):
             self.base_data_dir, self.expt_id, '*DeepCut*.csv'))[0]
 
     def load_from_csv(self, filename=None):
-
         from numpy import genfromtxt
-
         if filename is None:
             filename = self._get_filename()
         if self.verbose:
@@ -106,33 +104,6 @@ class DLCLabels(object):
                     self.labels[c][idxs, l] = np.interp(
                         idxs, [x0, x1], [f0, f1])
 
-        if self.verbose:
-            print('done')
-            print('linearly interpolated %i labels' %
-                  np.sum(((old_likelihoods - self.labels['l']) != 0) * 1.0))
-
-    def interpolate_single_bad_labels(self, thresh=0.8):
-        """
-        For any label whose likelihood is below `thresh` for a single
-        timepoint, linearly interpolate coordinates from surrounding (good)
-        coordinates.
-
-        Args:
-            thresh (int):
-        """
-        if self.verbose:
-            print('linearly interpolating single bad labels...', end='')
-        old_likelihoods = np.copy(self.labels['l'])
-        T = self.labels['x'].shape[0]
-        for t in range(1, T - 1):
-            is_t = np.where(self.labels['l'][t, :] < thresh)[0]
-            for i in is_t:
-                if ((self.labels['l'][t - 1, i] > thresh) &
-                        (self.labels['l'][t + 1, i] > thresh)):
-                    for c in ['x', 'y', 'l']:
-                        self.labels[c][t, i] = np.mean(
-                            [self.labels[c][t - 1, i],
-                             self.labels[c][t + 1, i]])
         if self.verbose:
             print('done')
             print('linearly interpolated %i labels' %
