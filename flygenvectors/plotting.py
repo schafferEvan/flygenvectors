@@ -84,6 +84,7 @@ def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10, include_feedin
 
     return R
 
+
 def plot_pcs(pcs, color, cmap='inferno'):
     plt.scatter(pcs[:, 0], pcs[:, 1], c=color, cmap=cmap, s=5, linewidths=0)
     plt.xlabel('PC 1')
@@ -212,7 +213,7 @@ def plot_dlc_arhmm_states(
     axes[i].set_xticks([])
     axes[i].set_xlim(slc[0], slc[1])
     axes[i].set_yticks([])
-    axes[i].set_ylim(-1, n_dlc_comp)
+    axes[i].set_ylim(0, n_dlc_comp + 1)
     axes[i].set_title('%s coords' % coord.upper())
 
     i += 1
@@ -222,7 +223,7 @@ def plot_dlc_arhmm_states(
     axes[i].plot(np.arange(slc[0], slc[1]), behavior[slice(*slc), :])
     axes[i].set_xlim(slc[0], slc[1])
     axes[i].set_yticks([])
-    axes[i].set_ylim(-1, n_dlc_comp)
+    axes[i].set_ylim(0, n_dlc_comp + 1)
     axes[i].set_title('%s coords' % coord.upper())
 
     axes[-1].set_xlabel('Time (bins)')
@@ -235,22 +236,22 @@ def plot_dlc_arhmm_states(
 #############################
 # SSM-specific plotting utils
 #############################
-def plot_validation_likelihoods(all_results, T_val=1):
+def plot_validation_likelihoods(all_results, T_val=1, dict_key='ll_val'):
     # plot the log likelihood of the validation data
     fig = plt.figure(figsize=(8, 6))
     for model_name, model_results in all_results.items():
         Ks = sorted(model_results.keys())
-        lls_val = np.array([model_results[K]['ll_val'] for K in Ks])
-        plt.plot(
-            Ks, lls_val / T_val, ls='-', marker='o',
-            alpha=1, label=model_name.upper())
-    #     plt.legend(loc='lower center', frameon=False)
-    plt.legend(loc='lower left', frameon=False)
+        lls_val = np.array([model_results[K][dict_key] for K in Ks])
+        plt.plot(Ks, lls_val / T_val, ls='-', marker='o', label=model_name.upper())
+    plt.legend(loc='lower right', frameon=False)
     plt.xlim(min(Ks)-1, max(Ks)+1)
     plt.gca().set_xticks(Ks)
     plt.gca().set_xticklabels(Ks)
     plt.xlabel('Discrete states')
-    plt.ylabel('Log probability')
+    if dict_key == 'll_val':
+        plt.ylabel('Log probability')
+    else:
+        plt.ylabel(dict_key)
     plt.title('Validation data')
     return fig
 
@@ -450,6 +451,14 @@ def make_syllable_movie(
     import matplotlib.animation as animation
     from matplotlib.animation import FFMpegWriter
 
+    # hard coded params
+    im_kwargs = {'animated': True, 'vmin': 0, 'vmax': np.max(frames), 'cmap': 'gray'}
+    txt_kwargs = {
+        'fontsize': 16, 'color': [1, 1, 1], 'horizontalalignment': 'left',
+        'verticalalignment': 'top'}
+    txt_offset_x = 5
+    txt_offset_y = 5
+
     if len(frames.shape) == 3:
         [T, y_pix, x_pix] = frames.shape
         n_channels = 1
@@ -476,8 +485,6 @@ def make_syllable_movie(
         fig_width = 10
     n_rows = int(np.floor(np.sqrt(K)))
     n_cols = int(np.ceil(K / n_rows))
-    vmin = 0
-    vmax = np.max(frames)
 
     # initialize syllable movie frames
     plt.clf()
@@ -490,10 +497,10 @@ def make_syllable_movie(
         ax.set_xticks([])
         if i >= K:
             ax.set_axis_off()
-        elif single_state is not None:
-            ax.set_title('Syllable %i' % single_state, fontsize=16)
-        else:
-            ax.set_title('Syllable %i' % i, fontsize=16)
+        # elif single_state is not None:
+        #     ax.set_title('Syllable %i' % single_state, fontsize=16)
+        # else:
+        #     ax.set_title('Syllable %i' % i, fontsize=16)
     fig.tight_layout(pad=0, h_pad=1.05)
 
     ims = [[] for _ in range(plot_n_frames + 500)]
@@ -513,15 +520,20 @@ def make_syllable_movie(
         if len(states_list[i_k]) == 0:
             continue
 
+        if single_state is not None:
+            state_txt = '%i' % i_k
+        elif K < 10:
+            state_txt = '%i' % i_k
+        else:
+            state_txt = '%02i' % i_k
+
         i_chunk = 0
         i_frame = 0
         while i_frame < plot_n_frames:
 
             if i_chunk >= len(states_list[i_k]):
                 # plot black
-                im = ax.imshow(
-                    np.zeros((y_pix, x_pix)), animated=True,
-                    vmin=vmin, vmax=vmax, cmap='gray')
+                im = ax.imshow(np.zeros((y_pix, x_pix)), **im_kwargs)
                 ims[i_frame].append(im)
                 i_frame += 1
             else:
@@ -544,28 +556,28 @@ def make_syllable_movie(
                 # basic error check
                 i_non_k = states[i_idx][i_beg:i_end] != i_k
                 if np.any(i_non_k):
-                    raise ValueError(
-                        'Misaligned states for syllable segmentation')
+                    raise ValueError('Misaligned states for syllable segmentation')
 
                 # loop over this chunk
                 for i in range(movie_chunk.shape[0]):
+
                     # in case chunk is too long
                     if i_frame >= plot_n_frames:
                         continue
 
-                    im = ax.imshow(
-                        movie_chunk[i], animated=True,
-                        vmin=vmin, vmax=vmax, cmap='gray')
+                    im = ax.imshow(movie_chunk[i], **im_kwargs)
                     ims[i_frame].append(im)
 
                     # Add red box if start of syllable
                     if start_box:
                         if syllable_start < i < (syllable_start + 2):
                             rect = Rectangle(
-                                (5, 5), 10, 10, linewidth=1, edgecolor='r',
-                                facecolor='r')
+                                (5, 5), 10, 10, linewidth=1, edgecolor='r', facecolor='r')
                             im = ax.add_patch(rect)
                             ims[i_frame].append(im)
+
+                    im = ax.text(txt_offset_x, txt_offset_y, state_txt, **txt_kwargs)
+                    ims[i_frame].append(im)
 
                     i_frame += 1
 
@@ -575,8 +587,9 @@ def make_syllable_movie(
                     if i_frame >= plot_n_frames:
                         continue
                     im = ax.imshow(
-                        np.zeros((y_pix, x_pix)), animated=True,
-                        vmin=vmin, vmax=vmax, cmap='gray')
+                        np.zeros((y_pix, x_pix)), **im_kwargs)
+                    ims[i_frame].append(im)
+                    im = ax.text(txt_offset_x, txt_offset_y, state_txt, **txt_kwargs)
                     ims[i_frame].append(im)
                     i_frame += 1
 
@@ -623,13 +636,10 @@ def make_labeled_movie(
     fig, ax = plt.subplots(1, 1, figsize=(5, 5))
     ax.set_yticks([])
     ax.set_xticks([])
-    fig.tight_layout(pad=0)
 
-    vmin = 0
-    vmax = np.max(frames)
-    im_kwargs = {'animated': True, 'vmin': vmin, 'vmax': vmax, 'cmap': 'gray'}
+    im_kwargs = {'animated': True, 'vmin': 0, 'vmax': np.max(frames), 'cmap': 'gray'}
     txt_kwargs = {
-        'fontsize': 30, 'color': [1, 1, 1], 'horizontalalignment': 'left',
+        'fontsize': 20, 'color': [1, 1, 1], 'horizontalalignment': 'left',
         'verticalalignment': 'top', 'transform': ax.transAxes}
 
     # ims is a list of lists, each row is a list of artists to draw in the
@@ -656,10 +666,126 @@ def make_labeled_movie(
 
         ims.append(ims_curr)
 
+    fig.tight_layout(pad=0)
     print('creating animation...', end='')
     ani = animation.ArtistAnimation(
-        fig, [ims[i] for i in range(len(ims)) if ims[i] != []],
-        blit=True, repeat=False)
+        fig, [ims[i] for i in range(len(ims)) if ims[i] != []], blit=True, repeat=False)
+    print('done')
+    print('saving video to %s...' % filename, end='')
+    writer = FFMpegWriter(fps=framerate, bitrate=-1)
+    if not os.path.exists(os.path.dirname(filename)):
+        os.makedirs(os.path.dirname(filename))
+    ani.save(filename, writer=writer)
+    print('done')
+
+
+def make_labeled_movie_wmarkers(
+        filename, states, frames, markers, frame_indxs, state_mapping, framerate=20):
+    """
+    Label frames with state names
+
+    Args:
+        filename (str): absolute path
+        states (np array): shape (T,)
+        frames (np array): shape (T, ypix, xpix)
+        markers (np array): shape (T, 2 * n_markers) (all x dims then all y dims)
+        frame_indxs (list of array-like): indices into `frames` that correspond
+            to `states`
+        state_mapping (dict): keys are states (ints), values are labels (strs)
+        framerate (float): Hz
+    """
+
+    from matplotlib.gridspec import GridSpec
+    import matplotlib.animation as animation
+    from matplotlib.animation import FFMpegWriter
+
+    n_frames = len(frame_indxs)
+    n_markers = int(markers.shape[1] / 2)
+    times = np.arange(n_frames)
+    if isinstance(state_mapping[0], str):
+        plot_colors = False
+    else:
+        from matplotlib.patches import Rectangle
+        plot_colors = True
+
+    fig = plt.figure(figsize=(8, 8))
+    gs = GridSpec(
+        2, 1, figure=fig, height_ratios=[5, 3], hspace=0.05, wspace=0,
+        left=0.01, right=0.99, top=0.99, bottom=0.01)
+    axes = []
+    axes.append(fig.add_subplot(gs[0]))
+    axes.append(fig.add_subplot(gs[1]))
+    for ax in axes:
+        ax.set_yticks([])
+        ax.set_xticks([])
+
+    im_kwargs = {'animated': True, 'vmin': 0, 'vmax': np.max(frames), 'cmap': 'gray'}
+    txt_kwargs = {
+        'fontsize': 20, 'color': [1, 1, 1], 'horizontalalignment': 'left',
+        'verticalalignment': 'top'}
+    tr_kwargs = {'animated': True, 'linewidth': 2}
+
+    spc = 1.0 * abs(markers.max())
+    plotting_markers = markers[:, n_markers:] + spc * np.arange(n_markers)
+    ymin = min(-spc - 1, np.min(plotting_markers))
+    ymax = max(spc * n_markers, np.max(plotting_markers))
+
+    # ims is a list of lists, each row is a list of artists to draw in the
+    # current frame; here we are just animating one artist, the image, in
+    # each frame
+    ims = [[] for _ in range(n_frames)]
+    for i in range(n_frames):
+
+        if i % 100 == 0:
+            print('processing frame %03i/%03i' % (i, n_frames))
+
+        ims_curr = []
+
+        # ----------------
+        # behavioral video
+        # ----------------
+        im = axes[0].imshow(frames[frame_indxs[i], :, :], **im_kwargs)
+        ims_curr.append(im)
+        if plot_colors:
+            rect = Rectangle(
+                (5, 5), 10, 10, linewidth=1,
+                edgecolor=state_mapping[states[frame_indxs[i]]],
+                facecolor=state_mapping[states[frame_indxs[i]]])
+            im = axes[0].add_patch(rect)
+        else:
+            im = axes[0].text(
+                0.03, 0.97, state_mapping[states[frame_indxs[i]]],
+                transform=axes[0].transAxes, **txt_kwargs)
+        ims_curr.append(im)
+
+        # ----------------
+        # markers + states
+        # ----------------
+        # plot all states (to keep colormap from changing as new states are added)
+        im = axes[1].imshow(
+            states[None, frame_indxs], aspect='auto', extent=(0, n_frames, ymin, ymax),
+            cmap='tab20b', alpha=0.9)
+        ims_curr.append(im)
+        # plot markers
+        for n in range(n_markers):
+            im = axes[1].plot(times, plotting_markers[frame_indxs, n], color='k', **tr_kwargs)[0]
+            ims_curr.append(im)
+        # cover with semi-transparent box
+        if i + 1 < n_frames:
+            im = axes[1].imshow(
+                np.zeros((1, 1)), aspect='auto', extent=(i + 1, n_frames, ymin, ymax),
+                cmap='Greys', alpha=0.8, zorder=2)
+            # above: set zorder so on top of line plots
+            # z=1: states
+            # z=0: markers
+            ims_curr.append(im)
+
+        ims[i] = ims_curr
+
+    fig.tight_layout(pad=0)
+    print('creating animation...', end='')
+    ani = animation.ArtistAnimation(
+        fig, [ims[i] for i in range(len(ims)) if ims[i] != []], blit=True, repeat=False)
     print('done')
     print('saving video to %s...' % filename, end='')
     writer = FFMpegWriter(fps=framerate, bitrate=-1)
