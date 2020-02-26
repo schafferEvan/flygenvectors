@@ -1040,9 +1040,14 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pv
     gry = cm.get_cmap('Greys', 15)
     gry = ListedColormap(gry(np.linspace(.8, 1, 2)))
 
-    f = get_model_fit_as_dict(model_fit)
-    sig = f['success']*(f['stat']<pval)*(f['rsq']>f['rsq_null']) # 1-sided test that behavior model > null model
-    not_sig = np.logical_not(sig)
+    if type(model_fit) is dict:
+        f = get_model_fit_as_dict(model_fit)
+        sig = f['success']*(f['stat']<pval)*(f['rsq']>f['rsq_null']) # 1-sided test that behavior model > null model
+        not_sig = np.logical_not(sig)
+    else:
+        # if not dict, assumed to be list
+        sig = np.array([i for i in range(len(model_fit))]) #np.ones(len(model_fit))
+        not_sig = np.array([]) #np.zeros(len(model_fit))
     
 
     totScale = 1
@@ -1057,8 +1062,9 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pv
     ax1 = plt.axes([.04,      (.05+zpx)/totScale,  zpx,  xpx/totScale])
     ax3 = plt.axes([.05+zpx,  .04/totScale,        ypx,  zpx/totScale])
 
-    ax1.scatter(data_dict['aligned_centroids'][not_sig,2],
-                data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
+    if(len(not_sig)):
+        ax1.scatter(data_dict['aligned_centroids'][not_sig,2],
+                    data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
     ax1.scatter(data_dict['aligned_centroids'][sig,2],
                 data_dict['aligned_centroids'][sig,1], c=tau_argmax[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
     ax1.set_facecolor((0.0, 0.0, 0.0))
@@ -1068,9 +1074,9 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pv
     ax1.set_ylim(0,template_dims[0])
     ax1.invert_yaxis()
 
-    
-    ax2.scatter(data_dict['aligned_centroids'][not_sig,0],
-                data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
+    if(len(not_sig)):
+        ax2.scatter(data_dict['aligned_centroids'][not_sig,0],
+                    data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
     ax2.scatter(data_dict['aligned_centroids'][sig,0],
                 data_dict['aligned_centroids'][sig,1], c=tau_argmax[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
     ax2.set_facecolor((0.0, 0.0, 0.0))
@@ -1086,9 +1092,9 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pv
     bar_color = 'w'
     ax2.plot( template_dims[1]*.97-(scaleBar_um*ypx_per_um,0), (template_dims[0]*.93, template_dims[0]*.93),bar_color)
 
-
-    ax3.scatter(data_dict['aligned_centroids'][not_sig,0],
-                data_dict['aligned_centroids'][not_sig,2], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
+    if(len(not_sig)):
+        ax3.scatter(data_dict['aligned_centroids'][not_sig,0],
+                    data_dict['aligned_centroids'][not_sig,2], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
     ax3.scatter(data_dict['aligned_centroids'][sig,0],
                 data_dict['aligned_centroids'][sig,2], c=tau_argmax[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
     ax3.set_facecolor((0.0, 0.0, 0.0))
