@@ -7,12 +7,18 @@ from flygenvectors.ssmutils import split_runs
 
 class DLCLabels(object):
 
-    def __init__(self, expt_id, verbose=True):
-
+    def __init__(self, expt_id, verbose=True, algo='dgp'):
+        """
+        Args:
+            expt_id:
+            verbose:
+            algo (str): 'dlc' | 'dgp'
+        """
         from flygenvectors.utils import get_dirs
 
         self.expt_id = expt_id
         self.base_data_dir = get_dirs()['data']
+        self.algo = algo
 
         self.labels = {'x': [], 'y': [], 'l': []}
         self.labels_dict = {}
@@ -32,13 +38,10 @@ class DLCLabels(object):
         self.verbose = verbose
 
     def _get_filename(self):
-        return glob.glob(os.path.join(
-            self.base_data_dir, self.expt_id, '*DeepCut*.csv'))[0]
+        return glob.glob(os.path.join(self.base_data_dir, self.expt_id, '*DeepCut*.csv'))[0]
 
     def load_from_csv(self, filename=None):
-
         from numpy import genfromtxt
-
         if filename is None:
             filename = self._get_filename()
         if self.verbose:
@@ -51,6 +54,43 @@ class DLCLabels(object):
         if self.verbose:
             print('done')
             print('total time points: %i' % dlc.shape[0])
+
+    def load_from_mat(self):
+
+        from scipy.io import loadmat
+
+        # define paths
+        label_dir = os.path.join(self.base_data_dir, self.expt_id, 'crops_labels')
+        if self.algo == 'dlc':
+            label_files = glob.glob(os.path.join(label_dir, 'dlc_mu*.mat'))
+            key = 'xy'
+            prefix = 'dlc_mu'
+        elif self.algo == 'dgp':
+            label_files = glob.glob(os.path.join(label_dir, 'mu*.mat'))
+            key = 'mu_ns'
+            prefix = 'mu'
+        else:
+            raise NotImplementedError
+
+        if len(label_files) == 0:
+            raise IOError('no label files found in %s' % label_dir)
+        else:
+            if self.verbose:
+                print('loading labels from %s...' % label_dir, end='')
+
+        segments = len(label_files) - 1  # assume anqi always returns train labels
+        labels_x = []
+        labels_y = []
+        for segment_num in range(segments):
+            label_file = os.path.join(label_dir, '%s_%04i_flyball2.mat' % (prefix, segment_num))
+            labels_seg = loadmat(label_file)[key]
+            labels_x.append(labels_seg[:, :, 0])
+            labels_y.append(labels_seg[:, :, 1])
+        self.labels['x'] = np.vstack(labels_x)
+        self.labels['y'] = np.vstack(labels_y)
+        if self.verbose:
+            print('done')
+            print('total time points: %i' % self.labels['x'].shape[0])
 
     def preprocess(self, preproc_dict):
         self.preproc = copy.deepcopy(preproc_dict)
@@ -66,8 +106,7 @@ class DLCLabels(object):
             elif func_str == 'remove_bad_runs':
                 self.remove_bad_runs(**kwargs)
             else:
-                raise ValueError(
-                    '"%s" is not a valid preprocessing function' % func_str)
+                raise ValueError('"%s" is not a valid preprocessing function' % func_str)
 
     def interpolate_labels(self, thresh=0.8, window=3):
         """
@@ -111,33 +150,6 @@ class DLCLabels(object):
             print('linearly interpolated %i labels' %
                   np.sum(((old_likelihoods - self.labels['l']) != 0) * 1.0))
 
-    def interpolate_single_bad_labels(self, thresh=0.8):
-        """
-        For any label whose likelihood is below `thresh` for a single
-        timepoint, linearly interpolate coordinates from surrounding (good)
-        coordinates.
-
-        Args:
-            thresh (int):
-        """
-        if self.verbose:
-            print('linearly interpolating single bad labels...', end='')
-        old_likelihoods = np.copy(self.labels['l'])
-        T = self.labels['x'].shape[0]
-        for t in range(1, T - 1):
-            is_t = np.where(self.labels['l'][t, :] < thresh)[0]
-            for i in is_t:
-                if ((self.labels['l'][t - 1, i] > thresh) &
-                        (self.labels['l'][t + 1, i] > thresh)):
-                    for c in ['x', 'y', 'l']:
-                        self.labels[c][t, i] = np.mean(
-                            [self.labels[c][t - 1, i],
-                             self.labels[c][t + 1, i]])
-        if self.verbose:
-            print('done')
-            print('linearly interpolated %i labels' %
-                  np.sum(((old_likelihoods - self.labels['l']) != 0) * 1.0))
-
     def standardize(self, by_label=False):
         """subtract off mean and divide by variance across all labels"""
         if self.verbose:
@@ -165,21 +177,28 @@ class DLCLabels(object):
         for c in ['x', 'y']:
             self.mins[c] = np.quantile(self.labels[c], 0.05, axis=0)
             self.maxs[c] = np.quantile(self.labels[c], 0.95, axis=0)
-            self.labels[c] = (self.labels[c] - self.mins[c]) / \
-                             (self.maxs[c] - self.mins[c])
+            self.labels[c] = (self.labels[c] - self.mins[c]) / (self.maxs[c] - self.mins[c])
         if self.verbose:
             print('done')
 
-    def filter(self, filter_type='median', **kwargs):
+    def filter(self, type='median', **kwargs):
         if self.verbose:
-            print('applying %s filter to labels...' % filter_type, end='')
-        if filter_type == 'median':
+            print('applying %s filter to labels...' % type, end='')
+        if type == 'median':
             from scipy.signal import medfilt
             kernel_size = 5 if 'kernel_size' not in kwargs else kwargs['kernel_size']
             for c in ['x', 'y']:
                 for i in range(self.labels[c].shape[1]):
                     self.labels[c][:, i] = medfilt(
                         self.labels[c][:, i], kernel_size=kernel_size)
+        elif type == 'savgol':
+            from scipy.signal import savgol_filter
+            window_length = 5 if 'window_size' not in kwargs else kwargs['window_size']
+            polyorder = 2 if 'order' not in kwargs else kwargs['order']
+            for c in ['x', 'y']:
+                for i in range(self.labels[c].shape[1]):
+                    self.labels[c][:, i] = savgol_filter(
+                        self.labels[c][:, i], window_length=window_length, polyorder=polyorder)
         else:
             raise NotImplementedError
         if self.verbose:
@@ -299,6 +318,37 @@ class DLCLabels(object):
             print('extracted %i runs for a total of %i time points' % (
                 len(idxs), np.sum([len(i) for i in idxs])))
 
+        if return_vals:
+            return idxs
+        else:
+            self.idxs_valid = idxs
+
+    def extract_runs_by_length(self, max_length, return_vals=False, verbose=None):
+        """
+        Find contiguous chunks of data
+
+        Args:
+            max_length (int): maximum length of high likelihood runs; once a
+                run surpasses this threshold a new run is started
+            return_vals (bool): return list of indices if `True`, otherwise
+                store in object as `indxs_valid`
+            verbose (bool or NoneType)
+
+        Returns:
+            list
+        """
+        if verbose is None:
+            verbose = self.verbose
+        if verbose:
+            print('extracting runs of length %i...' % max_length, end='')
+        n_t = self.labels['x'].shape[0]
+        begs = np.arange(0, n_t, max_length)
+        ends = np.concatenate([np.arange(max_length, n_t, max_length), [n_t]])
+        idxs = [np.arange(begs[i], ends[i]) for i in range(len(begs))]
+        if verbose:
+            print('done')
+            print('extracted %i runs for a total of %i time points' % (
+                len(idxs), np.sum([len(i) for i in idxs])))
         if return_vals:
             return idxs
         else:

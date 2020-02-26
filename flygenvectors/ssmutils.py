@@ -77,8 +77,7 @@ def split_trials(
     # same random seed for reproducibility
     np.random.seed(rng_seed)
 
-    tr_per_block = \
-        trials_tr + trials_gap + trials_val + trials_gap + trials_test + trials_gap
+    tr_per_block = trials_tr + trials_gap + trials_val + trials_gap + trials_test + trials_gap
 
     n_blocks = int(np.floor(n_trials / tr_per_block))
     leftover_trials = n_trials - tr_per_block * n_blocks
@@ -108,17 +107,15 @@ def fit_model(
         n_states, data_dim, input_dim, model_kwargs,
         data_tr, data_val, data_test,
         inputs_tr=None, inputs_val=None, inputs_test=None,
-        save_tr_states=False, fit_kwargs=None):
+        init_type='kmeans', save_tr_states=False, fit_kwargs=None):
 
     model = HMM(K=n_states, D=data_dim, M=input_dim, **model_kwargs)
     model.initialize(data_tr, inputs=inputs_tr)
-    model.observations.initialize(data_tr, inputs=inputs_tr)
+    init_model(init_type, model, data_tr)
 
-    # run EM; specify tolerances for overall convergence and each M-step's
-    # convergence
+    # run EM; specify tolerances for overall convergence and each M-step's convergence
     lps = model.fit(
-        data_tr, inputs=inputs_tr, method='em', num_em_iters=50,
-        tolerance=1e-1,
+        data_tr, inputs=inputs_tr, method='em', num_iters=150, tolerance=1e-2, initialize=False,
         transitions_mstep_kwargs={'optimizer': 'lbfgs', 'tol': 1e-3})
 
     # compute stats
@@ -127,13 +124,11 @@ def fit_model(
 
     # sort states by usage
     inputs_tr = [None] * len(data_tr) if inputs_tr is None else inputs_tr
-    states_tr = [model.most_likely_states(x, u) for x, u in
-                 zip(data_tr, inputs_tr)]
+    states_tr = [model.most_likely_states(x, u) for x, u in zip(data_tr, inputs_tr)]
     usage = np.bincount(np.concatenate(states_tr), minlength=n_states)
     model.permute(np.argsort(-usage))
     if save_tr_states:
-        states_tr = [
-            model.most_likely_states(x, u) for x, u in zip(data_tr, inputs_tr)]
+        states_tr = [model.most_likely_states(x, u) for x, u in zip(data_tr, inputs_tr)]
     else:
         states_tr = []
 
@@ -146,6 +141,165 @@ def fit_model(
         'll_test': ll_test}
 
     return model_results
+
+
+def init_model(init_type, model, datas):
+    """Initialize ARHMM model according to one of several schemes.
+
+    The different schemes correspond to different ways of assigning discrete states to the data
+    points; once these states have been assigned, linear regression is used to estimate the model
+    parameters (dynamics matrices, biases, covariance matrices)
+
+    * init_type = random: states are randomly and uniformly assigned
+    * init_type = kmeans: perform kmeans clustering on data; note that this is not a great scheme
+        for arhmms on the fly data, because the fly is often standing still in many different
+        poses. These poses will be assigned to different clusters, thus breaking the "still" state
+        into many initial states
+    * init_type = pca_me: first compute the motion energy of the data (square of differences of
+        consecutive time points) and then perform PCA. A threshold applied to the first dimension
+        does a reasonable job of separating the data into "moving" and "still" timepoints. All
+        "still" timepoints are assigned one state, and the remaining timepoints are clustered using
+        kmeans with (K-1) clusters
+    * init_type = arhmm: refinement of pca_me approach: perform pca on the data and take top 4
+        components (to speed up computation) and fit a 2-state arhmm to roughly split the data into
+        "still" and "moving" states (this is itself initialized with pca_me). Then as before the
+        moving state is clustered into K-1 states using kmeans.
+
+    Args:
+        init_type (str):
+            'random' | 'kmeans' | 'pca_me' | 'arhmm'
+        model (ssm.HMM object):
+        datas (list of np.ndarrays):
+
+    """
+
+    from ssm.regression import fit_linear_regression
+    from sklearn.cluster import KMeans
+    from sklearn.decomposition import PCA
+    from scipy.signal import savgol_filter
+
+    Ts = [data.shape[0] for data in datas]
+    K = model.K
+    D = model.observations.D
+    lags = model.observations.lags
+
+    # --------------------------
+    # initialize discrete states
+    # --------------------------
+    if init_type == 'random':
+
+        zs = [np.random.choice(K, size=T - lags) for T in Ts]
+
+    elif init_type == 'kmeans':
+
+        km = KMeans(K)
+        km.fit(np.vstack(datas))
+        zs = np.split(km.labels_, np.cumsum(Ts)[:-1])
+        zs = [z[lags:] for z in zs]
+
+    elif init_type == 'arhmm':
+
+        D_ = 4
+        pca = PCA(D_)
+        xs = pca.fit_transform(np.vstack(datas))
+        xs = np.split(xs, np.cumsum(Ts)[:-1])
+
+        model_init = HMM(
+            K=2, D=D_, M=0, transitions='standard', observations='ar',
+            observations_kwargs={'lags': 1})
+        init_model('pca_me', model_init, xs)
+        model_init.fit(
+            xs, inputs=None, method='em', num_iters=100, tolerance=1e-2,
+            initialize=False, transitions_mstep_kwargs={'optimizer': 'lbfgs', 'tol': 1e-3})
+
+        # make still state 0th state
+        mses = [
+            np.mean(np.square(model_init.observations.As[i] - np.eye(D_))) for i in range(2)]
+        if mses[1] < mses[0]:
+            # permute states
+            model_init.permute([1, 0])
+        moving_state = 1
+
+        inputs_tr = [None] * len(datas)
+        zs = [model_init.most_likely_states(x, u) for x, u in zip(xs, inputs_tr)]
+        zs = np.concatenate(zs, axis=0)
+
+        # cluster moving data
+        km = KMeans(K - 1)
+        km.fit(np.vstack(datas)[zs == moving_state])
+        zs[zs == moving_state] = km.labels_ + 1
+
+        # split
+        zs = np.split(zs, np.cumsum(Ts)[:-1])
+        zs = [z[lags:] for z in zs]  # remove the ends
+
+    elif init_type == 'pca_me':
+
+        # pca on motion energy
+        datas_filt = np.copy(datas)
+        for dtmp in datas_filt:
+            for i in range(dtmp.shape[1]):
+                dtmp[:, i] = savgol_filter(dtmp[:, i], 5, 2)
+        pca = PCA(1)
+        me = np.square(np.diff(np.vstack(datas_filt), axis=0))
+        xs = pca.fit_transform(np.concatenate([np.zeros((1, D)), me], axis=0))[:, 0]
+        xs = xs / np.max(xs)
+
+        # threshold data to get moving/non-moving
+        thresh = 0.01
+        zs = np.copy(xs)
+        zs[xs < thresh] = 0
+        zs[xs >= thresh] = 1
+
+        # cluster moving data
+        km = KMeans(K - 1)
+        km.fit(np.vstack(datas)[zs == 1])
+        zs[zs == 1] = km.labels_ + 1
+
+        # split
+        zs = np.split(zs, np.cumsum(Ts)[:-1])
+        zs = [z[lags:] for z in zs]  # remove the ends
+
+    else:
+        raise NotImplementedError('Invalid "init_type" of "%s"' % init_type)
+
+    # ------------------------
+    # estimate dynamics params
+    # ------------------------
+    # Initialize the weights with linear regression
+    Sigmas = []
+    for k in range(K):
+        ts = [np.where(z == k)[0] for z in zs]
+        Xs = [np.column_stack([data[t + l] for l in range(lags)])
+              for t, data in zip(ts, datas)]
+        ys = [data[t + lags] for t, data in zip(ts, datas)]
+
+        # Solve the linear regression
+        coef_, intercept_, Sigma = fit_linear_regression(Xs, ys)
+        model.observations.As[k] = coef_[:, :D * lags]
+        model.observations.Vs[k] = coef_[:, D * lags:]
+        model.observations.bs[k] = intercept_
+        Sigmas.append(Sigma)
+
+    # Set the variances all at once to use the setter
+    model.observations.Sigmas = np.array(Sigmas)
+
+
+def viterbi_ll(model, datas):
+    """Calculate log-likelihood of viterbi path."""
+    inputs = [None] * len(datas)
+    masks = [None] * len(datas)
+    tags = [None] * len(datas)
+    states = [model.most_likely_states(x, u) for x, u in zip(datas, inputs)]
+    ll = 0
+    for data, input, mask, tag, state in zip(datas, inputs, masks, tags, states):
+        if input is None:
+            input = np.zeros_like(data)
+        if mask is None:
+            mask = np.ones_like(data, dtype=bool)
+        likelihoods = model.observations.log_likelihoods(data, input, mask, tag)
+        ll += np.sum(likelihoods[(np.arange(state.shape[0]), state)])
+    return ll
 
 
 def get_save_file(n_states, model_kwargs, fit_kwargs):
@@ -165,7 +319,7 @@ def get_save_file(n_states, model_kwargs, fit_kwargs):
 def get_model_name(n_states, model_kwargs):
     trans = model_kwargs['transitions']
     obs = model_kwargs['observations']
-    if obs == 'ar':
+    if obs.find('ar') > -1:
         lags = model_kwargs['observation_kwargs']['lags']
     else:
         lags = 0
@@ -178,92 +332,6 @@ def get_model_name(n_states, model_kwargs):
     if trans == 'sticky':
         model_name = str('%s_kappa=%1.0e' % (model_name, kappa))
     return model_name
-
-
-def extract_high_likelihood_runs(
-        likelihoods, l_thresh=0.8, min_length=100, max_length=500,
-        comparison='>=', dims='all', skip_indxs=None):
-    """
-    Find contiguous chunks of data with likelihoods larger than a given value
-
-    TODO: remove; now in dlc.DLCLabels class
-
-    Args:
-        likelihoods (np array):
-        l_thresh (float): minimum likelihood threshold
-        min_length (int): minimum length of high likelihood runs
-        max_length (int): maximum length of high likelihood runs; once a run
-            surpasses this threshold a new run is started
-        comparison (str): comparison operator to use for data ? l_thresh
-            '>' | '>=' | '<' | '<='
-        dims (str): define whether any or all dims must meet requirement
-            'any' | 'all'
-        skip_indxs (np bool array or NoneType, optional): same size as
-            `likelihoods`, `True` indices will be counted as a negative
-            comparison
-
-    Returns:
-        list: of run indices
-    """
-
-    import operator
-    if comparison == '>':
-        op = operator.gt
-    elif comparison == '>=':
-        op = operator.ge
-    elif comparison == '<':
-        op = operator.lt
-    elif comparison == '<=':
-        op = operator.le
-    else:
-        raise ValueError('"%s" is an invalid comparison operator' % comparison)
-
-    if dims == 'any':
-        bool_check = np.any
-    elif dims == 'all':
-        bool_check = np.all
-    else:
-        raise ValueError('"%s" is an invalid boolean check' % dims)
-
-    T = likelihoods.shape[0]
-    if skip_indxs is None:
-        skip_indxs = np.full(shape=(T,), fill_value=False)
-
-    indxs = []
-
-    run_len = 1
-    i_beg = 0
-    i_end = 1
-
-    reset_run = False
-    save_run = False
-    for t in range(1, T):
-
-        if bool_check(op(likelihoods[t], l_thresh)) and not skip_indxs[t]:
-            run_len += 1
-            i_end += 1
-        else:
-            if run_len >= min_length:
-                save_run = True
-            reset_run = True
-        if run_len == max_length:
-            save_run = True
-            reset_run = True
-
-        if save_run:
-            indxs.append(np.arange(i_beg, i_end))
-            save_run = False
-        if reset_run:
-            run_len = 1
-            i_beg = t
-            i_end = t + 1
-            reset_run = False
-
-    # final run
-    if run_len - 1 >= min_length:
-        indxs.append(np.arange(i_beg, i_end - 1))
-
-    return indxs
 
 
 def split_runs(indxs, dtypes, dtype_lens):
