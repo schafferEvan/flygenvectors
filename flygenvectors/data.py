@@ -20,7 +20,7 @@ def load_timeseries_simple(expt_id, fly_num, base_data_dir=None):
 
     import scipy.io as sio
     from scipy import sparse
-    from flygenvectors.utils import get_dirs
+    # from flygenvectors.utils import get_dirs
 
     exp_folder = expt_id + '_' + fly_num + '/'
     file_name_main = expt_id + '*' + fly_num + '.npz'
