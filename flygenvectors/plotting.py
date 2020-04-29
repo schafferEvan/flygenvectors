@@ -889,22 +889,99 @@ def _get_state_runs(states, include_edges=True):
 def get_model_fit_as_dict(model_fit):
     fit_dict = {}
     tau = np.zeros(len(model_fit))
+    phi = np.zeros(len(model_fit))
+    beta_0 = np.zeros(len(model_fit))
     rsq = np.zeros(len(model_fit))
     rsq_null = np.zeros(len(model_fit))
     stat = np.zeros(len(model_fit))
     success = []
     for i in range(len(model_fit)):
         tau[i] = model_fit[i]['tau']
+        phi[i] = model_fit[i]['phi']
+        beta_0[i] = model_fit[i]['beta_0']
         rsq[i] = model_fit[i]['r_sq']
         rsq_null[i] = model_fit[i]['r_sq_null']
         stat[i] = model_fit[i]['stat'][1] #np.sign(model_fit[i]['r_sq']-model_fit[i]['r_sq_null'])*
         success.append(model_fit[i]['success'])
     fit_dict['tau'] = tau
+    fit_dict['phi'] = phi
+    fit_dict['beta_0'] = beta_0
     fit_dict['rsq'] = rsq
     fit_dict['rsq_null'] = rsq_null
     fit_dict['stat'] = stat
     fit_dict['success'] = success
     return fit_dict
+
+
+def show_param_scatter(model_fit, data_dict, param_name, pval=.01):
+    f = get_model_fit_as_dict(model_fit)
+    param = f[param_name]
+    rsq = f['rsq']
+    rsq_null = f['rsq_null']
+    stat = f['stat']
+    success = f['success']
+
+    if(param_name=='phi'): 
+        param /= data_dict['scanRate'] 
+        label = 'Phase (s)'
+    elif(param_name=='beta_0'): 
+        label = r'$\beta_0$'
+
+    pval_text = pval #0.01
+    sig = (stat<pval)*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
+    # sig_text = (stat<pval_text)*(rsq>rsq_null) # 1-sided test that behavior model > null model
+    param_sig = param[success*sig]
+    param_notsig = param[np.logical_not(success*sig)]
+    rsq_sig = rsq[success*sig]
+    rsq_notsig = rsq[np.logical_not(success*sig)]
+    # tau_is_pos_sig = tau_is_pos[success*sig]
+    # tau_is_neg_sig = np.logical_not(tau_is_pos_sig)
+    
+    # print('median tau of significant cells = '+str(np.median(tau_sig)))
+    # print('frac of significant cells w/ tau above 60s = '+str( np.sum(tau_sig>60)/len(tau_sig) ))
+    # print('fraction of cells with p<'+str(pval)+' = '+str( (success*sig).sum()/len(success) ))
+
+    plt.figure(figsize=(5, 5))
+    left, width = 0.1, 0.65
+    bottom, height = 0.1, 0.65
+    spacing = 0.005
+    rect_scatter = [left, bottom, width, height]
+    rect_histx = [left, bottom + height + spacing, width, 0.2]
+    rect_histy = [left + width + spacing, bottom, 0.2, height]
+
+    ax_scatter = plt.axes(rect_scatter)
+    ax_scatter.tick_params(direction='in', top=True, right=True)
+    ax_histx = plt.axes(rect_histx)
+    ax_histx.tick_params(direction='in', labelbottom=False)
+    # ax_histx.set_xscale('log')
+    ax_histx.axis('off')
+    ax_histy = plt.axes(rect_histy)
+    ax_histy.tick_params(direction='in', labelleft=False)
+    ax_histy.axis('off')
+
+
+    xmin = np.floor(param.min()) #4/scanRate
+    xmax = np.ceil(param.max()) #30 #1000/scanRate #6000
+    ymin = 0
+    ymax = 1
+
+    ax_scatter.scatter(param_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=0.3)
+    ax_scatter.scatter(param_sig,rsq_sig,c='tab:blue',marker='.',alpha=0.3) #'#1f77b4'
+    # ax_scatter.scatter(tau_sig[tau_is_neg_sig],rsq_sig[tau_is_neg_sig],c='tab:red',marker='.',alpha=0.3)
+    # ax_scatter.set_xscale('log')
+    ax_scatter.set_xlim((xmin,xmax))
+    ax_scatter.set_ylim((ymin,ymax))
+    ax_scatter.set_xlabel(label)
+    ax_scatter.set_ylabel(r'$r^2$')
+
+    xbinwidth = (xmax-xmin)/40
+    ybinwidth = 0.025
+    ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
+    xbins = np.arange(xmin, xmax+xbinwidth, xbinwidth) #np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
+    ax_histx.hist(param, bins=xbins,color='#929591') #log=True,
+    ax_histx.set_xlim((xmin,xmax))
+    ax_histy.hist(rsq, bins=ybins, orientation='horizontal',color='#929591')
+    ax_histy.set_ylim((ymin,ymax))
 
 
 def show_tau_scatter(model_fit, pval=.01):
@@ -966,8 +1043,8 @@ def show_tau_scatter(model_fit, pval=.01):
     ax_scatter.set_xlabel('Optimal time constant (s)')
     ax_scatter.set_ylabel(r'$r^2$')
 
-    xbinwidth = 100
-    ybinwidth = 0.05
+    # xbinwidth = 100
+    ybinwidth = 0.025
     ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
     xbins = np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
     ax_histx.hist(tau, bins=xbins,log=True,color='#929591')
@@ -1078,6 +1155,98 @@ def make_colorBar_for_colorCoded_cellMap(R, mask_vol, tauList, tau_label_list, t
         cbar.ax.set_title(colorbar_title)
 
 
+def make_colorBar_for_colorCoded_cellMap_points(tau_loc_list, tau_label_list, data_dict, model_fit, tau_argmax, cmap='', pval=0.01, color_lims=[0,200]):
+    from matplotlib import colors
+    import matplotlib.cm as cm
+    from matplotlib.colors import ListedColormap
+
+    point_size = 2
+    dims_in_um = data_dict['template_dims_in_um']
+    template_dims = data_dict['template_dims']
+    dims = data_dict['dims']
+    if(not cmap): 
+        cmap = make_hot_without_black()
+        colorbar_title = ''
+    else:
+        colorbar_title = 'CC'
+    gry = cm.get_cmap('Greys', 15)
+    gry = ListedColormap(gry(np.linspace(.8, 1, 2)))
+
+    if type(model_fit) is dict:
+        f = get_model_fit_as_dict(model_fit)
+        sig = f['success']*(f['stat']<pval)*(f['rsq']>f['rsq_null']) # 1-sided test that behavior model > null model
+        not_sig = np.logical_not(sig)
+    else:
+        # if not dict, assumed to be list
+        sig = np.array([i for i in range(len(model_fit))]) #np.ones(len(model_fit))
+        not_sig = np.array([]) #np.zeros(len(model_fit))
+    
+
+    totScale = 1
+    fig=plt.figure(figsize=(8, 8*totScale))
+
+    totWidth = 1.1*(dims_in_um[2] + dims_in_um[1])
+    zpx = dims_in_um[2]/totWidth
+    ypx = dims_in_um[1]/totWidth
+    xpx = dims_in_um[0]/totWidth
+
+    ax2 = plt.axes([.05+zpx,  (.05+zpx)/totScale,  ypx,  xpx/totScale])
+    # ax1 = plt.axes([.04,      (.05+zpx)/totScale,  zpx,  xpx/totScale])
+    # ax3 = plt.axes([.05+zpx,  .04/totScale,        ypx,  zpx/totScale])
+
+    # if(len(not_sig)):
+    #     ax1.scatter(data_dict['aligned_centroids'][not_sig,2],
+    #                 data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
+    # ax1.scatter(data_dict['aligned_centroids'][sig,2],
+    #             data_dict['aligned_centroids'][sig,1], c=tau_argmax[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
+    # ax1.set_facecolor((0.0, 0.0, 0.0))
+    # ax1.set_xticks([])
+    # ax1.set_yticks([])
+    # ax1.set_xlim(0,template_dims[2])
+    # ax1.set_ylim(0,template_dims[0])
+    # ax1.invert_yaxis()
+
+    if(len(not_sig)):
+        ax2.scatter(data_dict['aligned_centroids'][not_sig,0],
+                    data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
+    ax2.scatter(data_dict['aligned_centroids'][sig,0],
+                data_dict['aligned_centroids'][sig,1], c=tau_argmax[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
+    ax2.set_facecolor((0.0, 0.0, 0.0))
+    ax2.set_xticks([])
+    ax2.set_yticks([])
+    ax2.set_xlim(0,template_dims[1])
+    ax2.set_ylim(0,template_dims[0])
+    ax2.invert_yaxis()
+
+
+    ypx_per_um = template_dims[1]/dims_in_um[1]
+    scaleBar_um = 50 #50 um
+    bar_color = 'w'
+    ax2.plot( template_dims[1]*.97-(scaleBar_um*ypx_per_um,0), (template_dims[0]*.93, template_dims[0]*.93),bar_color)
+
+    # if(len(not_sig)):
+    #     ax3.scatter(data_dict['aligned_centroids'][not_sig,0],
+    #                 data_dict['aligned_centroids'][not_sig,2], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
+    # ax3.scatter(data_dict['aligned_centroids'][sig,0],
+    #             data_dict['aligned_centroids'][sig,2], c=tau_argmax[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
+    # ax3.set_facecolor((0.0, 0.0, 0.0))
+    # ax3.set_xticks([])
+    # ax3.set_yticks([])
+    # ax3.set_xlim(0,template_dims[1])
+    # ax3.set_ylim(0,template_dims[2])
+    # ax3.invert_yaxis()
+
+    # ***************************************************
+
+    # make COLORBAR for 'slow' cells, color coded by tau
+    cbar = fig.colorbar(cs, ticks=tau_loc_list)
+    cbar.ax.set_yticklabels([str(x) for x in tau_label_list])
+    if(not colorbar_title):
+        cbar.ax.set_title(r'$\tau (s)$')
+    else:
+        cbar.ax.set_title(colorbar_title)
+
+
 def show_residual_raster(data_dict, model_fit, exp_date):
     import regression_model as model
     tauLim = 100*data_dict['scanRate']
@@ -1167,9 +1336,13 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pv
     gry = ListedColormap(gry(np.linspace(.8, 1, 2)))
 
     if type(model_fit) is dict:
-        f = get_model_fit_as_dict(model_fit)
-        sig = f['success']*(f['stat']<pval)*(f['rsq']>f['rsq_null']) # 1-sided test that behavior model > null model
+        sig = model_fit['val']<pval # 1-sided test that behavior model > null model
         not_sig = np.logical_not(sig)
+
+        # old version:
+        # f = get_model_fit_as_dict(model_fit)
+        # sig = f['success']*(f['stat']<pval)*(f['rsq']>f['rsq_null']) # 1-sided test that behavior model > null model
+        # not_sig = np.logical_not(sig)
     else:
         # if not dict, assumed to be list
         sig = np.array([i for i in range(len(model_fit))]) #np.ones(len(model_fit))
@@ -1229,6 +1402,88 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pv
     ax3.set_xlim(0,template_dims[1])
     ax3.set_ylim(0,template_dims[2])
     ax3.invert_yaxis()
+
+
+
+def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit, color_data_tot, cmap, color_lims_tot, pval=0.01, sort_by=[]):
+    from matplotlib import colors
+    import matplotlib.cm as cm
+    from matplotlib.colors import ListedColormap
+
+    point_size = 0.5
+    dims_in_um = data_dict_tot[0]['data_dict']['template_dims_in_um']
+    template_dims = data_dict_tot[0]['data_dict']['template_dims']
+    dims = data_dict_tot[0]['data_dict']['dims']
+    if(not cmap): cmap = make_hot_without_black()
+    gry = cm.get_cmap('Greys', 15)
+    gry = ListedColormap(gry(np.linspace(.8, 1, 2)))
+    height_width_ratio = dims_in_um[1]/dims_in_um[0]
+    NF = len(data_dict_tot)
+
+    # # square version
+    # n_cols = int(np.ceil(np.sqrt(NF)))
+    # n_rows = n_cols
+    # if(NF<=n_cols*(n_rows-1)): n_rows -= 1
+    # f, ax = plt.subplots(n_rows, n_cols, figsize=(8, 8/height_width_ratio) )
+    
+    # # rect version
+    n_cols = 5
+    n_rows = int(np.ceil(NF/n_cols))
+    f, ax = plt.subplots(n_rows, n_cols, figsize=(15, 15/(height_width_ratio*n_cols/n_rows)) )
+    plt.subplots_adjust(wspace=0.05, hspace=0 )
+
+    for i in range(n_rows):
+        for j in range(n_cols):
+            ax[i,j].set_axis_off()
+
+    for nf in range(NF):
+        data_dict = data_dict_tot[nf]['data_dict']
+        color_data = color_data_tot[nf]
+        color_lims = color_lims_tot[nf]
+
+        # filter by significance threshold
+        sig = [] #np.zeros(len(model_fit[nf]))
+        for n in range(len(model_fit[nf])):
+            # sig[n] = model_fit[nf][n]['stat'][1]<pval # 1-sided test that behavior model > null model
+            sig.append( model_fit[nf][n]['stat'][1]<pval ) # 1-sided test that behavior model > null model
+        not_sig = np.logical_not(sig)
+        sig = np.flatnonzero(sig).tolist()
+        not_sig = np.flatnonzero(not_sig).tolist()
+
+        # optional: reorder list for consistent occlusion. options: {'z', 'val', 'inv_val'}. If empty, default is order of ROI ID
+        if sort_by:
+            if sort_by=='z':
+                sort_val = data_dict['aligned_centroids'][sig,2]
+            elif sort_by=='val':
+                sort_val = color_data[sig]
+            elif sort_by=='inv_val':
+                sort_val = -color_data[sig]
+            sorted_order = np.argsort(sort_val)
+            sig = (np.array(sig)[sorted_order]).tolist()
+
+
+        j = int(np.floor(nf/n_rows))
+        i = round(nf - j*n_rows)
+        ax[i,j].set_axis_on()
+        ax[i,j].set_aspect(height_width_ratio)
+        if(len(not_sig)):
+            ax[i,j].scatter(data_dict['aligned_centroids'][not_sig,0],
+                        data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(len(not_sig)), cmap=gry, s=point_size)
+        ax[i,j].scatter(data_dict['aligned_centroids'][sig,0],
+                    data_dict['aligned_centroids'][sig,1], c=color_data[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
+        ax[i,j].set_facecolor((0.0, 0.0, 0.0))
+        ax[i,j].set_xticks([])
+        ax[i,j].set_yticks([])
+        ax[i,j].set_xlim(0,template_dims[1])
+        ax[i,j].set_ylim(0,template_dims[0])
+        ax[i,j].invert_yaxis()
+
+        ypx_per_um = template_dims[1]/dims_in_um[1]
+        scaleBar_um = 50 #50 um
+        bar_color = 'w'
+        ax[i,j].plot( template_dims[1]*.97-(scaleBar_um*ypx_per_um,0), (template_dims[0]*.93, template_dims[0]*.93),bar_color)
+
+        
 
 
 
@@ -1479,6 +1734,82 @@ def show_example_cells_bestTau(cell_ids, corrMat, tauList, data_dict):
         axes.set_xlabel('Time (frames)')
         if(j==0):
             axes.set_ylabel('Beh\nMAX')
+
+def show_avg_traces(dict_tot, example_array_tot):
+    # plot AVERAGE
+    plt.figure(figsize=(14,5))
+    # colors_to_use = ['tab:green','tab:orange']
+    from matplotlib import colors
+    colors_to_use = np.array([colors.to_rgba('tab:orange'),colors.to_rgba('tab:cyan')])
+    colors_to_use[:,:3] *= .95   
+    av_tr_tot = []
+    # for nf in range(3):
+    for nf in range(len(dict_tot['data_tot'])):
+        plt.subplot(int(len(dict_tot['data_tot'])/2),2,nf+1)
+        #plt.subplot(3,1,nf+1)
+        data_dict = dict_tot['data_tot'][nf]['data_dict']
+        model_fit = dict_tot['model_fit'][nf]
+        
+        plt.plot( data_dict['behavior']/data_dict['behavior'].max(), 'k')
+        av_tr_fly = []
+        for k in range(len(example_array_tot)):
+            av_tr = np.zeros(len(data_dict['behavior']))
+            for i in range(len(example_array_tot[k][nf])):
+                j = np.array(example_array_tot[k][nf])[i]
+                av_tr += data_dict['rate'][j,:]
+            plt.plot( av_tr/av_tr.max(), c=colors_to_use[k,:] )
+            av_tr_fly.append( av_tr )
+        plt.gca().set_axis_off()
+        av_tr_tot.append( av_tr_fly )
+    return av_tr_tot
+
+def show_maps_for_avg_traces(dict_tot, example_array_tot):
+    ### show map of points used for 'show_avg_traces'
+    # plot_filter = copy.deepcopy( model_eval_tot_post )
+    import copy
+    #color_list = ['tab:blue','tab:orange','tab:green','tab:red','tab:purple']
+    plot_filter = [] # this recreates the needed piece of model_eval_tot_post
+
+    idx_tot = []
+    color_lims_tot = []
+    tmp_dict = {}
+    tmp_dict['stat'] = [1,1]
+    MAP_tot = dict_tot['MAP_tot']
+    data_tot = dict_tot['data_tot']
+    vmin= 0 
+    vmax= 9 # length of 'Paired' colormap
+    colors_to_use = [1,9] #[9,5,1] #[5,1] #[1,4,9]
+    # sigLimSec = 100
+    # tauList = np.logspace(-1,np.log10(sigLimSec),num=100)
+    for nf in range(len(MAP_tot)):
+        data_dict = dict_tot['data_tot'][nf]['data_dict']
+        map_idx = np.zeros(len(MAP_tot[nf][:,0])) #np.log(tauList[(MAP_tot[nf][:,0]).astype(int)])
+        idx_tot.append( map_idx )
+        
+        color_lims_tot.append( [vmin,vmax] )
+        tmp_list = []
+        for n in range(data_dict['rate'].shape[0]):
+            tmp_list.append( copy.deepcopy(tmp_dict) )
+            for k in range(len(example_array_tot)):
+                if n in example_array_tot[k][nf]:
+                    idx_tot[nf][n] = colors_to_use[k] # use k for color code
+                    tmp_list[n]['stat'][1] = 0
+        plot_filter.append( tmp_list )
+
+    pval=10**-8 #0.00001
+    show_colorCoded_cellMap_points_grid(data_tot, plot_filter, idx_tot, cmap='tab10', color_lims_tot=color_lims_tot, pval=pval, sort_by='z')
+            
+
+
+def display_cmap(cmap):
+    plt.imshow(np.linspace(0, 100, 256)[None, :],  aspect=25,    interpolation='nearest', cmap=cmap) 
+    plt.axis('off')
+
+def make_custom_cold_to_hot():
+    from matplotlib.colors import LinearSegmentedColormap
+    basic_cols=['#ff474c', (.2,.2,.2), '#95d0fc'] #   #03012d, #363737
+    my_cmap=LinearSegmentedColormap.from_list('mycmap', basic_cols)
+    return my_cmap
 
 
 def make_hot_without_black(clrs=100, low_bnd=0.15):
