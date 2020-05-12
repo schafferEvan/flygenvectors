@@ -631,6 +631,137 @@ def estimate_neuron_behav_reg_model_taulist_shiftlist_gauss(data_dict):
     return model_fit
 
 
+def estimate_neuron_behav_reg_model_extended(data_dict, opts):
+    # find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
+    # this is an extension of ".taulist_shiftlist_gauss", with two additions:
+    #       (1) merges gauss/exp kernel methods with option for either
+    #       (2) allows for arbitrarily many special timeseries inputs. previously just time, now time, feeding, "binary hunger", etc
+    extraRegressors = opts['extraRegressors']
+    tot_n_regressors = 3+extraRegressors.shape[0]
+    sigLimSec = opts['sigLimSec'] #100
+    phaseLimSec = opts['phaseLimSec'] #20
+    # use_beta_1 = False
+    sigLim = sigLimSec*data_dict['scanRate']
+    L = int(phaseLimSec*data_dict['scanRate'])
+    M = round(-sigLim*np.log(0.1)).astype(int)
+    mu = .5*M/data_dict['scanRate']
+    t_exp = np.linspace(1,M,M)/data_dict['scanRate']
+    ball = data_dict['behavior']-data_dict['behavior'].mean()
+    time = data_dict['time']-data_dict['time'][0]
+    # print(-M-L+1)
+    ts_full = np.squeeze(time)
+    tauList = np.logspace(-1,np.log10(sigLimSec),num=100)
+    phiList = np.linspace(-L,L, num=2*phaseLimSec+1 ).astype(int)
+    
+    tau_star = np.zeros(data_dict['rate'].shape[0])
+    phi_star = np.zeros(data_dict['rate'].shape[0])
+    fn_min = np.inf*np.ones(data_dict['rate'].shape[0])
+    P = np.zeros((data_dict['rate'].shape[0],tot_n_regressors))
+    P_tot = np.zeros((data_dict['rate'].shape[0],len(tauList),len(phiList),tot_n_regressors))
+    obj_tot = np.zeros((data_dict['rate'].shape[0],len(tauList),len(phiList)))
+
+    # fit model -
+    # for each value of tau and phi, check if pInv solution is better than previous
+    for i in range(len(tauList)):
+        if not np.mod(i,10): print(i, end=' ')
+        # [t_exp, time, ball, dFF] = data
+        tau = tauList[i]
+        # kern = (1/np.sqrt(tau))*np.exp(-t_exp/tau)
+        kern = np.exp(-0.5*((t_exp-mu)/tau)**2)
+        kern /= kern.sum()
+        x_c_full = np.convolve(kern,ball,'same')                      # ******* fix 'same' and 'gauss/exp' option *******
+        
+        x_c = x_c_full[L:-L]
+        ts = ts_full[L:-L]-ts_full[L]
+        
+        D = np.zeros((3+extraRegressors.shape[0], len(x_c)))
+        D[:3,:] = np.array( [np.ones(len(x_c)), ts, x_c] )
+        for j in range(extraRegressors.shape[0]):
+            D[3+j,:] = extraRegressors[j,L:-L]
+        Dinv = np.linalg.inv( np.matmul(D,D.T))
+
+        for j in range(len(phiList)):
+            phi = phiList[j]
+            for n in range(data_dict['rate'].shape[0]):
+                dFF_full = data_dict['rate'][n,:]                      #  ****** this is fine if detrending is removed from hunger processing
+                
+                # dFF slides past beh with displacement phi
+                if(phi==L):
+                    dFF = dFF_full[L+phi:]
+                else:
+                    dFF = dFF_full[L+phi:-(L-phi)]
+                data = [D, Dinv, dFF]
+                p, obj = fit_reg_linear(data)
+                obj_tot[n,i,j] = obj
+                P_tot[n,i,j,:] = p
+                if (obj<fn_min[n]):
+                    tau_star[n] = tauList[i]
+                    phi_star[n] = phiList[j]
+                    P[n,:] = p
+                    fn_min[n] = obj
+
+    # regenerate fit from best parameters and evaluate model
+    model_fit = []
+    for n in range(data_dict['rate'].shape[0]):
+        tau = tau_star[n]
+        phi = int(phi_star[n])
+        #kern = (1/np.sqrt(tau))*np.exp(-t_exp/tau)
+        kern = np.exp(-0.5*((t_exp-mu)/tau)**2)                                 # ******* kern options
+        kern /= kern.sum()
+        dFF_full = data_dict['rate'][n,:]
+        x_c_full = np.convolve(kern,ball,'same')                                # fix 'same'
+        p = P[n,:]
+        x_c = x_c_full[L:-L]
+        if(phi==L):
+            dFF = dFF_full[L+phi:]
+        else:
+            dFF = dFF_full[L+phi:-(L-phi)]
+        D = np.zeros((3+extraRegressors.shape[0], len(x_c)))
+        D[:3,:] = np.array( [np.ones(len(x_c)), ts, x_c] )
+        for j in range(extraRegressors.shape[0]):
+            D[3+j,:] = extraRegressors[j,L:-L]
+        dFF_fit = np.matmul(p,D)
+        p_lin = p.copy()
+
+        # null model (linear fit, after subtracting linear part of full model)
+        D_n = np.array( [np.ones(len(x_c)), ts] )
+        Dinv_n = np.linalg.inv( np.matmul(D_n,D_n.T))
+        p_n, obj = fit_reg_linear([D_n, Dinv_n, dFF]) #dFF_without_linpart])
+        dFF_fit_null = np.squeeze(np.matmul(p_n,D_n))
+        
+        # r squared: comparing model to null (linear)
+        SS_tot = ( (dFF-dFF.mean())**2 ) #( (dFF_without_linpart-dFF_without_linpart.mean())**2 )
+        SS_res = ( (dFF-dFF_fit)**2 )
+        SS_tot_0 = SS_tot #( (dFF-dFF.mean())**2 )
+        SS_res_0 = ( (dFF-dFF_fit_null)**2 ) #( (dFF_without_linpart-dFF_fit_null)**2 )
+        stat = stats.wilcoxon(SS_res_0,SS_res)
+
+        # CC
+        CC = np.corrcoef(dFF, dFF_fit)[0,1] 
+        CC_null = np.corrcoef(dFF, dFF_fit_null)[0,1] 
+
+        # collecting
+        d = {}
+        d['alpha_0_null'] = p_n[0,0]
+        d['alpha_1_null'] = p_n[0,1]
+        d['alpha_0'] = p[0]
+        d['alpha_1'] = p[1]
+        d['beta_0'] = p[2]
+        d['beta_1'] = p[3]
+        d['tau'] = tau_star[n]
+        d['phi'] = phi_star[n]
+        d['r_sq'] = 1-SS_res.sum()/SS_tot.sum()
+        d['r_sq_null'] = 1-SS_res_0.sum()/SS_tot_0.sum()
+        d['CC'] = CC
+        d['CC_null'] = CC_null
+        d['stat'] = stat
+        d['success'] = True #res['success']
+        d['P_tot'] = P_tot[n,:,:,:]
+        d['obj_tot'] = obj_tot[n,:,:]
+        model_fit.append(d)
+    return model_fit
+
+
 def get_model_rsq_and_pval(data_dict, model_fit):
     # recompute rsq and pval
     import copy
