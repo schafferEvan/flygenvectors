@@ -747,7 +747,7 @@ def estimate_neuron_behav_reg_model_extended(data_dict, opts):
         d['alpha_0'] = p[0]
         d['alpha_1'] = p[1]
         d['beta_0'] = p[2]
-        d['beta_1'] = p[3]
+        d['beta_1'] = p[3:]
         d['tau'] = tau_star[n]
         d['phi'] = phi_star[n]
         d['r_sq'] = 1-SS_res.sum()/SS_tot.sum()

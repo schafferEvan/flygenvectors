@@ -891,6 +891,10 @@ def get_model_fit_as_dict(model_fit):
     tau = np.zeros(len(model_fit))
     phi = np.zeros(len(model_fit))
     beta_0 = np.zeros(len(model_fit))
+    if isinstance(model_fit[0]['beta_1'],np.ndarray):
+        beta_1 = np.zeros((len(model_fit),len(model_fit[0]['beta_1'])))
+    else:
+        beta_1 = np.zeros((len(model_fit),1))
     rsq = np.zeros(len(model_fit))
     rsq_null = np.zeros(len(model_fit))
     stat = np.zeros(len(model_fit))
@@ -899,6 +903,7 @@ def get_model_fit_as_dict(model_fit):
         tau[i] = model_fit[i]['tau']
         phi[i] = model_fit[i]['phi']
         beta_0[i] = model_fit[i]['beta_0']
+        beta_1[i,:] = model_fit[i]['beta_1']
         rsq[i] = model_fit[i]['r_sq']
         rsq_null[i] = model_fit[i]['r_sq_null']
         stat[i] = model_fit[i]['stat'][1] #np.sign(model_fit[i]['r_sq']-model_fit[i]['r_sq_null'])*
@@ -906,6 +911,7 @@ def get_model_fit_as_dict(model_fit):
     fit_dict['tau'] = tau
     fit_dict['phi'] = phi
     fit_dict['beta_0'] = beta_0
+    fit_dict['beta_1'] = beta_1
     fit_dict['rsq'] = rsq
     fit_dict['rsq_null'] = rsq_null
     fit_dict['stat'] = stat
@@ -1648,7 +1654,7 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
     axes[-1].plot(tPl,behavior,'k')
     axes[-1].set_xlim([min(tPl),max(tPl)])
     if(include_feeding):
-        axes[-1].plot(tPl,feed,'c')
+        axes[-1].plot(tPl,feed*max(behavior),'c')
         axes[-1].set_ylabel('feeding\nlocomotion')
     else:
         axes[-1].set_ylabel('ball\n')
