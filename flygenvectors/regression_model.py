@@ -720,46 +720,41 @@ def estimate_neuron_behav_reg_model_extended(data_dict, opts):
         D[:3,:] = np.array( [np.ones(len(x_c)), ts, x_c] )
         for j in range(extraRegressors.shape[0]):
             D[3+j,:] = extraRegressors[j,L:-L]
-        dFF_fit = np.matmul(p,D)
-        p_lin = p.copy()
-
-        # null model (linear fit, after subtracting linear part of full model)
-        D_n = np.array( [np.ones(len(x_c)), ts] )
-        Dinv_n = np.linalg.inv( np.matmul(D_n,D_n.T))
-        p_n, obj = fit_reg_linear([D_n, Dinv_n, dFF]) #dFF_without_linpart])
-        dFF_fit_null = np.squeeze(np.matmul(p_n,D_n))
         
-        # r squared: comparing model to null (linear)
-        SS_tot = ( (dFF-dFF.mean())**2 ) #( (dFF_without_linpart-dFF_without_linpart.mean())**2 )
-        SS_res = ( (dFF-dFF_fit)**2 )
-        SS_tot_0 = SS_tot #( (dFF-dFF.mean())**2 )
-        SS_res_0 = ( (dFF-dFF_fit_null)**2 ) #( (dFF_without_linpart-dFF_fit_null)**2 )
-        stat = stats.wilcoxon(SS_res_0,SS_res)
-
-        # CC
-        CC = np.corrcoef(dFF, dFF_fit)[0,1] 
-        CC_null = np.corrcoef(dFF, dFF_fit_null)[0,1] 
-
+        r_sq, stat = get_model_rsq_and_pval_extended(dFF, p, D)
+        
         # collecting
         d = {}
-        d['alpha_0_null'] = p_n[0,0]
-        d['alpha_1_null'] = p_n[0,1]
         d['alpha_0'] = p[0]
         d['alpha_1'] = p[1]
         d['beta_0'] = p[2]
         d['beta_1'] = p[3:]
         d['tau'] = tau_star[n]
         d['phi'] = phi_star[n]
-        d['r_sq'] = 1-SS_res.sum()/SS_tot.sum()
-        d['r_sq_null'] = 1-SS_res_0.sum()/SS_tot_0.sum()
-        d['CC'] = CC
-        d['CC_null'] = CC_null
+        d['r_sq'] = r_sq #1-SS_res.sum()/SS_tot.sum()
         d['stat'] = stat
         d['success'] = True #res['success']
         d['P_tot'] = P_tot[n,:,:,:]
         d['obj_tot'] = obj_tot[n,:,:]
         model_fit.append(d)
     return model_fit
+
+def get_model_rsq_and_pval_extended(dFF, p, D)
+    dFF_fit = p@D
+    SS_res = ( (dFF-dFF_fit)**2 )
+    SS_tot = ( (dFF-dFF.mean())**2 ) #( (dFF_without_linpart-dFF_without_linpart.mean())**2 )
+    r_sq = 1-SS_res.sum()/SS_tot.sum()
+    stat = []
+    for i in range(D.shape[0]):
+        # redo regression with regressor "i" omitted
+        j_inc = [x for x in range(D.shape[0]) if x != i]
+        D_n = D[j_inc,:].copy()
+        Dinv_n = np.linalg.inv( D_n@D_n.T )
+        p_n, obj = fit_reg_linear([D_n, Dinv_n, dFF]) #dFF_without_linpart])
+        dFF_fit_null = np.squeeze(p_n@D_n)   
+        SS_res_0 = ( (dFF-dFF_fit_null)**2 ) #( (dFF_without_linpart-dFF_fit_null)**2 )
+        stat.append( stats.wilcoxon(SS_res_0,SS_res) )
+    return r_sq, stat
 
 
 def get_model_rsq_and_pval(data_dict, model_fit):
