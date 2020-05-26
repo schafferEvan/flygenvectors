@@ -647,7 +647,7 @@ def estimate_neuron_behav_reg_model_extended(data_dict, opts):
     mu = .5*M/data_dict['scanRate']
     t_exp = np.linspace(1,M,M)/data_dict['scanRate']
     ball = data_dict['behavior']-data_dict['behavior'].mean()
-    time = data_dict['time']-data_dict['time'][0]
+    time = data_dict['time']-data_dict['time'].mean() #data_dict['time'][0]
     # print(-M-L+1)
     ts_full = np.squeeze(time)
     tauList = np.logspace(-1,np.log10(sigLimSec),num=100)
@@ -739,12 +739,12 @@ def estimate_neuron_behav_reg_model_extended(data_dict, opts):
         model_fit.append(d)
     return model_fit
 
-def get_model_rsq_and_pval_extended(dFF, p, D)
+def get_model_rsq_and_pval_extended(dFF, p, D):
     dFF_fit = p@D
     SS_res = ( (dFF-dFF_fit)**2 )
     SS_tot = ( (dFF-dFF.mean())**2 ) #( (dFF_without_linpart-dFF_without_linpart.mean())**2 )
     r_sq = 1-SS_res.sum()/SS_tot.sum()
-    stat = []
+    stat_list = []
     for i in range(D.shape[0]):
         # redo regression with regressor "i" omitted
         j_inc = [x for x in range(D.shape[0]) if x != i]
@@ -753,7 +753,11 @@ def get_model_rsq_and_pval_extended(dFF, p, D)
         p_n, obj = fit_reg_linear([D_n, Dinv_n, dFF]) #dFF_without_linpart])
         dFF_fit_null = np.squeeze(p_n@D_n)   
         SS_res_0 = ( (dFF-dFF_fit_null)**2 ) #( (dFF_without_linpart-dFF_fit_null)**2 )
-        stat.append( stats.wilcoxon(SS_res_0,SS_res) )
+        stat_list.append( stats.wilcoxon(SS_res_0,SS_res) )
+    stat = {'alpha_0':stat_list[0],
+           'alpha_1':stat_list[1],
+           'beta_0': stat_list[2],
+           'beta_1': stat_list[3:]}
     return r_sq, stat
 
 
