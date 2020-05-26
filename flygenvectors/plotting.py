@@ -897,7 +897,7 @@ def get_model_fit_as_dict(model_fit):
         beta_1 = np.zeros((len(model_fit),1))
     rsq = np.zeros(len(model_fit))
     rsq_null = np.zeros(len(model_fit))
-    stat = np.zeros(len(model_fit))
+    stat = np.zeros( (len(model_fit), np.shape(model_fit[0]['stat'])[0] ) )
     success = []
     for i in range(len(model_fit)):
         tau[i] = model_fit[i]['tau']
@@ -905,17 +905,18 @@ def get_model_fit_as_dict(model_fit):
         beta_0[i] = model_fit[i]['beta_0']
         beta_1[i,:] = model_fit[i]['beta_1']
         rsq[i] = model_fit[i]['r_sq']
-        rsq_null[i] = model_fit[i]['r_sq_null']
-        stat[i] = model_fit[i]['stat'][1] #np.sign(model_fit[i]['r_sq']-model_fit[i]['r_sq_null'])*
+        # rsq_null[i] = model_fit[i]['r_sq_null']
+        for j in range(np.shape(model_fit[0]['stat'])[0]):
+            stat[i,j] = model_fit[i]['stat'][j][1]
         success.append(model_fit[i]['success'])
     fit_dict['tau'] = tau
     fit_dict['phi'] = phi
     fit_dict['beta_0'] = beta_0
     fit_dict['beta_1'] = beta_1
     fit_dict['rsq'] = rsq
-    fit_dict['rsq_null'] = rsq_null
+    # fit_dict['rsq_null'] = rsq_null
     fit_dict['stat'] = stat
-    fit_dict['success'] = success
+    # fit_dict['success'] = success
     return fit_dict
 
 
@@ -1328,7 +1329,16 @@ def show_PC_residual_raster(data_dict):
 
 
 
-def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pval=0.01, color_lims=[0,200]):
+def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pval=0.01, color_lims_scale=[-0.75,0.75]):
+    """
+    Plot map of cells for one dataset, all MIPs, colorcoded by desired quantity
+
+    Args:
+        data_dict (dict): dictionary for one dataset
+        model_fit (list): list of dictionaries for one dataset
+        plot_param (string or list): if string, param to use for color code. If list, pair of param to use (str) and index (int)
+        color_lims_scale (list): bounds for min and max.  If _scale[0]<0, enforces symmetry of colormap
+    """
     from matplotlib import colors
     import matplotlib.cm as cm
     from matplotlib.colors import ListedColormap
@@ -1340,20 +1350,41 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pv
     if(not cmap): cmap = make_hot_without_black()
     gry = cm.get_cmap('Greys', 15)
     gry = ListedColormap(gry(np.linspace(.8, 1, 2)))
-
-    if type(model_fit) is dict:
-        sig = model_fit['val']<pval # 1-sided test that behavior model > null model
-        not_sig = np.logical_not(sig)
-
-        # old version:
-        # f = get_model_fit_as_dict(model_fit)
-        # sig = f['success']*(f['stat']<pval)*(f['rsq']>f['rsq_null']) # 1-sided test that behavior model > null model
-        # not_sig = np.logical_not(sig)
+ 
+    if type(plot_param) is list:
+        plot_field = plot_param[0]
+        plot_field_idx = plot_param[1]
     else:
-        # if not dict, assumed to be list
+        plot_field = plot_param
+        plot_field_idx = np.nan
+    if type(model_fit) is list:
+
+        # generate color_data from model_fit
+        color_data = np.zeros(len(model_fit))
+        sig = [] # significance threshold
+        for i in range(len(model_fit)):
+            if np.isnan(plot_field_idx):
+                color_data[i] = model_fit[i][plot_field]
+                sig.append( model_fit[i]['stat'][plot_field][1]<pval ) # 1-sided test that behavior model > null model
+            else:
+                color_data[i] = model_fit[i][plot_field][plot_field_idx]
+                sig.append( model_fit[i]['stat'][plot_field][plot_field_idx][1]<pval ) # 1-sided test that behavior model > null model
+                
+        # sig cleanup
+        not_sig = np.logical_not(sig)
+        sig = np.flatnonzero(sig) #.tolist()
+        not_sig = np.flatnonzero(not_sig) #.tolist()
+    else:
+        # this needs to be updated.  the above takes the 'list' case
+        # if not dict, assumed to be list. This is for manual curation and testing
         sig = np.array([i for i in range(len(model_fit))]) #np.ones(len(model_fit))
         not_sig = np.array([]) #np.zeros(len(model_fit))
     
+    if color_lims_scale[0]<0:
+        color_lims = [abs(color_lims_scale[0])*min(min(color_data[sig]),-max(color_data[sig])),
+                          color_lims_scale[1]*max(-min(color_data[sig]),max(color_data[sig]))]
+    else:
+        color_lims = [color_lims_scale[0]*min(color_data[sig]), color_lims_scale[1]*max(color_data[sig])]
 
     totScale = 1
     plt.figure(figsize=(8, 8*totScale))
@@ -1366,12 +1397,13 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pv
     ax2 = plt.axes([.05+zpx,  (.05+zpx)/totScale,  ypx,  xpx/totScale])
     ax1 = plt.axes([.04,      (.05+zpx)/totScale,  zpx,  xpx/totScale])
     ax3 = plt.axes([.05+zpx,  .04/totScale,        ypx,  zpx/totScale])
-
+    # pdb.set_trace()
+    
     if(len(not_sig)):
         ax1.scatter(data_dict['aligned_centroids'][not_sig,2],
-                    data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
+                    data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(len(not_sig)), cmap=gry, s=point_size)
     ax1.scatter(data_dict['aligned_centroids'][sig,2],
-                data_dict['aligned_centroids'][sig,1], c=tau_argmax[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
+                data_dict['aligned_centroids'][sig,1], c=color_data[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
     ax1.set_facecolor((0.0, 0.0, 0.0))
     ax1.set_xticks([])
     ax1.set_yticks([])
@@ -1381,9 +1413,9 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pv
 
     if(len(not_sig)):
         ax2.scatter(data_dict['aligned_centroids'][not_sig,0],
-                    data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
+                    data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(len(not_sig)), cmap=gry, s=point_size)
     ax2.scatter(data_dict['aligned_centroids'][sig,0],
-                data_dict['aligned_centroids'][sig,1], c=tau_argmax[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
+                data_dict['aligned_centroids'][sig,1], c=color_data[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
     ax2.set_facecolor((0.0, 0.0, 0.0))
     ax2.set_xticks([])
     ax2.set_yticks([])
@@ -1399,9 +1431,9 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pv
 
     if(len(not_sig)):
         ax3.scatter(data_dict['aligned_centroids'][not_sig,0],
-                    data_dict['aligned_centroids'][not_sig,2], c=.5*np.ones(not_sig.sum()), cmap=gry, s=point_size)
+                    data_dict['aligned_centroids'][not_sig,2], c=.5*np.ones(len(not_sig)), cmap=gry, s=point_size)
     ax3.scatter(data_dict['aligned_centroids'][sig,0],
-                data_dict['aligned_centroids'][sig,2], c=tau_argmax[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
+                data_dict['aligned_centroids'][sig,2], c=color_data[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
     ax3.set_facecolor((0.0, 0.0, 0.0))
     ax3.set_xticks([])
     ax3.set_yticks([])
@@ -1412,6 +1444,15 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax, cmap='', pv
 
 
 def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit, color_data_tot, cmap, color_lims_tot, pval=0.01, sort_by=[]):
+    """
+    Plot map of cells for many datasets, colorcoded by desired quantity
+
+    Args:
+        data_dict_tot (list): list of dictionaries for each dataset
+        model_fit (list): list of dictionaries for each dataset
+        color_data_tot (list OR string): if list, 
+    """
+
     from matplotlib import colors
     import matplotlib.cm as cm
     from matplotlib.colors import ListedColormap
@@ -1444,17 +1485,31 @@ def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit, color_data_tot
 
     for nf in range(NF):
         data_dict = data_dict_tot[nf]['data_dict']
-        color_data = color_data_tot[nf]
-        color_lims = color_lims_tot[nf]
 
-        # filter by significance threshold
-        sig = [] #np.zeros(len(model_fit[nf]))
-        for n in range(len(model_fit[nf])):
-            # sig[n] = model_fit[nf][n]['stat'][1]<pval # 1-sided test that behavior model > null model
-            sig.append( model_fit[nf][n]['stat'][1]<pval ) # 1-sided test that behavior model > null model
+        # allow color_data to be either an array (as it currently is), or a string (a field in model_fit)
+        if type(color_data_tot)==str:
+            # generate color_data from model_fit if it's a string
+            color_data = np.zeros(len(model_fit[nf]))
+            sig = [] # significance threshold. there's a reason this isn't a numpy array
+            
+            for i in range(len(model_fit[nf])):
+                color_data[i] = model_fit[nf][i][color_data_tot]
+                sig.append( model_fit[nf][i]['stat'][color_data_tot][1]<pval ) # 1-sided test that behavior model > null model
+        
+        else:
+            color_data = color_data_tot[nf]
+            sig = [] # significance threshold. there's a reason this isn't a numpy array
+            for n in range(len(model_fit[nf])):
+                # sig[n] = model_fit[nf][n]['stat'][1]<pval # 1-sided test that behavior model > null model
+                sig.append( model_fit[nf][n]['stat'][1]<pval ) # 1-sided test that behavior model > null model
+        
+        # sig cleanup
         not_sig = np.logical_not(sig)
         sig = np.flatnonzero(sig).tolist()
         not_sig = np.flatnonzero(not_sig).tolist()
+
+        # get color bounds
+        color_lims = color_lims_tot[nf]
 
         # optional: reorder list for consistent occlusion. options: {'z', 'val', 'inv_val'}. If empty, default is order of ROI ID
         if sort_by:
