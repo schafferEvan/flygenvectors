@@ -1443,7 +1443,7 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
 
 
 
-def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit, color_data_tot, cmap, color_lims_tot, pval=0.01, sort_by=[]):
+def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param, cmap, color_lims_scale, pval=0.01, sort_by=[]):
     """
     Plot map of cells for many datasets, colorcoded by desired quantity
 
@@ -1467,6 +1467,13 @@ def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit, color_data_tot
     height_width_ratio = dims_in_um[1]/dims_in_um[0]
     NF = len(data_dict_tot)
 
+    if type(plot_param) is list:
+        plot_field = plot_param[0]
+        plot_field_idx = plot_param[1]
+    else:
+        plot_field = plot_param
+        plot_field_idx = np.nan
+        
     # # square version
     # n_cols = int(np.ceil(np.sqrt(NF)))
     # n_rows = n_cols
@@ -1485,31 +1492,30 @@ def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit, color_data_tot
 
     for nf in range(NF):
         data_dict = data_dict_tot[nf]['data_dict']
+        model_fit = model_fit_tot[nf]
 
-        # allow color_data to be either an array (as it currently is), or a string (a field in model_fit)
-        if type(color_data_tot)==str:
-            # generate color_data from model_fit if it's a string
-            color_data = np.zeros(len(model_fit[nf]))
-            sig = [] # significance threshold. there's a reason this isn't a numpy array
-            
-            for i in range(len(model_fit[nf])):
-                color_data[i] = model_fit[nf][i][color_data_tot]
-                sig.append( model_fit[nf][i]['stat'][color_data_tot][1]<pval ) # 1-sided test that behavior model > null model
-        
-        else:
-            color_data = color_data_tot[nf]
-            sig = [] # significance threshold. there's a reason this isn't a numpy array
-            for n in range(len(model_fit[nf])):
-                # sig[n] = model_fit[nf][n]['stat'][1]<pval # 1-sided test that behavior model > null model
-                sig.append( model_fit[nf][n]['stat'][1]<pval ) # 1-sided test that behavior model > null model
-        
+        # generate color_data from model_fit
+        color_data = np.zeros(len(model_fit))
+        sig = [] # significance threshold
+        for i in range(len(model_fit)):
+            if np.isnan(plot_field_idx):
+                color_data[i] = model_fit[i][plot_field]
+                sig.append( model_fit[i]['stat'][plot_field][1]<pval ) # 1-sided test that behavior model > null model
+            else:
+                color_data[i] = model_fit[i][plot_field][plot_field_idx]
+                sig.append( model_fit[i]['stat'][plot_field][plot_field_idx][1]<pval ) # 1-sided test that behavior model > null model
+                
         # sig cleanup
         not_sig = np.logical_not(sig)
-        sig = np.flatnonzero(sig).tolist()
-        not_sig = np.flatnonzero(not_sig).tolist()
+        sig = np.flatnonzero(sig) #.tolist()
+        not_sig = np.flatnonzero(not_sig) #.tolist()
 
         # get color bounds
-        color_lims = color_lims_tot[nf]
+        if color_lims_scale[0]<0:
+            color_lims = [abs(color_lims_scale[0])*min(min(color_data[sig]),-max(color_data[sig])),
+                              color_lims_scale[1]*max(-min(color_data[sig]),max(color_data[sig]))]
+        else:
+            color_lims = [color_lims_scale[0]*min(color_data[sig]), color_lims_scale[1]*max(color_data[sig])]
 
         # optional: reorder list for consistent occlusion. options: {'z', 'val', 'inv_val'}. If empty, default is order of ROI ID
         if sort_by:
