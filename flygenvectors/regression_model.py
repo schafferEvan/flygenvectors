@@ -678,7 +678,12 @@ def estimate_neuron_behav_reg_model_extended(data_dict, opts):
         D[:3,:] = np.array( [np.ones(len(x_c)), ts, x_c] )
         for j in range(extraRegressors.shape[0]):
             D[3+j,:] = extraRegressors[j,L:-L]
-        Dinv = np.linalg.inv( np.matmul(D,D.T))
+        try:
+            Dinv = np.linalg.inv( np.matmul(D,D.T))
+        except:
+            obj_tot[:,i,:] = np.inf
+            P_tot[:,i,:,:] = 0
+            continue
 
         for j in range(len(phiList)):
             phi = phiList[j]
