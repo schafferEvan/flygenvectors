@@ -13,8 +13,9 @@ class reg_obj:
     def __init__(self):
         self.data_dict = {}
         self.params = {'split_behav':True,
-                    'sigLimSec':100,
-                    'phaseLimSec': 20,
+                    'run_full_sweep':True,
+                    'sigLimSec':60,
+                    'phaseLimSec': 3,
                     'M':0,
                     'L':0,
                     'tau':0.1,
@@ -32,9 +33,20 @@ class reg_obj:
         self.phi = 0
         self.p_dict = {} # temp
         self.model_fit = []
+        self.P_tot = []
+        self.obj_tot = []
 
 
-    def fit_reg_linear(self, n, phi):
+
+    def fit_reg_linear(self, n, phi, tseries_to_sub=None, D=None, Dinv=None, reg_labels=None):
+        '''
+        n=cell number
+        phi=offset
+        tseries_to_sub (optional): pre-subtract a timeseries. Useful for parameter sweeps
+        D (optional): provide regressor array. Otherwise defaults to reg array attribute of current object
+        Dinv (optional): provide regressor array. Otherwise defaults to inv reg array attribute of current object
+        reg_labels (optional): required if providing D, unneeded otherwise. Manually provide fields for dict output
+        '''
         dFF_full = self.data_dict['rate'][n,:]
         
         # dFF slides past beh with displacement phi
@@ -43,10 +55,14 @@ class reg_obj:
             dFF = dFF_full[L+phi:]
         else:
             dFF = dFF_full[L+phi:-(L-phi)]
+        if tseries_to_sub is not None:
+            dFF -= tseries_to_sub
 
         # for a given tau, fit for other parameters is linear, solved by pseudoinverse
-        D = self.regressors_array
-        Dinv = self.regressors_array_inv
+        if D is None:
+            D = self.regressors_array
+        if Dinv is None:
+            Dinv = self.regressors_array_inv
         dFF = np.expand_dims(dFF, axis=0)
         # coeffs = np.matmul( np.matmul(dFF,D.T), Dinv )
         coeffs = np.squeeze( (dFF@D.T) @ Dinv )
@@ -54,7 +70,8 @@ class reg_obj:
         obj = ((dFF-dFF_fit)**2).sum()
 
         # split parameters 'coeffs' back into dictionary by labeled regressor
-        reg_labels = list(self.regressors_dict.keys())
+        if reg_labels is None:
+            reg_labels = list(self.regressors_dict.keys())
         coeff_dict = {}
         cumulative_tot = 0
         for j in range(len(reg_labels)):
@@ -64,6 +81,53 @@ class reg_obj:
             cumulative_tot += n_this_reg
         
         return coeff_dict, obj
+
+
+
+    def fit_reg_linear_batch(self, phi, tseries_to_sub=None, D=None, Dinv=None, reg_labels=None):
+        '''
+        n=cell number
+        phi=offset
+        tseries_to_sub (optional): pre-subtract a timeseries. Useful for parameter sweeps
+        D (optional): provide regressor array. Otherwise defaults to reg array attribute of current object
+        Dinv (optional): provide regressor array. Otherwise defaults to inv reg array attribute of current object
+        reg_labels (optional): required if providing D, unneeded otherwise. Manually provide fields for dict output
+        '''
+        dFF_full = self.data_dict['rate']
+        
+        # dFF slides past beh with displacement phi
+        L = self.params['L']
+        if(phi==L):
+            dFF = dFF_full[:,L+phi:]
+        else:
+            dFF = dFF_full[:,L+phi:-(L-phi)]
+        if tseries_to_sub is not None:
+            dFF -= tseries_to_sub
+
+        # for a given tau, fit for other parameters is linear, solved by pseudoinverse
+        if D is None:
+            D = self.regressors_array
+        if Dinv is None:
+            Dinv = self.regressors_array_inv
+        # dFF = np.expand_dims(dFF, axis=0)
+        # # coeffs = np.matmul( np.matmul(dFF,D.T), Dinv )
+        coeffs = np.squeeze( (dFF@D.T) @ Dinv )
+        dFF_fit = coeffs@D #np.matmul(coeffs,D)
+        obj = ((dFF-dFF_fit)**2).sum(axis=1)
+
+        # split parameters 'coeffs' back into dictionary by labeled regressor
+        if reg_labels is None:
+            reg_labels = list(self.regressors_dict.keys())
+        coeff_dict = {}
+        cumulative_tot = 0
+        for j in range(len(reg_labels)):
+            n_this_reg = self.regressors_dict[ reg_labels[j] ].shape[0]
+            # pdb.set_trace()
+            coeff_dict[reg_labels[j]] = coeffs[:, cumulative_tot+np.arange(n_this_reg) ]
+            cumulative_tot += n_this_reg
+        
+        return coeff_dict, obj
+
 
 
 
@@ -86,8 +150,10 @@ class reg_obj:
         hunger = np.zeros(data_dict['drink'].shape)
         hunger[d1:]=1
         hunger = np.squeeze(hunger)-hunger.mean()
+        hunger /= abs(hunger).max()
         drink = np.squeeze(data_dict['drink'].astype(float))
         drink -= drink.mean()
+        drink /= abs(drink).max()
 
         # define trial flag regressors
         U = np.unique(data_dict['trialFlag'])
@@ -99,9 +165,11 @@ class reg_obj:
             is_this_trial = data_dict['trialFlag']==U[i]
             trial_regressors[i,:] = 1.0*np.squeeze(is_this_trial)[L:-L]
             trial_regressors[i,:] -= trial_regressors[i,:].mean()
+            trial_regressors[i,:] /= abs(trial_regressors[i,:]).max()
 
         # convolve behavior with chosen kernel, either piecewise or all together
         ts = ts_full[L:-L]-ts_full[L:-L].mean()
+        ts /= abs(ts).max()
         kern = np.exp(-0.5*((t_exp-params['mu'])/params['tau'])**2)
         # kern = (1/np.sqrt(tau))*np.exp(-t_exp/tau)
         kern /= kern.sum()
@@ -112,13 +180,15 @@ class reg_obj:
                 is_this_trial = np.squeeze(data_dict['trialFlag']==U[i])
                 ball[i,is_this_trial] = data_dict['behavior'][is_this_trial]-data_dict['behavior'][is_this_trial].mean()
                 x_c_full = np.convolve(kern,ball[i,:],'same')                      # ******* fix 'same' and 'gauss/exp' option *******
-                x_c[i,:] = x_c_full[L:-L]
+                x_c[i,:] = x_c_full[L:-L]-x_c_full[L:-L].mean()
+                x_c[i,:] /= abs(x_c[i,:]).max()
         else:
             ball = data_dict['behavior']-data_dict['behavior'].mean()
             x_c_full = np.convolve(kern,ball,'same')                      # ******* fix 'same' and 'gauss/exp' option *******
-            x_c = x_c_full[L:-L]
+            x_c = x_c_full[L:-L]-x_c_full[L:-L].mean()
+            x_c /= abs(x_c).max()
         
-        alpha_regs = np.concatenate( (np.ones((1,len(ts))), ts.T) )
+        alpha_regs = np.concatenate( (np.ones((1,len(ts)))/len(ts), ts.T) )
         # pdb.set_trace()
         # regs = np.concatenate( (alpha_regs, x_c, trial_regressors, np.array([drink[L:-L],hunger[L:-L]])), axis=0 )
         regs = {
@@ -130,6 +200,9 @@ class reg_obj:
         # pdb.set_trace()
         self.regressors_dict = regs
         self.regressors_array, self.regressors_array_inv, self.tot_n_regressors = self.get_regressor_array(regs)
+        if (self.regressors_array.max()>1) or (self.regressors_array.min()<-1):
+            print('WARNING: regressor not normalized')
+            # pdb.set_trace()
 
 
     def get_regressor_array(self, regs):
@@ -220,72 +293,77 @@ class reg_obj:
 
 
 
-    def flag_cells_by_model_params(self, param_dict, dict_tot, eval_tot):
-        print('update/deprecate')
-        # # for each dataset, flag candidates
-        # # typically used by passing bayes_model_tot_post as dict_tot
-        # # and model_eval_tot_post as eval_tot
-        
-        # # generate distance threshold
-        # from scipy.stats import multivariate_normal
-        # data_dict = dict_tot['data_tot'][0]['data_dict']
-        # tmp = multivariate_normal(dict_tot['data_tot'][0]['data_dict']['aligned_centroids'][0,:], param_dict['sig'] ) 
-        # ref_pt = dict_tot['data_tot'][0]['data_dict']['aligned_centroids'][0,:].copy()
-        # ref_pt[0] += param_dict['sig']
-        # ref_val = tmp.pdf(ref_pt)
 
-        # example_array_tot = []
-        # # mag_order_tot = []
-        # p_th = 10**-5
-        # for nf in range(len(dict_tot['data_tot'])):
-        #     data_dict = dict_tot['data_tot'][nf]['data_dict']
-        #     model_fit = dict_tot['model_fit'][nf]
-            
-        #     N = data_dict['aligned_centroids'].shape[0]
-        #     ex_ar = []
-        #     for n in range(N):
-        #         if ( (model_fit[n]['tau']>param_dict['tau_th']) and (model_fit[n]['phi']>param_dict['phi_th']) 
-        #             and (model_fit[n]['tau']<param_dict['tau_max_th']) and (eval_tot[nf][n]['stat'][1]<p_th)):
-        #             mvn = multivariate_normal(data_dict['aligned_centroids'][n,:], param_dict['sig'] )
-        #             if mvn.pdf([param_dict['ref_x'],param_dict['ref_y'],param_dict['ref_z']])>ref_val:
-        #                 ex_ar.append(n)
-        #     example_array_tot.append( ex_ar )
-        #     print(len(ex_ar),end=' ')
-            
-        #     # # get dynamic range of fits, and sort
-        #     # mag = np.zeros(len(ex_ar))
-        #     # for j in range(len(ex_ar)):
-        #     #     dFF_fit, dFF = get_model_fit_gauss(data_dict, model_fit, ex_ar[j])
-        #     #     mag[j] = dFF_fit.max() - dFF_fit.min()
-        #     # mag_order = np.argsort(mag)
-        #     # mag_order_tot.append( mag_order )
-                
-        # return example_array_tot   
-
-
-
-    def fit_reg_model_extended(self):
+    def fit_reg_model_MLE(self):
         # find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
         # this is an extension of ".taulist_shiftlist_gauss", with two additions:
         #       (1) merges gauss/exp kernel methods with option for either
         #       (2) allows for arbitrarily many special timeseries inputs. previously just time, now time, feeding, "binary hunger", etc
         
-
-        # extraRegressors = opts['extraRegressors']
-        # tot_n_regressors = 3+extraRegressors.shape[0]
         data_dict = self.data_dict
         sigLimSec = self.params['sigLimSec'] #100
         phaseLimSec = self.params['phaseLimSec'] #20
-        # use_beta_1 = False
         sigLim = sigLimSec*data_dict['scanRate']
         self.params['L'] = int(phaseLimSec*data_dict['scanRate'])
         self.params['M'] = round(-sigLim*np.log(0.1)).astype(int)
         self.params['mu'] = .5*self.params['M']/data_dict['scanRate']
-        # t_exp = np.linspace(1,M,M)/data_dict['scanRate']
-        # time = data_dict['time']-data_dict['time'].mean() #data_dict['time'][0]
-        # ts_full = np.squeeze(time)
-        tauList = np.logspace(-1,np.log10(sigLimSec),num=100)
+        tauList = np.logspace(-1,np.log10(sigLimSec),num=60)
         phiList = np.linspace(-self.params['L'],self.params['L'], num=2*phaseLimSec+1 ).astype(int)
+        tau_star = np.zeros(data_dict['rate'].shape[0])
+        phi_star = np.zeros(data_dict['rate'].shape[0])
+        fn_min = np.inf*np.ones(data_dict['rate'].shape[0])
+        
+        # fit model -  for each value of tau and phi, check if pInv solution is better than previous
+        P = [None]*data_dict['rate'].shape[0] # [] #np.zeros((data_dict['rate'].shape[0],tot_n_regressors))
+        for i in range(len(tauList)):
+            if not np.mod(i,2): print(i, end=' ')
+            self.params['tau'] = tauList[i]
+            self.get_regressors() 
+            
+            for j in range(len(phiList)):
+                for n in range(data_dict['rate'].shape[0]):
+                    p, obj = self.fit_reg_linear(n=n, phi=phiList[j])
+                    if (obj<fn_min[n]):
+                        tau_star[n] = tauList[i]
+                        phi_star[n] = phiList[j]
+                        P[n] = p
+                        fn_min[n] = obj
+                    
+        # collect output ********* redo with dictionary defined at outset to eliminate need for this ---------
+        self.model_fit = []
+        for n in range(data_dict['rate'].shape[0]):
+            # if not self.model_fit:
+            d = copy.deepcopy(P[n])
+            d['tau'] = tau_star[n]
+            d['phi'] = int(phi_star[n])
+            d['success'] = True #res['success']
+            self.model_fit.append(d)
+            # else:
+            #     self.model_fit[n]['tau'] = tau_star[n]
+            #     self.model_fit[n]['phi'] = int(phi_star[n])
+            #     self.model_fit[n]['success'] = True #res['success']
+
+
+
+
+
+    def fit_reg_model_full_likelihood(self):
+        # find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
+        # this is an extension of ".taulist_shiftlist_gauss", with two additions:
+        #       (1) merges gauss/exp kernel methods with option for either
+        #       (2) allows for arbitrarily many special timeseries inputs. previously just time, now time, feeding, "binary hunger", etc
+        
+        self.params['phaseLimSec'] = 1
+        data_dict = self.data_dict
+        sigLimSec = self.params['sigLimSec'] #100
+        phaseLimSec = self.params['phaseLimSec'] #20
+        sigLim = sigLimSec*data_dict['scanRate']
+        self.params['L'] = int(phaseLimSec*data_dict['scanRate'])
+        self.params['M'] = round(-sigLim*np.log(0.1)).astype(int)
+        self.params['mu'] = .5*self.params['M']/data_dict['scanRate']
+        tauList = np.logspace(-1,np.log10(sigLimSec),num=10)
+        phiList = np.linspace(-self.params['L'],self.params['L'], num=2*phaseLimSec+1 ).astype(int)
+        norm_coeff_list = np.linspace(-1,1,num=3) # ********** change this to 21
         
         tau_star = np.zeros(data_dict['rate'].shape[0])
         phi_star = np.zeros(data_dict['rate'].shape[0])
@@ -293,50 +371,85 @@ class reg_obj:
         
         # # check how many regressors are being used (** consider redoing without this **)
         self.get_regressors() 
-        
         # initialize P (list of dicts)
-        P = [] #np.zeros((data_dict['rate'].shape[0],tot_n_regressors))
-        P_tot = [] #np.zeros((data_dict['rate'].shape[0],len(tauList),len(phiList),self.tot_n_regressors))
-        obj_tot = np.zeros((data_dict['rate'].shape[0],len(tauList),len(phiList)))
-        for n in range(data_dict['rate'].shape[0]):
-            p, obj = self.fit_reg_linear(n=n, phi=phiList[0])
-            P.append(p)
-            P_tot_i = []
-            for i in range(len(tauList)):
-                P_tot_i.append( [None]*len(phiList) )
-            P_tot.append(P_tot_i.copy())
+        P = [None]*data_dict['rate'].shape[0] # [] #np.zeros((data_dict['rate'].shape[0],tot_n_regressors))
+        self.P_tot = {'alpha_01': np.zeros( ( data_dict['rate'].shape[0],len(tauList),len(phiList),
+                            len(norm_coeff_list),len(norm_coeff_list),
+                            len(norm_coeff_list),len(norm_coeff_list),
+                            self.regressors_dict['alpha_01'].shape[0] ) ), 
+                'trial': np.zeros( ( data_dict['rate'].shape[0],len(tauList),len(phiList),
+                            len(norm_coeff_list),len(norm_coeff_list),
+                            len(norm_coeff_list),len(norm_coeff_list),
+                            self.regressors_dict['trial'].shape[0] ) )}
+        self.obj_tot = np.zeros( ( data_dict['rate'].shape[0],len(tauList),len(phiList),
+                            len(norm_coeff_list),len(norm_coeff_list),
+                            len(norm_coeff_list),len(norm_coeff_list) ) )
         
-        # fit model -
-        # for each value of tau and phi, check if pInv solution is better than previous
         for i in range(len(tauList)):
-            if not np.mod(i,10): print(i, end=' ')
+            if not np.mod(i,2): print(i, end=' ')
             self.params['tau'] = tauList[i]
             self.get_regressors() 
             
             for j in range(len(phiList)):
-                for n in range(data_dict['rate'].shape[0]):
-                    p, obj = self.fit_reg_linear(n=n, phi=phiList[j])
-                    obj_tot[n,i,j] = obj
-                    P_tot[n][i][j] = p
-                    if (obj<fn_min[n]):
-                        tau_star[n] = tauList[i]
-                        phi_star[n] = phiList[j]
-                        P[n] = p
-                        fn_min[n] = obj
+                # for n in range(data_dict['rate'].shape[0]):
+                    sweep_param_list = [['drink_hunger',0],['drink_hunger',1],['beta_0',0],['beta_0',1]]
+                    tot_sweep_params = 4
+                    reg_to_sub = np.zeros( (tot_sweep_params, len(self.regressors_array[0,:])) )
+                    sweep_regs = {
+                        'alpha_01':self.regressors_dict['alpha_01'], 
+                        'trial':self.regressors_dict['trial'], 
+                    } 
+                    sweep_regs_array, sweep_regs_array_inv, _ = self.get_regressor_array(sweep_regs)
 
-        # collect output ********* redo with dictionary defined at outset to eliminate need for this ---------
-        self.model_fit = []
-        for n in range(data_dict['rate'].shape[0]):
-            d = copy.deepcopy(P[n])
-            d['tau'] = tau_star[n]
-            d['phi'] = int(phi_star[n])
-            d['success'] = True #res['success']
-            d['P_tot'] = P_tot[n] #P_tot[n,:,:,:]
-            d['obj_tot'] = obj_tot[n] #obj_tot[n,:,:]
-            self.model_fit.append(d)
+                    for k0 in range(len(norm_coeff_list)):
+                        reg_to_sub[0,:] = norm_coeff_list[k0]*self.regressors_dict[ sweep_param_list[0][0] ][sweep_param_list[0][1], :]
+                        for k1 in range(len(norm_coeff_list)):
+                            reg_to_sub[1,:] = norm_coeff_list[k1]*self.regressors_dict[ sweep_param_list[1][0] ][sweep_param_list[1][1], :]
+                            for k2 in range(len(norm_coeff_list)):
+                                reg_to_sub[2,:] = norm_coeff_list[k2]*self.regressors_dict[ sweep_param_list[2][0] ][sweep_param_list[2][1], :]
+                                for k3 in range(len(norm_coeff_list)):
+                                    if self.regressors_dict[ sweep_param_list[3][0] ].shape[0]>1:
+                                        # if this parameter exists (handles beta_0 case)
+                                        reg_to_sub[3,:] = norm_coeff_list[k3]*self.regressors_dict[ sweep_param_list[3][0] ][sweep_param_list[3][1], :]
+                                    else:
+                                        reg_to_sub[3,:] = 0
 
+                                    
+                                    p_tmp, obj_tmp = self.fit_reg_linear_batch(phi=phiList[j],
+                                                    tseries_to_sub=reg_to_sub.sum(axis=0), D=sweep_regs_array, 
+                                                    Dinv=sweep_regs_array_inv, reg_labels=['alpha_01','trial'])
+
+                                    self.P_tot['alpha_01'][:,i,j,k0,k1,k2,k3,:] = p_tmp['alpha_01']
+                                    self.P_tot['trial'][:,i,j,k0,k1,k2,k3,:] = p_tmp['trial']
+                                    self.obj_tot[:,i,j,k0,k1,k2,k3] = obj_tmp
+
+                            # pdb.set_trace()
+                                    
+                    
+
+
+
+
+
+
+
+    def get_dFF_fit(self, n):
+        dFF_full = self.data_dict['rate'][n,:]
+        phi = self.model_fit[n]['phi']
+        L = self.params['L']
+        if(phi==L):
+            dFF = dFF_full[L+phi:]
+        else:
+            dFF = dFF_full[L+phi:-(L-phi)]
+
+        self.params['tau'] = self.model_fit[n]['tau']
+        self.get_regressors() 
+        coeff_dict = self.coeff_dict_from_keys(idx=n)
+        coeff_array = self.dict_to_flat_list(coeff_dict)
+        dFF_fit = coeff_array@self.regressors_array
+        return dFF_fit, dFF
 
     def fit_and_eval_reg_model_extended(self):
-        self.fit_reg_model_extended()
+        self.fit_reg_model_MLE()
         self.evaluate_reg_model_extended()
 
