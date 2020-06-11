@@ -38,7 +38,7 @@ import regression_model as model
 #import plotting
 #import flygenvectors.ssmutils as utils
 
-print('imports complete')
+print('loading data')
 sys.stdout.flush()
 
 
@@ -93,6 +93,8 @@ for nf in range(n_flies):
 
 # NT,NP = model_fit[0][0]['obj_tot'].shape
 model_as_dist = []
+print('loading dist files')
+sys.stdout.flush()
 
 for nf in range(n_flies):
     print(nf,end=' ')
@@ -109,14 +111,18 @@ nf = int(sys.argv[1]) # DATASET TO LOAD
 data_dict = data_tot[nf]['data_dict']
 N = data_dict['rate'].shape[0]
 # N = len(model_fit_tot[nf])
-NP = sweep_tot[nf]['obj_tot'].shape
 pos = data_tot[nf]['data_dict']['aligned_centroids']
 mdist = np.load(main_dir+expt_id+'_as_dist.npy')
+# NP = sweep_tot[nf]['obj_tot'].shape
+NP = mdist.shape
+
 
 prior_tot_fly = np.zeros(NP)
 MAP_tot_fly = np.zeros((NP[0],len(NP)-1))
 
 # for every cell, compute prior from all other datasets
+print('\ncomputing posteriors')
+sys.stdout.flush()
 for n in range(N):
     if not np.mod(n,10): print(n,end=' ')
     prior = np.zeros(NP[1:])                                                   
