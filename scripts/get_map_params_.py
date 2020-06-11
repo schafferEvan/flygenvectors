@@ -123,6 +123,7 @@ MAP_tot_fly = np.zeros((NP[0],len(NP)-1))
 # for every cell, compute prior from all other datasets
 print('\ncomputing posteriors')
 sys.stdout.flush()
+curated_omit=[]
 for n in range(N):
     if not np.mod(n,10): print(n,end=' ')
     prior = np.zeros(NP[1:])                                                   
