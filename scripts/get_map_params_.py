@@ -80,10 +80,9 @@ n_flies = np.shape(exp_list)[0]
 # convert all obj curves into distributions (flip sign, shift & scale to sum to 1)
 mvn_array_tot = []
 for nf in range(n_flies):
-    N = len(model_fit_tot[nf])
-    
     data_dict = data_tot[nf]['data_dict']
-
+    N = data_dict['rate'].shape[0]
+    
     # make array of mvn objects for each cell
     #N = data_dict['aligned_centroids'].shape[0]
     mvn_array = []
@@ -107,7 +106,9 @@ for nf in range(n_flies):
 
 # compute MAP estimate
 nf = int(sys.argv[1]) # DATASET TO LOAD
-N = len(model_fit_tot[nf])
+data_dict = data_tot[nf]['data_dict']
+N = data_dict['rate'].shape[0]
+# N = len(model_fit_tot[nf])
 NP = sweep_tot[nf]['obj_tot'].shape
 pos = data_tot[nf]['data_dict']['aligned_centroids']
 mdist = np.load(main_dir+expt_id+'_as_dist.npy')
@@ -124,7 +125,8 @@ for n in range(N):
         mdist_oth = np.load(main_dir+expt_id_oth+'_as_dist.npy')
         
         if( (nf_oth is not nf) and (nf_oth not in curated_omit) ):
-            M = len(model_fit_tot[nf_oth])
+            # M = len(model_fit_tot[nf_oth])
+            M = data_tot[nf_oth]['data_dict']['rate'].shape[0]
             for m in range(M):
                 # build prior using cells with good regression fits
                 # if( model_fit_tot[nf_oth][m]['stat'][1]<p_th ):   # ******* THIS NOW NEEDS TO BE A LOOP OVER PARAMS, CHECK EACH PVAL
