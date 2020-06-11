@@ -19,12 +19,12 @@ import matplotlib.cm as cm
 from matplotlib.colors import ListedColormap
 import matplotlib.pylab as pl
 
-from IPython.display import set_matplotlib_formats
-set_matplotlib_formats('png', 'pdf')
+#from IPython.display import set_matplotlib_formats
+#set_matplotlib_formats('png', 'pdf')
 
-import seaborn as sns
-sns.set_style("white")
-sns.set_context("talk")
+#import seaborn as sns
+#sns.set_style("white")
+#sns.set_context("talk")
 
 from sklearn.decomposition import PCA, FastICA
 from sklearn.mixture import GaussianMixture
@@ -35,10 +35,11 @@ from sklearn.metrics import r2_score
 
 import data as dataUtils
 import regression_model as model
-import plotting
-import flygenvectors.ssmutils as utils
+#import plotting
+#import flygenvectors.ssmutils as utils
 
-
+print('imports complete')
+sys.stdout.flush()
 
 
 ## LOAD DATA
@@ -57,12 +58,16 @@ exp_list = [
             ['2019_02_19','fly1'],
             ['2019_02_26','fly1_2']]
 
-i = 0 # DATASET TO LOAD
+i = int(sys.argv[1]) # DATASET TO LOAD
 exp_date = exp_list[i][0]
 fly_num = exp_list[i][1]
 expt_id = exp_list[i][0] + '_' + exp_list[i][1]
 infile = open(main_dir+expt_id+'.pkl','rb')
 data_dict = pickle.load(infile)
+print(expt_id)
+print('data loaded')
+sys.stdout.flush()
+
 
 ## FIT MODEL
 ro = model.reg_obj()
@@ -71,5 +76,10 @@ ro.fit_reg_model_full_likelihood()
 
 
 ## SAVE OUTPUT
-model_fit_tot = {'P_tot':ro.P_tot,'obj_tot':ro.obj_tot}
-pickle.dump( model_fit_tot, open( main_dir+'/output/'+expt_id+'_reg_model.pkl', "wb" ) )
+#np.savez( main_dir+'/output/'+expt_id+'_reg_model.npz', P_tot=ro.P_tot, obj_tot=ro.obj_tot )
+np.save( main_dir+'/output/'+expt_id+'_reg_model_P_tot_alpha_01.npy', ro.P_tot['alpha_01'])
+np.save( main_dir+'/output/'+expt_id+'_reg_model_P_tot_trial.npy', ro.P_tot['trial'])
+np.save( main_dir+'/output/'+expt_id+'_reg_model_obj_tot.npy', ro.obj_tot)
+
+#model_fit_tot = {'P_tot':ro.P_tot,'obj_tot':ro.obj_tot}
+#pickle.dump( model_fit_tot, open( main_dir+'/output/'+expt_id+'_reg_model.pkl', "wb" ) )

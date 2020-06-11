@@ -240,57 +240,60 @@ class reg_obj:
         print('evaluating ')
         for n in range(self.data_dict['rate'].shape[0]):
             if not np.mod(n,round(self.data_dict['rate'].shape[0]/10)): print(n, end=' ')
-            self.params['tau'] = self.model_fit[n]['tau']
-            self.get_regressors() 
+            if self.model_fit[n]['success']:
+                self.params['tau'] = self.model_fit[n]['tau']
+                self.get_regressors() 
 
-            dFF_full = self.data_dict['rate'][n,:]
-            # dFF slides past beh with displacement phi
-            phi = self.model_fit[n]['phi']
-            L = self.params['L']
-            if(phi==L):
-                dFF = dFF_full[L+phi:]
+                dFF_full = self.data_dict['rate'][n,:]
+                # dFF slides past beh with displacement phi
+                phi = self.model_fit[n]['phi']
+                L = self.params['L']
+                if(phi==L):
+                    dFF = dFF_full[L+phi:]
+                else:
+                    dFF = dFF_full[L+phi:-(L-phi)]
+
+                # for a given tau, fit for other parameters is linear, solved by pseudoinverse
+                D = self.regressors_array
+                dFF = np.expand_dims(dFF, axis=0)
+
+                # regenerate concatenated coefficient array
+                coeff_dict = self.coeff_dict_from_keys(idx=n)
+                coeff_array = self.dict_to_flat_list(coeff_dict)
+                reg_labels = list(coeff_dict.keys())
+
+                # pdb.set_trace()
+                dFF_fit = coeff_array@D
+                SS_res = ( (dFF-dFF_fit)**2 )
+                SS_tot = ( (dFF-dFF.mean())**2 ) #( (dFF_without_linpart-dFF_without_linpart.mean())**2 )
+                r_sq = 1-SS_res.sum()/SS_tot.sum()
+                
+                # for all parameter categories, for all parameters in this category, find fit without this parameter to compute p_val
+                stat = copy.deepcopy(coeff_dict)
+                
+                for i in range(len(reg_labels)):
+                    stat_list = []
+                    for j in range(coeff_dict[reg_labels[i]].shape[0]):
+                        j_inc = [x for x in range(coeff_dict[reg_labels[i]].shape[0]) if x != j]
+                        reg_null = copy.deepcopy(self.regressors_dict)
+                        reg_null[reg_labels[i]] = reg_null[reg_labels[i]][j_inc,:]
+                        null_self.regressors_dict = reg_null
+                        null_self.regressors_array, null_self.regressors_array_inv, _ = self.get_regressor_array(reg_null) # ****** this should be null_self, eliminate arguments
+                        p_n_dict, _ = null_self.fit_reg_linear(n=n, phi=phi)
+                        p_n = self.dict_to_flat_list(p_n_dict)
+                        dFF_fit_null = np.squeeze(p_n@null_self.regressors_array)   
+                        SS_res_0 = ( (dFF-dFF_fit_null)**2 )
+                        # pdb.set_trace()
+                        stat_list.append( stats.wilcoxon(np.squeeze(SS_res_0),np.squeeze(SS_res)) )
+                    stat[reg_labels[i]] = stat_list
+                
+                stat['tau'] = stat['beta_0']
+                stat['phi'] = stat['beta_0']    
+                self.model_fit[n]['r_sq'] = r_sq #1-SS_res.sum()/SS_tot.sum()
+                self.model_fit[n]['stat'] = stat
             else:
-                dFF = dFF_full[L+phi:-(L-phi)]
-
-            # for a given tau, fit for other parameters is linear, solved by pseudoinverse
-            D = self.regressors_array
-            dFF = np.expand_dims(dFF, axis=0)
-
-            # regenerate concatenated coefficient array
-            coeff_dict = self.coeff_dict_from_keys(idx=n)
-            coeff_array = self.dict_to_flat_list(coeff_dict)
-            reg_labels = list(coeff_dict.keys())
-
-            # pdb.set_trace()
-            dFF_fit = coeff_array@D
-            SS_res = ( (dFF-dFF_fit)**2 )
-            SS_tot = ( (dFF-dFF.mean())**2 ) #( (dFF_without_linpart-dFF_without_linpart.mean())**2 )
-            r_sq = 1-SS_res.sum()/SS_tot.sum()
-            
-            # for all parameter categories, for all parameters in this category, find fit without this parameter to compute p_val
-            stat = copy.deepcopy(coeff_dict)
-            
-            for i in range(len(reg_labels)):
-                stat_list = []
-                for j in range(coeff_dict[reg_labels[i]].shape[0]):
-                    j_inc = [x for x in range(coeff_dict[reg_labels[i]].shape[0]) if x != j]
-                    reg_null = copy.deepcopy(self.regressors_dict)
-                    reg_null[reg_labels[i]] = reg_null[reg_labels[i]][j_inc,:]
-                    null_self.regressors_dict = reg_null
-                    null_self.regressors_array, null_self.regressors_array_inv, _ = self.get_regressor_array(reg_null) # ****** this should be null_self, eliminate arguments
-                    p_n_dict, _ = null_self.fit_reg_linear(n=n, phi=phi)
-                    p_n = self.dict_to_flat_list(p_n_dict)
-                    dFF_fit_null = np.squeeze(p_n@null_self.regressors_array)   
-                    SS_res_0 = ( (dFF-dFF_fit_null)**2 )
-                    # pdb.set_trace()
-                    stat_list.append( stats.wilcoxon(np.squeeze(SS_res_0),np.squeeze(SS_res)) )
-                stat[reg_labels[i]] = stat_list
-            
-            stat['tau'] = stat['beta_0']
-            stat['phi'] = stat['beta_0']    
-            self.model_fit[n]['r_sq'] = r_sq #1-SS_res.sum()/SS_tot.sum()
-            self.model_fit[n]['stat'] = stat
-
+                self.model_fit[n]['r_sq'] = None
+                self.model_fit[n]['stat'] = None
 
 
 
@@ -333,10 +336,13 @@ class reg_obj:
         self.model_fit = []
         for n in range(data_dict['rate'].shape[0]):
             # if not self.model_fit:
-            d = copy.deepcopy(P[n])
-            d['tau'] = tau_star[n]
-            d['phi'] = int(phi_star[n])
-            d['success'] = True #res['success']
+            if P[n] is not None:
+                d = copy.deepcopy(P[n])
+                d['tau'] = tau_star[n]
+                d['phi'] = int(phi_star[n])
+                d['success'] = True #res['success']
+            else:
+                d = {'success':False}
             self.model_fit.append(d)
             # else:
             #     self.model_fit[n]['tau'] = tau_star[n]
