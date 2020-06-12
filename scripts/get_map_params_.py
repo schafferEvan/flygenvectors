@@ -42,6 +42,10 @@ print('loading data')
 sys.stdout.flush()
 
 
+## SET PARAMETERS
+sig = 30 # standard deviation of gaussian blur for each point (in microns)
+nearby_th = 1000 #squared distance (um) at which to truncate Gaussian
+
 ## LOAD DATA
 main_dir = '/moto/axs/projects/traces/flygenvectors/'
 
@@ -74,7 +78,6 @@ for i in range(len(exp_list)):
 
 
 # for all datasets, generate GMM from pointset
-sig = 30 # standard deviation of gaussian blur for each point (in microns)
 n_flies = np.shape(exp_list)[0]
 
 # convert all obj curves into distributions (flip sign, shift & scale to sum to 1)
@@ -126,15 +129,27 @@ sys.stdout.flush()
 curated_omit=[]
 for n in range(N):
     if not np.mod(n,10): print(n,end=' ')
+    sys.stdout.flush()
+
     prior = np.zeros(NP[1:])                                                   
     for nf_oth in range(n_flies):
+        if nf_oth==nf: continue
         expt_id_oth = exp_list[nf_oth][0] + '_' + exp_list[nf_oth][1]
         mdist_oth = np.load(main_dir+expt_id_oth+'_as_dist.npy')
         
-        if( (nf_oth is not nf) and (nf_oth not in curated_omit) ):
+        if nf_oth not in curated_omit:
             # M = len(model_fit_tot[nf_oth])
             M = data_tot[nf_oth]['data_dict']['rate'].shape[0]
-            for m in range(M):
+            pos_nf_oth = data_tot[nf_oth]['data_dict']['aligned_centroids']
+                
+            # find nearby cells, and                 # **********************
+            nearby_list=[]
+            for m in range(pos_nf_oth.shape[0]):
+                s = ((pos[n,:]-pos_nf_oth[m,:])**2).sum()
+                if s<nearby_th:
+                    nearby_list.append(m)
+
+            for m in nearby_list:
                 # build prior using cells with good regression fits
                 # if( model_fit_tot[nf_oth][m]['stat'][1]<p_th ):   # ******* THIS NOW NEEDS TO BE A LOOP OVER PARAMS, CHECK EACH PVAL
                 #prior += model_as_dist[nf_oth][m] * mvn_array_tot[nf_oth][m].pdf(pos[n,:]) 
