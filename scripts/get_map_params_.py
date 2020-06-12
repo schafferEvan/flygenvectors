@@ -127,21 +127,22 @@ MAP_tot_fly = np.zeros((NP[0],len(NP)-1))
 print('\ncomputing posteriors')
 sys.stdout.flush()
 curated_omit=[]
-for n in range(N):
-    if not np.mod(n,10): print(n,end=' ')
-    sys.stdout.flush()
 
-    prior = np.zeros(NP[1:])                                                   
-    for nf_oth in range(n_flies):
-        if nf_oth==nf: continue
-        expt_id_oth = exp_list[nf_oth][0] + '_' + exp_list[nf_oth][1]
-        mdist_oth = np.load(main_dir+expt_id_oth+'_as_dist.npy')
-        
-        if nf_oth not in curated_omit:
-            # M = len(model_fit_tot[nf_oth])
-            M = data_tot[nf_oth]['data_dict']['rate'].shape[0]
-            pos_nf_oth = data_tot[nf_oth]['data_dict']['aligned_centroids']
-                
+for nf_oth in range(n_flies):
+    print('\n\n'+str(nf_oth))
+    if nf_oth==nf: continue
+    expt_id_oth = exp_list[nf_oth][0] + '_' + exp_list[nf_oth][1]
+    mdist_oth = np.load(main_dir+expt_id_oth+'_as_dist.npy')
+    
+    if nf_oth not in curated_omit:
+        # M = len(model_fit_tot[nf_oth])
+        M = data_tot[nf_oth]['data_dict']['rate'].shape[0]
+        pos_nf_oth = data_tot[nf_oth]['data_dict']['aligned_centroids']
+           
+        for n in range(N):
+            if not np.mod(n,100): print(n,end=' ')
+            sys.stdout.flush()
+
             # find nearby cells, and                 # **********************
             nearby_list=[]
             for m in range(pos_nf_oth.shape[0]):
@@ -153,11 +154,13 @@ for n in range(N):
                 # build prior using cells with good regression fits
                 # if( model_fit_tot[nf_oth][m]['stat'][1]<p_th ):   # ******* THIS NOW NEEDS TO BE A LOOP OVER PARAMS, CHECK EACH PVAL
                 #prior += model_as_dist[nf_oth][m] * mvn_array_tot[nf_oth][m].pdf(pos[n,:]) 
-                prior += mdist_oth[m] * mvn_array_tot[nf_oth][m].pdf(pos[n,:])
-    posterior = prior * mdist[n]      
+                prior_tot_fly[n] += mdist_oth[m] * mvn_array_tot[nf_oth][m].pdf(pos[n,:])
+  
+# from prior and likelihood, compute MAP parameters
+for n in range(N):
+    posterior = prior_tot_fly[n] * mdist[n]      
     #pdb.set_trace()
     MAP_tot_fly[n] = np.unravel_index( np.argmax( posterior ), NP[1:] )              
-    prior_tot_fly[n] = prior                                               
 
 np.save(main_dir+expt_id+'_prior.npy', prior_tot_fly)
 np.save(main_dir+expt_id+'_MAP.npy', MAP_tot_fly)
