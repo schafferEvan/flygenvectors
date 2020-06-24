@@ -20,7 +20,7 @@ def load_timeseries_simple(expt_id, fly_num, base_data_dir=None):
 
     import scipy.io as sio
     from scipy import sparse
-    from flygenvectors.utils import get_dirs
+    # from flygenvectors.utils import get_dirs
 
     exp_folder = expt_id + '_' + fly_num + '/'
     file_name_main = expt_id + '*' + fly_num + '.npz'
@@ -29,7 +29,7 @@ def load_timeseries_simple(expt_id, fly_num, base_data_dir=None):
     file_path_main = glob.glob(base_data_dir+exp_folder+file_name_main)[0]
     file_path_A = glob.glob(base_data_dir+exp_folder+file_name_A)[0]
 
-    data = np.load(file_path_main)
+    data = np.load(file_path_main, allow_pickle=True)
     data_dict = {}
     for key, val in data.items():
         data_dict[key] = val
