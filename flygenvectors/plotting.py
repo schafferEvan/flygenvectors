@@ -795,6 +795,20 @@ def make_labeled_movie_wmarkers(
     print('done')
 
 
+def plot_states_block(states, mult=50):
+    fig, axes = plt.subplots(mult, 1, figsize=(30, 0.6 * mult))
+    for i, ax in enumerate(axes):
+        ax.imshow(states[i][None, :], aspect='auto', cmap='tab20b')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        if not ax.is_first_row():
+            ax.spines['top'].set_visible(False)
+        if not ax.is_last_row():
+            ax.spines['bottom'].set_visible(False)
+    plt.tight_layout(pad=0)
+    return fig
+
+
 def _multiline(xs, ys, c, ax=None, **kwargs):
     """
     Plot lines with different colorings

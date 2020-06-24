@@ -2,6 +2,9 @@ import os
 import numpy as np
 import pickle
 from ssm import HMM
+from ssm.messages import forward_pass
+from scipy.special import logsumexp
+from sklearn.metrics import r2_score
 
 
 def load_cached_model(fit_func):
@@ -50,56 +53,6 @@ def load_cached_model(fit_func):
         return model_results
 
     return wrapper
-
-
-def split_trials(
-        n_trials, rng_seed=0, trials_tr=5, trials_val=1, trials_test=1,
-        trials_gap=1):
-    """
-    Split trials into train/val/test blocks.
-
-    The data is split into blocks that have gap trials between tr/val/test:
-    train tr | gap tr | val tr | gap tr | test tr | gap tr
-
-    Args:
-        n_trials (int): number of trials to use in the split
-        rng_seed (int): numpy random seed for reproducibility
-        trials_tr (int): train trials per block
-        trials_val (int): validation trials per block
-        trials_test (int): test trials per block
-        trials_gap (int): gap trials between tr/val/test; there will be a total
-            of 3 * `trials_gap` gap trials per block
-
-    Returns:
-        (dict)
-    """
-
-    # same random seed for reproducibility
-    np.random.seed(rng_seed)
-
-    tr_per_block = trials_tr + trials_gap + trials_val + trials_gap + trials_test + trials_gap
-
-    n_blocks = int(np.floor(n_trials / tr_per_block))
-    leftover_trials = n_trials - tr_per_block * n_blocks
-    if leftover_trials > 0:
-        offset = np.random.randint(0, high=leftover_trials)
-    else:
-        offset = 0
-    indxs_block = np.random.permutation(n_blocks)
-
-    batch_indxs = {'train': [], 'test': [], 'val': []}
-    for block in indxs_block:
-        curr_tr = block * tr_per_block + offset
-        batch_indxs['train'].append(np.arange(curr_tr, curr_tr + trials_tr))
-        curr_tr += (trials_tr + trials_gap)
-        batch_indxs['val'].append(np.arange(curr_tr, curr_tr + trials_val))
-        curr_tr += (trials_val + trials_gap)
-        batch_indxs['test'].append(np.arange(curr_tr, curr_tr + trials_test))
-
-    for dtype in ['train', 'val', 'test']:
-        batch_indxs[dtype] = np.concatenate(batch_indxs[dtype], axis=0)
-
-    return batch_indxs
 
 
 @load_cached_model
@@ -285,23 +238,6 @@ def init_model(init_type, model, datas):
     model.observations.Sigmas = np.array(Sigmas)
 
 
-def viterbi_ll(model, datas):
-    """Calculate log-likelihood of viterbi path."""
-    inputs = [None] * len(datas)
-    masks = [None] * len(datas)
-    tags = [None] * len(datas)
-    states = [model.most_likely_states(x, u) for x, u in zip(datas, inputs)]
-    ll = 0
-    for data, input, mask, tag, state in zip(datas, inputs, masks, tags, states):
-        if input is None:
-            input = np.zeros_like(data)
-        if mask is None:
-            mask = np.ones_like(data, dtype=bool)
-        likelihoods = model.observations.log_likelihoods(data, input, mask, tag)
-        ll += np.sum(likelihoods[(np.arange(state.shape[0]), state)])
-    return ll
-
-
 def get_save_file(n_states, model_kwargs, fit_kwargs):
     from flygenvectors.utils import get_dirs
     model_name = get_model_name(n_states, model_kwargs)
@@ -334,74 +270,199 @@ def get_model_name(n_states, model_kwargs):
     return model_name
 
 
-def split_runs(indxs, dtypes, dtype_lens):
-    """
-
-    Args:
-        indxs (list):
-        dtypes (list of strs):
-        dtype_lens (list of ints):
-
-    Returns:
-        dict
-    """
-
-    # first sort, then split according to ratio
-    i_sorted = np.argsort([len(i) for i in indxs])
-
-    indxs_split = {dtype: [] for dtype in dtypes}
-    dtype_indx = 0
-    dtype_curr = dtypes[dtype_indx]
-    counter = 0
-    for indx in reversed(i_sorted):
-        if counter == dtype_lens[dtype_indx]:
-            # move to next dtype
-            dtype_indx = (dtype_indx + 1) % len(dtypes)
-            while dtype_lens[dtype_indx] == 0:
-                dtype_indx = (dtype_indx + 1) % len(dtypes)
-            dtype_curr = dtypes[dtype_indx]
-            counter = 0
-        indxs_split[dtype_curr].append(indxs[indx])
-        counter += 1
-
-    return indxs_split
+def get_model_dir(base, preprocess_list, final_str=''):
+    model_dir = base
+    if 'filter' in preprocess_list.keys():
+        if preprocess_list['filter']['type'] == 'median':
+            model_dir += '-median-%i' % preprocess_list['filter']['window_size']
+        elif preprocess_list['filter']['type'] == 'savgol':
+            model_dir += '-savgol-%i-%i' % (
+                preprocess_list['filter']['window_size'], preprocess_list['filter']['order'])
+        else:
+            raise NotImplementedError
+    if final_str:
+        model_dir += '-' + final_str
+    return model_dir
 
 
-def extract_state_runs(states, indxs, min_length=20):
-    """
-    Find contiguous chunks of data with the same state
+def viterbi_ll(model, datas):
+    """Calculate log-likelihood of viterbi path."""
+    inputs = [None] * len(datas)
+    masks = [None] * len(datas)
+    tags = [None] * len(datas)
+    states = [model.most_likely_states(x, u) for x, u in zip(datas, inputs)]
+    ll = 0
+    for data, input, mask, tag, state in zip(datas, inputs, masks, tags, states):
+        if input is None:
+            input = np.zeros_like(data)
+        if mask is None:
+            mask = np.ones_like(data, dtype=bool)
+        likelihoods = model.observations.log_likelihoods(data, input, mask, tag)
+        ll += np.sum(likelihoods[(np.arange(state.shape[0]), state)])
+    return ll
 
-    Args:
-        states (list):
-        indxs (list):
-        min_length (int):
 
-    Returns:
-        list
-    """
+def k_step_ll(model, datas, k_max):
+    """Determine the k-step ahead ll."""
 
-    K = len(np.unique(np.concatenate([np.unique(s) for s in states])))
-    state_snippets = [[] for _ in range(K)]
+    M = (model.M,) if isinstance(model.M, int) else model.M
+    L = model.observations.lags  # AR lags
 
-    for curr_states, curr_indxs in zip(states, indxs):
-        i_beg = 0
-        curr_state = curr_states[i_beg]
-        curr_len = 1
-        for i in range(1, len(curr_states)):
-            next_state = curr_states[i]
-            if next_state != curr_state:
-                # record indices if state duration long enough
-                if curr_len >= min_length:
-                    state_snippets[curr_state].append(
-                        curr_indxs[i_beg:i])
-                i_beg = i
-                curr_state = next_state
-                curr_len = 1
+    k_step_lls = 0
+    for data in datas:
+        input = np.zeros((data.shape[0],) + M)
+        mask = np.ones_like(data, dtype=bool)
+        pi0 = model.init_state_distn.initial_state_distn
+        Ps = model.transitions.transition_matrices(data, input, mask, tag=None)
+        lls = model.observations.log_likelihoods(data, input, mask, tag=None)
+
+        T, K = lls.shape
+
+        # Forward pass gets the predicted state at time t given
+        # observations up to and including those from time t
+        alphas = np.zeros((T, K))
+        forward_pass(pi0, Ps, lls, alphas)
+
+        # pz_tt = p(z_{t},  x_{1:t}) = alpha(z_t) / p(x_{1:t})
+        pz_tt = np.exp(alphas - logsumexp(alphas, axis=1, keepdims=True))
+        log_likes_list = []
+        for k in range(k_max + 1):
+            if k == 0:
+                # p(x_t | x_{1:T}) = \sum_{z_t} p(x_t | z_t) p(z_t | x_{1:t})
+                pz_tpkt = np.copy(pz_tt)
+                assert np.allclose(np.sum(pz_tpkt, axis=1), 1.0)
+                log_likes_0 = logsumexp(lls[k_max:] + np.log(pz_tpkt[k_max:]), axis=1)
+            #                 pred_data = get_predicted_obs(model, data, pz_tpkt)
             else:
-                curr_len += 1
-        # end of trial cleanup
-        if next_state == curr_state:
-            # record indices if state duration long enough
-            if curr_len >= min_length:
-                state_snippets[curr_state].append(curr_indxs[i_beg:i])
-    return state_snippets
+                if k == 1:
+                    # p(z_{t+1} | x_{1:t}) =
+                    # \sum_{z_t} p(z_{t+1} | z_t) alpha(z_t) / p(x_{1:t})
+                    pz_tpkt = np.copy(pz_tt)
+
+                # p(z_{t+k} | x_{1:t}) =
+                # \sum_{z_{t+k-1}} p(z_{t+k} | z_{t+k-1}) p(z_{z+k-1} | x_{1:t})
+                if Ps.shape[0] == 1:  # stationary transition matrix
+                    pz_tpkt = np.matmul(pz_tpkt[:-1, None, :], Ps)[:, 0, :]
+                else:  # dynamic transition matrix
+                    pz_tpkt = np.matmul(pz_tpkt[:-1, None, :], Ps[k - 1:])[:, 0, :]
+                assert np.allclose(np.sum(pz_tpkt, axis=1), 1.0)
+
+                # p(x_{t+k} | x_{1:t}) =
+                # \sum_{z_{t+k}} p(x_{t+k} | z_{t+k}) p(z_{t+k} | x_{1:t})
+                log_likes = logsumexp(lls[k:] + np.log(pz_tpkt), axis=1)
+                # compute summed ll only over timepoints that are valid for each value of k
+                log_likes_0 = log_likes[k_max - k:]
+
+            log_likes_list.append(np.sum(log_likes_0))
+
+    k_step_lls += np.array(log_likes_list)
+
+    return k_step_lls
+
+
+def k_step_r2(model, datas, k_max, n_samp=10, with_noise=True):
+    """Determine the k-step ahead r2."""
+
+    N = len(datas)
+    L = model.observations.lags  # AR lags
+    D = model.D
+
+    k_step_r2s = np.zeros((N, k_max, n_samp))
+
+    for d, data in enumerate(datas):
+        # print('%i/%i' % (d + 1, len(datas)))
+
+        T = data.shape[0]
+
+        x_true_all = data[L + k_max - 1: T + 1]
+        x_pred_all = np.zeros((n_samp, (T - 1), D, k_max))
+
+        # zs = model.most_likely_states(data)
+
+        # collect sampled data
+        for t in range(L - 1, T):
+            # find the most likely discrete state at time t based on its past
+            zs = model.most_likely_states(data[:t + 1])[-L:]
+            # sample forward in time n_samp times
+            for n in range(n_samp):
+                # sample forward in time k_max steps
+                _, x_pred = model.sample(
+                    k_max, prefix=(zs, data[t - L + 1:t + 1]), with_noise=with_noise)
+                # _, x_pred = model.sample(
+                #     k_max, prefix=(zs[t-L+1:t+1], data[t-L+1:t+1]), with_noise=False)
+                # predicted x values in the forward prediction time
+                x_pred_all[n, t - L + 1, :, :] = np.transpose(x_pred)[None, None, :, :]
+
+        # compute r2
+        for k in range(k_max):
+            idxs = (k_max - k - 1, k_max - k - 1 + x_true_all.shape[0])
+            for n in range(n_samp):
+                k_step_r2s[d, k, n] = r2_score(x_true_all, x_pred_all[n, :, :, k][slice(*idxs)])
+
+    return k_step_r2s
+
+
+def test_k_step_r2():
+
+    class TestObs(object):
+        def __init__(self, lags):
+            self.lags = lags
+
+    class TestModel(object):
+        def __init__(self, D, L):
+            self.D = D
+            self.observations = TestObs(L)
+
+        def most_likely_states(self, *args):
+            return np.arange(self.observations.lags)
+
+        def sample(self, k, prefix=None, with_noise=False):
+            _, p = prefix
+            data = p[-1]
+            assert len(data) == self.D
+            return None, data + 0.99 * np.arange(1, k + 1)[:, None]
+
+    data = np.column_stack([np.arange(100), np.arange(1, 101)])
+    T, D = data.shape
+    k_max = 5
+    n_samp = 1
+    L = 2
+
+    model = TestModel(D, L)
+
+    r2s = k_step_r2(model, [data], k_max, n_samp=n_samp, with_noise=False)
+
+    assert np.allclose(r2s, 1)
+    for k in range(k_max - 1):
+        assert r2s[0, k, 0] > r2s[0, k + 1, 0]
+
+    # self contained example
+    # data = np.column_stack([np.arange(100), np.arange(1, 101)])
+    # T, D = data.shape
+    # k_max = 5
+    # n_samp = 1
+    # L = 2
+    #
+    # x_true_all = data[L + k_max - 1: T + 1]
+    # x_pred_all = np.zeros((n_samp, (T - 1), D, k_max))
+    # for t in range(L - 1, T):
+    #     for n in range(n_samp):
+    #         x_pred = data[t] + 0.99 * np.arange(1, k_max + 1)[:, None]
+    #         x_pred_all[n, t - L + 1, :, :] = np.transpose(x_pred)[None, None, :, :]
+    # # compute r2
+    # # for k in range(k_max):
+    # #     idxs = (k_max - k - 1, k_max - k - 1 + x_true_all.shape[0])
+    # #     for n in range(n_samp):
+    # #         r2 = r2_score(x_true_all, x_pred_all[n, :, :, k][slice(*idxs)])
+    # #         print(r2)
+    # print('true:')
+    # print('beg: {}'.format(x_true_all[0]))
+    # print('end: {}'.format(x_true_all[-1]))
+    # print('\n')
+    # for k in range(k_max):
+    #     print(k + 1)
+    #     idxs = (k_max - k - 1, k_max - k - 1 + x_true_all.shape[0])
+    #     for n in range(n_samp):
+    #         test = x_pred_all[n, :, :, k][slice(*idxs)]
+    #         print('beg: {}'.format(test[0]))
+    #         print('end: {}'.format(test[-1]))

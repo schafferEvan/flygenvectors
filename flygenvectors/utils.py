@@ -16,7 +16,7 @@ def get_dirs():
         }
     elif username == 'mattw':
         dirs = {
-            'data': '/media/mattw/data/flygenvectors/',  # base data dir
+            'data': '/media/mattw/data/_flygenvectors',  # base data dir
             'results': '/home/mattw/results/fly/'  # base results dir
         }
     else:
