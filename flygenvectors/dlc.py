@@ -37,7 +37,7 @@ def split_runs(indxs, dtypes, dtype_lens):
     return indxs_split
 
 
-class DLCLabels(object):
+class Labels(object):
 
     def __init__(self, expt_id, verbose=True, algo='dgp'):
         """
@@ -69,13 +69,11 @@ class DLCLabels(object):
 
         self.verbose = verbose
 
-    def _get_filename(self):
-        return glob.glob(os.path.join(self.base_data_dir, self.expt_id, '*DeepCut*.csv'))[0]
-
     def load_from_csv(self, filename=None):
         from numpy import genfromtxt
         if filename is None:
-            filename = self._get_filename()
+            filename = glob.glob(
+                os.path.join(self.base_data_dir, self.expt_id, '*DeepCut*.csv'))[0]
         if self.verbose:
             print('loading labels from %s...' % filename, end='')
         dlc = genfromtxt(filename, delimiter=',', dtype=None, encoding=None)
@@ -249,11 +247,11 @@ class DLCLabels(object):
         # get train/text/val indices
         self.idxs_dict = split_runs(self.idxs_valid, dtypes, dtype_lens)
         # split labels into train/test/val using index split above
-        dlc_array = self.get_label_array()
+        label_array = self.get_label_array()
         self.labels_dict = {dtype: [] for dtype in self.idxs_dict.keys()}
         for dtype, didxs in self.idxs_dict.items():
             for didx in didxs:
-                self.labels_dict[dtype].append(dlc_array[didx, :])
+                self.labels_dict[dtype].append(label_array[didx, :])
         if self.verbose:
             print('done')
             for dtype in dtypes:
@@ -264,3 +262,31 @@ class DLCLabels(object):
     def get_label_array(self):
         """concatenate x/y labels into a single array"""
         return np.concatenate([self.labels['x'], self.labels['y']], axis=1)
+
+
+def preprocess_and_split_data(
+        expt_ids, preprocess_list, max_trial_len=1000, algo='dgp', load_from='pkl',
+        dtypes=['train', 'test', 'val'], dtype_lens=[8, 1, 1]):
+    """Helper function to initialize label object."""
+
+    if not isinstance(expt_ids, list):
+        expt_ids = [expt_ids]
+
+    label_obj = [Labels(expt_id, algo=algo) for expt_id in expt_ids]
+
+    for n in range(len(label_obj)):
+
+        if load_from == 'csv':
+            label_obj[n].load_from_csv()  # original dlc labels
+        elif load_from == 'mat':
+            label_obj[n].load_from_mat()  # cosyne dgp labels
+        elif load_from == 'pkl':
+            label_obj[n].load_from_pkl()  # up-to-date dgp labels
+        else:
+            raise NotImplementedError('"%s" is not a valid label file format')
+
+        label_obj[n].preprocess(preprocess_list)
+        label_obj[n].extract_runs_by_length(max_length=max_trial_len)
+        label_obj[n].split_labels(dtypes=dtypes, dtype_lens=dtype_lens)
+
+    return label_obj

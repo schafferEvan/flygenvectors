@@ -5,6 +5,66 @@ from ssm import HMM
 from ssm.messages import forward_pass
 from scipy.special import logsumexp
 from sklearn.metrics import r2_score
+from flygenvectors.utils import get_subdirs
+
+
+# -------------------------------------------------------------------------------------------------
+# model fitting functions
+# -------------------------------------------------------------------------------------------------
+
+def mix_data(label_objs, dtype):
+    """Randomly interleave data from different sessions."""
+    trial_order = [np.random.permutation(len(l.labels_dict[dtype])) for l in label_objs]
+    trial_counters = [0 for _ in range(len(label_objs))]
+    sess_order = np.random.permutation(np.concatenate(
+        [[i] * len(l.labels_dict[dtype]) for i, l in enumerate(label_objs)]))
+
+    data = [None for _ in sess_order]
+    for i, sess in enumerate(sess_order):
+        c = trial_counters[sess]
+        data[i] = label_objs[sess].labels_dict[dtype][trial_order[sess][c]]
+        trial_counters[sess] += 1
+
+    return data, sess_order, trial_order
+
+
+def collect_models(
+        n_lags_standard, n_lags_sticky, n_lags_recurrent, kappas, observations, fit_hmm=False):
+    """Collect model kwargs."""
+
+    model_kwargs = {}
+
+    # add hmms with standard transitions
+    if fit_hmm:
+        model_kwargs['hmm'] = {
+            'transitions': 'standard',
+            'observations': 'gaussian'}
+
+    # add models with standard transitions
+    for lags in n_lags_standard:
+        model_kwargs['arhmm-%i' % lags] = {
+            'transitions': 'standard',
+            'observations': observations,
+            'observation_kwargs': {'lags': lags}}
+
+    # add models with sticky transitions
+    for lags in n_lags_sticky:
+        for kappa in kappas:
+            kap = int(np.log10(kappa))
+            model_kwargs['arhmm-s%i-%i' % (kap, lags)] = {
+                'transitions': 'sticky',
+                'transition_kwargs': {'kappa': kappa},
+                'observations': observations,
+                'observation_kwargs': {'lags': lags}}
+
+    # add models with recurrent transitions
+    for lags in n_lags_recurrent:
+        model_kwargs['rarhmm-%i' % lags] = {
+            'transitions': 'recurrent',
+            'observations': observations,
+            'observation_kwargs': {'lags': lags}}
+
+    return model_kwargs
 
 
 def load_cached_model(fit_func):
@@ -60,20 +120,44 @@ def fit_model(
         n_states, data_dim, input_dim, model_kwargs,
         data_tr, data_val, data_test,
         inputs_tr=None, inputs_val=None, inputs_test=None,
-        init_type='kmeans', save_tr_states=False, fit_kwargs=None):
+        masks_tr=None, masks_val=None, masks_test=None,
+        tags_tr=None, tags_val=None, tags_test=None,
+        init_type='kmeans', fit_method='em', save_tr_states=False, fit_kwargs=None):
 
     model = HMM(K=n_states, D=data_dim, M=input_dim, **model_kwargs)
-    model.initialize(data_tr, inputs=inputs_tr)
-    init_model(init_type, model, data_tr)
+    model.initialize(data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr)
+    init_model(init_type, model, data_tr, inputs_tr, masks_tr, tags_tr)
 
     # run EM; specify tolerances for overall convergence and each M-step's convergence
-    lps = model.fit(
-        data_tr, inputs=inputs_tr, method='em', num_iters=150, tolerance=1e-2, initialize=False,
-        transitions_mstep_kwargs={'optimizer': 'lbfgs', 'tol': 1e-3})
+    if fit_method == 'em':
+
+        lps = model.fit(
+            data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr,
+            method=fit_method, num_iters=150, tolerance=1e-2, initialize=False,
+            transitions_mstep_kwargs={'optimizer': 'lbfgs', 'tol': 1e-3})
+
+    elif fit_method == 'stochastic_em':
+
+        n_trials = len(data_tr)
+
+        if inputs_tr is None:
+            M = (model.M,) if isinstance(model.M, int) else model.M
+            inputs_tr = [np.zeros((data.shape[0],) + M) for data in data_tr]
+        if masks_tr is None:
+            masks_tr = [np.ones_like(data, dtype=bool) for data in data_tr]
+        if tags_tr is None:
+            tags_tr = [None] * n_trials
+
+        lps = model.fit(
+            data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr,
+            method=fit_method, num_epochs=100, initialize=False)
+
+    else:
+        raise NotImplementedError('"%s is not a valid fit method')
 
     # compute stats
-    ll_val = model.log_likelihood(data_val, inputs=inputs_val)
-    ll_test = model.log_likelihood(data_test, inputs=inputs_test)
+    ll_val = model.log_likelihood(data_val, inputs=inputs_val, masks=masks_val, tags=tags_val)
+    ll_test = model.log_likelihood(data_test, inputs=inputs_test, masks=masks_test, tags=tags_test)
 
     # sort states by usage
     inputs_tr = [None] * len(data_tr) if inputs_tr is None else inputs_tr
@@ -96,7 +180,7 @@ def fit_model(
     return model_results
 
 
-def init_model(init_type, model, datas):
+def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
     """Initialize ARHMM model according to one of several schemes.
 
     The different schemes correspond to different ways of assigning discrete states to the data
@@ -238,52 +322,9 @@ def init_model(init_type, model, datas):
     model.observations.Sigmas = np.array(Sigmas)
 
 
-def get_save_file(n_states, model_kwargs, fit_kwargs):
-    from flygenvectors.utils import get_dirs
-    model_name = get_model_name(n_states, model_kwargs)
-    model_name += '.pkl'
-    if fit_kwargs['save_dir'] is not None:
-        save_dir = fit_kwargs['save_dir']
-    else:
-        base_dir = get_dirs()['results']
-        model_dir = fit_kwargs['model_dir']
-        expt_dir = fit_kwargs['expt_id']
-        save_dir = os.path.join(base_dir, expt_dir, model_dir)
-    return os.path.join(save_dir, model_name)
-
-
-def get_model_name(n_states, model_kwargs):
-    trans = model_kwargs['transitions']
-    obs = model_kwargs['observations']
-    if obs.find('ar') > -1:
-        lags = model_kwargs['observation_kwargs']['lags']
-    else:
-        lags = 0
-    if trans == 'sticky':
-        kappa = model_kwargs['transition_kwargs']['kappa']
-    else:
-        kappa = ''
-    model_name = str(
-        'obs=%s_trans=%s_lags=%i_K=%02i' % (obs, trans, lags, n_states))
-    if trans == 'sticky':
-        model_name = str('%s_kappa=%1.0e' % (model_name, kappa))
-    return model_name
-
-
-def get_model_dir(base, preprocess_list, final_str=''):
-    model_dir = base
-    if 'filter' in preprocess_list.keys():
-        if preprocess_list['filter']['type'] == 'median':
-            model_dir += '-median-%i' % preprocess_list['filter']['window_size']
-        elif preprocess_list['filter']['type'] == 'savgol':
-            model_dir += '-savgol-%i-%i' % (
-                preprocess_list['filter']['window_size'], preprocess_list['filter']['order'])
-        else:
-            raise NotImplementedError
-    if final_str:
-        model_dir += '-' + final_str
-    return model_dir
-
+# -------------------------------------------------------------------------------------------------
+# model evaluation functions
+# -------------------------------------------------------------------------------------------------
 
 def viterbi_ll(model, datas):
     """Calculate log-likelihood of viterbi path."""
@@ -466,3 +507,129 @@ def test_k_step_r2():
     #         test = x_pred_all[n, :, :, k][slice(*idxs)]
     #         print('beg: {}'.format(test[0]))
     #         print('end: {}'.format(test[-1]))
+
+
+# -------------------------------------------------------------------------------------------------
+# path handling functions
+# -------------------------------------------------------------------------------------------------
+
+def get_save_file(n_states, model_kwargs, fit_kwargs):
+    from flygenvectors.utils import get_dirs
+    model_name = get_model_name(n_states, model_kwargs)
+    model_name += '.pkl'
+    if fit_kwargs['save_dir'] is not None:
+        save_dir = fit_kwargs['save_dir']
+    else:
+        base_dir = get_dirs()['results']
+        model_dir = fit_kwargs['model_dir']
+        expt_dir = get_expt_dir(base_dir, fit_kwargs['expt_id'])
+        save_dir = os.path.join(base_dir, expt_dir, model_dir)
+    return os.path.join(save_dir, model_name)
+
+
+def get_model_name(n_states, model_kwargs):
+    trans = model_kwargs['transitions']
+    obs = model_kwargs['observations']
+    if obs.find('ar') > -1:
+        lags = model_kwargs['observation_kwargs']['lags']
+    else:
+        lags = 0
+    if trans == 'sticky':
+        kappa = model_kwargs['transition_kwargs']['kappa']
+    else:
+        kappa = ''
+    model_name = str(
+        'obs=%s_trans=%s_lags=%i_K=%02i' % (obs, trans, lags, n_states))
+    if trans == 'sticky':
+        model_name = str('%s_kappa=%1.0e' % (model_name, kappa))
+    return model_name
+
+
+def get_model_dir(base, preprocess_list, final_str=''):
+    model_dir = base
+    if 'filter' in preprocess_list.keys():
+        if preprocess_list['filter']['type'] == 'median':
+            model_dir += '-median-%i' % preprocess_list['filter']['window_size']
+        elif preprocess_list['filter']['type'] == 'savgol':
+            model_dir += '-savgol-%i-%i' % (
+                preprocess_list['filter']['window_size'], preprocess_list['filter']['order'])
+        else:
+            raise NotImplementedError
+    if final_str:
+        model_dir += '-' + final_str
+    return model_dir
+
+
+def get_expt_dir(base_dir, expt_ids):
+    if isinstance(expt_ids, list):
+        # multisession; see if multisession already exists; if not, create a new one
+        subdirs = get_subdirs(base_dir)
+        expt_dir = None
+        max_val = -1
+        for subdir in subdirs:
+            if subdir[:5] == 'multi':
+                # load csv containing expt_ids
+                multi_sess = read_session_info_from_csv(
+                    os.path.join(base_dir, subdir, 'session_info.csv'))
+                # compare to current ids
+                multi_sess = [row['session'] for row in multi_sess]
+                if sorted(multi_sess) == sorted(expt_ids):
+                    expt_dir = subdir
+                    break
+                else:
+                    max_val = np.max([max_val, int(subdir.split('-')[-1])])
+        if expt_dir is None:
+            expt_dir = 'multi-' + str(max_val + 1)
+            # save csv with expt ids
+            export_session_info_to_csv(
+                os.path.join(base_dir, expt_dir),
+                [{'session': s} for s in expt_ids])
+    else:
+        expt_dir = expt_ids
+    return expt_dir
+
+
+def read_session_info_from_csv(session_file):
+    """Read csv file that contains session info.
+
+    Parameters
+    ----------
+    session_file : :obj:`str`
+        /full/path/to/session_info.csv
+
+    Returns
+    -------
+    :obj:`list` of :obj:`dict`
+        dict for each session which contains lab/expt/animal/session
+
+    """
+    import csv
+    sessions_multi = []
+    # load and parse csv file that contains single session info
+    with open(session_file) as csv_file:
+        csv_reader = csv.DictReader(csv_file)
+        for row in csv_reader:
+            sessions_multi.append(dict(row))
+    return sessions_multi
+
+
+def export_session_info_to_csv(session_dir, ids_list):
+    """Export list of sessions to csv file.
+
+    Parameters
+    ----------
+    session_dir : :obj:`str`
+        absolute path for where to save :obj:`session_info.csv` file
+    ids_list : :obj:`list` of :obj:`dict`
+        dict for each session which contains session
+
+    """
+    import csv
+    session_file = os.path.join(session_dir, 'session_info.csv')
+    if not os.path.isdir(session_dir):
+        os.makedirs(session_dir)
+    with open(session_file, mode='w') as f:
+        session_writer = csv.DictWriter(f, fieldnames=list(ids_list[0].keys()))
+        session_writer.writeheader()
+        for ids in ids_list:
+            session_writer.writerow(ids)
