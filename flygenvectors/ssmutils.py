@@ -12,22 +12,6 @@ from flygenvectors.utils import get_subdirs
 # model fitting functions
 # -------------------------------------------------------------------------------------------------
 
-def mix_data(label_objs, dtype):
-    """Randomly interleave data from different sessions."""
-    trial_order = [np.random.permutation(len(l.labels_dict[dtype])) for l in label_objs]
-    trial_counters = [0 for _ in range(len(label_objs))]
-    sess_order = np.random.permutation(np.concatenate(
-        [[i] * len(l.labels_dict[dtype]) for i, l in enumerate(label_objs)]))
-
-    data = [None for _ in sess_order]
-    for i, sess in enumerate(sess_order):
-        c = trial_counters[sess]
-        data[i] = label_objs[sess].labels_dict[dtype][trial_order[sess][c]]
-        trial_counters[sess] += 1
-
-    return data, sess_order, trial_order
-
-
 def collect_models(
         n_lags_standard, n_lags_sticky, n_lags_recurrent, kappas, observations, fit_hmm=False):
     """Collect model kwargs."""
@@ -150,7 +134,7 @@ def fit_model(
 
         lps = model.fit(
             data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr,
-            method=fit_method, num_epochs=100, initialize=False)
+            method=fit_method, num_epochs=150, initialize=False)
 
     else:
         raise NotImplementedError('"%s is not a valid fit method')
@@ -561,7 +545,7 @@ def get_model_dir(base, preprocess_list, final_str=''):
 
 
 def get_expt_dir(base_dir, expt_ids):
-    if isinstance(expt_ids, list):
+    if isinstance(expt_ids, list) and len(expt_ids) > 1:
         # multisession; see if multisession already exists; if not, create a new one
         subdirs = get_subdirs(base_dir)
         expt_dir = None
@@ -585,7 +569,10 @@ def get_expt_dir(base_dir, expt_ids):
                 os.path.join(base_dir, expt_dir),
                 [{'session': s} for s in expt_ids])
     else:
-        expt_dir = expt_ids
+        if isinstance(expt_ids, list):
+            expt_dir = expt_ids[0]
+        else:
+            expt_dir = expt_ids
     return expt_dir
 
 

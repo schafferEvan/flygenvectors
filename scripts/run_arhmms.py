@@ -1,90 +1,121 @@
-import os
-import subprocess
 import argparse
-import shutil
-import json
-import commentjson
+import copy
 
-from behavenet import get_user_dir
-
-user_dir = '/home/mattw/'
-code_dir = '/home/mattw/Dropbox/github/behavenet'
-grid_search_file = os.path.join(code_dir, 'behavenet/fitting/arhmm_grid_search.py')
-config_files = {
-    'data': os.path.join(user_dir, '.behavenet/fly_run_params.json'),
-    'model': os.path.join(user_dir, '.behavenet/arhmm_labels_model_fly.json'),
-    'training': os.path.join(user_dir, '.behavenet/arhmm_training_fly.json'),
-    'compute': os.path.join(user_dir, '.behavenet/arhmm_compute_fly.json')
-}
-KAPPAS = [1e4, 1e6, 1e8]  # kappas to use for sticky transitions
+from flygenvectors.dlc import preprocess_and_split_data, shuffle_data
+import flygenvectors.ssmutils as utils
 
 
 def run_main(args):
 
-    # make a copy of model config
-    dirname = os.path.dirname(config_files['model'])
-    filename = os.path.basename(config_files['model']).split('.')[0]
-    tmp_file = os.path.join(dirname, filename + '_tmp.json')
-    shutil.copy(config_files['model'], tmp_file)
-    config_files['model'] = tmp_file
-           
-    # get list of transitions
-    transitions = []
-    if args.stationary:
-        transitions.append('stationary')
-    if args.sticky:
-        transitions.append('sticky')
-    if args.recurrent:
-        transitions.append('recurrent')
-    if args.recurrent_only:
-        transitions.append('recurrent_only')
+    # -------------------------------------
+    # load and preprocess data
+    # -------------------------------------
 
-    # loop over transitions
-    for transition in transitions:
+    # define sessions
+    sess_ids = ['2019_08_08_fly1']
 
-        # modify configs
-        if transition == 'sticky':
-            kappas = KAPPAS
+    # preprocessing directives
+    preprocess_list = {
+        # 'filter': {'type': 'median', 'window_size': 3},
+        'filter': {'type': 'savgol', 'window_size': 5, 'order': 2},
+        # 'standardize': {}, # zscore labels
+        'unitize': {},  # scale labels in [0, 1]
+    }
+
+    label_obj = preprocess_and_split_data(sess_ids, preprocess_list, algo='dgp', load_from='pkl')
+    model_dir = utils.get_model_dir('dlc-arhmm', preprocess_list, final_str='')
+    print('\nsaving models in the following directory: "%s"' % model_dir)
+
+    # shuffle data
+    data_tr, tags_tr, _ = shuffle_data(label_obj, dtype='train')
+    data_val, tags_val, _ = shuffle_data(label_obj, dtype='val')
+    data_test, tags_test, _ = shuffle_data(label_obj, dtype='test')
+
+    D = data_tr[0].shape[1]
+
+    # -------------------------------------
+    # define models
+    # -------------------------------------
+
+    # hyperparams that are same across all models
+    observations = args.observations  # 'ar' | 'diagonal_ar' | 'diagonal_robust_ar'
+    init_type = args.init  # 'arhmm' | 'kmeans'
+    fit_method = args.fit_method  # 'em' | 'stochastic_em'
+
+    # params that define models
+    # n_states = [2, 4, 6, 8, 10, 12, 16, 20, 32]
+    # n_states = [2, 4, 8, 12, 16, 24]
+    n_states = [2, 4, 8, 16, 24]
+
+    n_lags_standard = [2] if args.stationary else []
+    n_lags_sticky = [2] if args.sticky else []
+    n_lags_recurrent = [2] if args.recurrent else []
+    kappas = [1e4, 1e6]
+
+    model_kwargs = utils.collect_models(
+        n_lags_standard, n_lags_sticky, n_lags_recurrent, kappas, observations)
+
+    if init_type == 'arhmm':
+        model_dir_ext = model_dir + '-2-state-init'
+    else:
+        model_dir_ext = model_dir
+    if fit_method == 'em':
+        pass
+    else:
+        model_dir_ext += '_%s' % fit_method
+
+    # -------------------------------------
+    # fit models
+    # -------------------------------------
+    fit_kwargs = {
+        'save': True,
+        'load_if_exists': True,
+        'expt_id': sess_ids,
+        'model_dir': model_dir_ext,
+        'save_dir': None}
+
+    # iterate over model types
+    n_sess = len(sess_ids)
+    all_results = {}
+    for model_name, kwargs in model_kwargs.items():
+        model_results = {}
+
+        # add hierarchical tags
+        if n_sess > 1:
+            kwargs_ = {
+                **kwargs,
+                'hierarchical_transition_tags': list(range(n_sess)),
+                'hierarchical_observation_tags': list(range(n_sess))}
+            fit_method = 'stochastic_em'
         else:
-            kappas = 0
-            
-        update_config(config_files['model'], 'kappa', kappas)
-        update_config(config_files['model'], 'transitions', transition)
+            kwargs_ = copy.deepcopy(kwargs)
+            tags_tr, tags_val, tags_test = None, None, None
 
-        call_str = [
-            'python',
-            grid_search_file,
-            '--data_config', config_files['data'],
-            '--model_config', config_files['model'],
-            '--training_config', config_files['training'],
-            '--compute_config', config_files['compute']
-        ]
-        subprocess.call(' '.join(call_str), shell=True)
+        # iterate over discrete states
+        for K in n_states:
+            print('Fitting %s with %i states' % (model_name, K))
+            model_results[K] = utils.fit_model(
+                n_states=K, data_dim=D, input_dim=0, model_kwargs=kwargs_,
+                data_tr=data_tr, data_val=data_val, data_test=data_test,
+                tags_tr=tags_tr, tags_val=tags_val, tags_test=tags_test,
+                init_type=init_type, fit_method=fit_method, fit_kwargs=fit_kwargs)
 
-    # remove copy of model config
-    os.remove(config_files['model'])
-
-
-def update_config(file, key, value):
-
-    # load json file as dict
-    config = commentjson.load(open(file, 'r'))
-
-    # update value
-    config[key] = value
-
-    # resave file
-    with open(file, 'w') as f:
-        json.dump(config, f, sort_keys=False, indent=4)
+        all_results[model_name] = model_results
 
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
+
     parser.add_argument('--stationary', action='store_true', default=False)
     parser.add_argument('--sticky', action='store_true', default=False)
     parser.add_argument('--recurrent', action='store_true', default=False)
     parser.add_argument('--recurrent_only', action='store_true', default=False)
+
+    parser.add_argument('--observations', default='diagonal_robust_ar', type=str)
+    parser.add_argument('--init', default='arhmm', type=str)
+    parser.add_argument('--fit_method', default='em', type=str)
+
     namespace, _ = parser.parse_known_args()
     run_main(namespace)
 

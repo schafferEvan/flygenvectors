@@ -290,3 +290,19 @@ def preprocess_and_split_data(
         label_obj[n].split_labels(dtypes=dtypes, dtype_lens=dtype_lens)
 
     return label_obj
+
+
+def shuffle_data(label_objs, dtype):
+    """Randomly interleave data from different sessions."""
+    trial_order = [np.random.permutation(len(l.labels_dict[dtype])) for l in label_objs]
+    trial_counters = [0 for _ in range(len(label_objs))]
+    sess_order = np.random.permutation(np.concatenate(
+        [[i] * len(l.labels_dict[dtype]) for i, l in enumerate(label_objs)]))
+
+    data = [None for _ in sess_order]
+    for i, sess in enumerate(sess_order):
+        c = trial_counters[sess]
+        data[i] = label_objs[sess].labels_dict[dtype][trial_order[sess][c]]
+        trial_counters[sess] += 1
+
+    return data, sess_order, trial_order
