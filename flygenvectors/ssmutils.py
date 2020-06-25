@@ -12,7 +12,7 @@ from flygenvectors.utils import get_subdirs
 # model fitting functions
 # -------------------------------------------------------------------------------------------------
 
-def collect_models(
+def collect_model_kwargs(
         n_lags_standard, n_lags_sticky, n_lags_recurrent, kappas, observations, fit_hmm=False):
     """Collect model kwargs."""
 
@@ -106,7 +106,8 @@ def fit_model(
         inputs_tr=None, inputs_val=None, inputs_test=None,
         masks_tr=None, masks_val=None, masks_test=None,
         tags_tr=None, tags_val=None, tags_test=None,
-        init_type='kmeans', fit_method='em', save_tr_states=False, fit_kwargs=None):
+        init_type='kmeans', fit_method='em', opt_kwargs=None,
+        save_tr_states=False, fit_kwargs=None):
 
     model = HMM(K=n_states, D=data_dim, M=input_dim, **model_kwargs)
     model.fit_kwargs = fit_kwargs
@@ -114,13 +115,17 @@ def fit_model(
     model.initialize(data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr)
     init_model(init_type, model, data_tr, inputs_tr, masks_tr, tags_tr)
 
-    # run EM; specify tolerances for overall convergence and each M-step's convergence
     if fit_method == 'em':
 
+        if opt_kwargs is None:
+            opt_kwargs = {
+                'num_iters': 150,
+                'tolerance': 1e-2,
+                'transition_mstep_kwargs': {'optimizer': 'lbfgs', 'tol': 1e-3}}
+
         lps = model.fit(
-            data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr,
-            method='em', num_iters=150, tolerance=1e-2, initialize=False,
-            transitions_mstep_kwargs={'optimizer': 'lbfgs', 'tol': 1e-3})
+            data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr, method='em',
+            initialize=False, **opt_kwargs)
 
     elif fit_method == 'stochastic-em':
 
@@ -134,12 +139,18 @@ def fit_model(
         if tags_tr is None:
             tags_tr = [None] * n_trials
 
+        if opt_kwargs is None:
+            opt_kwargs = {
+                'num_epochs': 150,  # total passes through data
+                'num_steps': 1  # number of optimization steps per data chunk
+            }
+
         lps = model.fit(
-            data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr,
-            method='stochastic_em', num_epochs=150, initialize=False)
+            data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr, method='stochastic_em',
+            initialize=False, **opt_kwargs)
 
     else:
-        raise NotImplementedError('"%s is not a valid fit method')
+        raise NotImplementedError('"%s is not a valid fit method' % fit_method)
 
     # compute stats
     ll_val = model.log_likelihood(data_val, inputs=inputs_val, masks=masks_val, tags=tags_val)
@@ -233,7 +244,7 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
         model_init = HMM(
             K=2, D=D_, M=0, transitions='standard', observations='ar',
             observations_kwargs={'lags': 1})
-        init_model('pca_me', model_init, xs)
+        init_model('pca-me', model_init, xs)
         model_init.fit(
             xs, inputs=None, method='em', num_iters=100, tolerance=1e-2,
             initialize=False, transitions_mstep_kwargs={'optimizer': 'lbfgs', 'tol': 1e-3})
@@ -341,11 +352,11 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
     # estimate dynamics params
     # ------------------------
     if init_type != 'em-exact':
+
         # Initialize the weights with linear regression
         Sigmas = []
         for k in range(K):
             ts = [np.where(z == k)[0] for z in zs]
-            # Xs = [np.column_stack([data[t + l] for l in range(lags)]) for t, data in zip(ts, datas)]
             Xs = [np.column_stack([data[t + lags - l - 1] for l in range(lags)])
                   for t, data in zip(ts, datas)]
             ys = [data[t + lags] for t, data in zip(ts, datas)]
@@ -481,14 +492,37 @@ def k_step_ll(model, datas, k_max):
     return k_step_lls
 
 
-def k_step_r2(model, datas, k_max, n_samp=10, with_noise=True):
-    """Determine the k-step ahead r2."""
+def k_step_r2(model, datas, k_max, n_samp=10, with_noise=True, return_type='per_batch_r2'):
+    """Determine the k-step ahead r2.
+
+    Args:
+        model:
+        datas:
+        k_max:
+        n_samp:
+        with_noise:
+        return_type:
+            'per_batch_r2'
+            'total_r2'
+            'bootstrap_r2'
+            'per_batch_mse'
+
+    Returns:
+
+    """
 
     N = len(datas)
     L = model.observations.lags  # AR lags
     D = model.D
 
-    k_step_r2s = np.zeros((N, k_max, n_samp))
+    x_true_total = []
+    x_pred_total = [[] for _ in range(k_max)]
+    if return_type == 'per_batch_r2':
+        k_step_r2s = np.zeros((N, k_max, n_samp))
+    elif return_type == 'total_r2':
+        k_step_r2s = np.zeros((k_max, n_samp))
+    else:
+        raise NotImplementedError('"%s" is not a valid return type' % return_type)
 
     for d, data in enumerate(datas):
         # print('%i/%i' % (d + 1, len(datas)))
@@ -514,11 +548,26 @@ def k_step_r2(model, datas, k_max, n_samp=10, with_noise=True):
                 # predicted x values in the forward prediction time
                 x_pred_all[n, t - L + 1, :, :] = np.transpose(x_pred)[None, None, :, :]
 
-        # compute r2
+        # store predicted data
+        x_true_total.append(x_true_all)
         for k in range(k_max):
             idxs = (k_max - k - 1, k_max - k - 1 + x_true_all.shape[0])
+            x_pred_total[k].append(x_pred_all[:, slice(*idxs), :, k])
+
+    # compute r2s
+    if return_type == 'per_batch_r2':
+        for d in range(len(datas)):
+            for k in range(k_max):
+                for n in range(n_samp):
+                    k_step_r2s[d, k, n] = r2_score(
+                        x_true_total[d], x_pred_total[k][d][n])
+
+    elif return_type == 'total_r2':
+        for k in range(k_max):
             for n in range(n_samp):
-                k_step_r2s[d, k, n] = r2_score(x_true_all, x_pred_all[n, :, :, k][slice(*idxs)])
+                k_step_r2s[k, n] = r2_score(
+                    np.vstack(x_true_total),
+                    np.vstack([x_pred_total[k][d][n] for d in range(len(datas))]))
 
     return k_step_r2s
 
@@ -589,6 +638,71 @@ def test_k_step_r2():
     #         print('end: {}'.format(test[-1]))
 
 
+def k_step_r2_old(
+        model, datas, k_max, n_samp=10, with_noise=True, return_type='per_batch_r2', n_skip=1):
+    """Determine the k-step ahead r2.
+
+    Args:
+        model:
+        datas:
+        k_max:
+        n_samp:
+        with_noise:
+        return_type:
+            'per_batch_r2'
+            'total_r2'
+            'bootstrap_r2'
+            'per_batch_mse'
+
+    Returns:
+
+    """
+
+    N = len(datas)
+    L = model.observations.lags  # AR lags
+    D = model.D
+
+    if return_type == 'per_batch_r2':
+        k_step_r2s = np.zeros((N, k_max, n_samp))
+    else:
+        raise NotImplementedError('"%s" is not a valid return type' % return_type)
+
+    for d, data in enumerate(datas):
+        # print('%i/%i' % (d + 1, len(datas)))
+
+        T = data.shape[0]
+        ts = range(L - 1, T, n_skip)
+
+        x_true_all = data[L + k_max - 1: T + 1]
+        x_pred_all = np.zeros((n_samp, (T - 1), D, k_max))
+
+        # zs = model.most_likely_states(data)
+
+        # collect sampled data
+        for t in ts:
+            # find the most likely discrete state at time t based on its past
+            zs = model.most_likely_states(data[:t + 1])[-L:]
+            # sample forward in time n_samp times
+            for n in range(n_samp):
+                # sample forward in time k_max steps
+                _, x_pred = model.sample(
+                    k_max, prefix=(zs, data[t - L + 1:t + 1]), with_noise=with_noise)
+                # _, x_pred = model.sample(
+                #     k_max, prefix=(zs[t-L+1:t+1], data[t-L+1:t+1]), with_noise=False)
+                # predicted x values in the forward prediction time
+                x_pred_all[n, t - L + 1, :, :] = np.transpose(x_pred)[None, None, :, :]
+
+        # compute r2
+        if return_type == 'per_batch_r2':
+            for k in range(k_max):
+                idxs = (k_max - k - 1, k_max - k - 1 + x_true_all.shape[0])
+                for n in range(n_samp):
+                    k_step_r2s[d, k, n] = r2_score(
+                        x_true_all, x_pred_all[n, :, :, k][slice(*idxs)])
+
+    return k_step_r2s
+
+
 # -------------------------------------------------------------------------------------------------
 # path handling functions
 # -------------------------------------------------------------------------------------------------
@@ -625,7 +739,7 @@ def get_model_name(n_states, model_kwargs):
     return model_name
 
 
-def get_model_dir(base, preprocess_list, final_str=''):
+def get_model_dir(base, preprocess_list, fit_method, init_type, final_str=''):
     model_dir = base
     if 'filter' in preprocess_list.keys():
         if preprocess_list['filter']['type'] == 'median':
@@ -635,8 +749,13 @@ def get_model_dir(base, preprocess_list, final_str=''):
                 preprocess_list['filter']['window_size'], preprocess_list['filter']['order'])
         else:
             raise NotImplementedError
+
     if final_str:
-        model_dir += '_' + final_str
+        model_dir += '_' + final_str  # here for legacy reasons
+
+    model_dir += '_%s' % fit_method
+    model_dir += '_%s-init' % init_type
+
     return model_dir
 
 

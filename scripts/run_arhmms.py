@@ -12,19 +12,19 @@ def run_main(args):
     # -------------------------------------
 
     # define sessions
-    sess_ids = ['2019_08_08_fly1']
+    # sess_ids = ['2019_08_08_fly1']
+    sess_ids = ['2019_07_01_fly2']
 
     # preprocessing directives
-    preprocess_list = {
+    preproc_list = {
         # 'filter': {'type': 'median', 'window_size': 3},
         'filter': {'type': 'savgol', 'window_size': 5, 'order': 2},
         # 'standardize': {}, # zscore labels
         'unitize': {},  # scale labels in [0, 1]
     }
 
-    label_obj = preprocess_and_split_data(sess_ids, preprocess_list, algo='dgp', load_from='pkl')
-    model_dir = utils.get_model_dir('dlc-arhmm', preprocess_list, final_str='')
-    print('\nsaving models in the following directory: "%s"' % model_dir)
+    load_from = 'mat'
+    label_obj = preprocess_and_split_data(sess_ids, preproc_list, algo='dgp', load_from=load_from)
 
     # shuffle data
     data_tr, tags_tr, _ = shuffle_data(label_obj, dtype='train')
@@ -39,8 +39,8 @@ def run_main(args):
 
     # hyperparams that are same across all models
     observations = args.observations  # 'ar' | 'diagonal_ar' | 'diagonal_robust_ar'
-    init_type = args.init  # 'arhmm' | 'kmeans'
-    fit_method = args.fit_method  # 'em' | 'stochastic_em'
+    init_type = args.init  # 'arhmm' | 'kmeans' | 'em' | 'em-exact'
+    fit_method = args.fit_method  # 'em' | 'stochastic-em'
 
     # params that define models
     # n_states = [2, 4, 6, 8, 10, 12, 16, 20, 32]
@@ -52,17 +52,27 @@ def run_main(args):
     n_lags_recurrent = [2] if args.recurrent else []
     kappas = [1e4, 1e6]
 
-    model_kwargs = utils.collect_models(
+    model_kwargs = utils.collect_model_kwargs(
         n_lags_standard, n_lags_sticky, n_lags_recurrent, kappas, observations)
 
-    if init_type == 'arhmm':
-        model_dir_ext = model_dir + '-2-state-init'
-    else:
-        model_dir_ext = model_dir
     if fit_method == 'em':
-        pass
-    else:
-        model_dir_ext += '_%s' % fit_method
+        opt_kwargs = {
+            'num_iters': 150,
+            'tolerance': 1e-2,
+            'transition_mstep_kwargs': {'optimizer': 'lbfgs', 'tol': 1e-3}}
+    elif fit_method == 'stochastic-em':
+        opt_kwargs = {
+            'num_epochs': 50,  # total passes through data
+            'num_steps': 1,  # number of optimization steps per data chunk
+            'step_size': 1e-4}
+
+    # determine directory that model is stored in
+    final_str = 'mat' if load_from == 'mat' else ''
+    model_dir = utils.get_model_dir(
+        'dlc-arhmm', preproc_list, fit_method, init_type, final_str=final_str)
+    if fit_method == 'stochastic-em':
+        model_dir += '_s=%i_ss=%0.1e' % (opt_kwargs['num_steps'], opt_kwargs['step_size'])
+    print('\nsaving models in the following directory: "%s"' % model_dir)
 
     # -------------------------------------
     # fit models
@@ -71,7 +81,7 @@ def run_main(args):
         'save': True,
         'load_if_exists': True,
         'expt_id': sess_ids,
-        'model_dir': model_dir_ext,
+        'model_dir': model_dir,
         'save_dir': None}
 
     # iterate over model types
@@ -98,7 +108,8 @@ def run_main(args):
                 n_states=K, data_dim=D, input_dim=0, model_kwargs=kwargs_,
                 data_tr=data_tr, data_val=data_val, data_test=data_test,
                 tags_tr=tags_tr, tags_val=tags_val, tags_test=tags_test,
-                init_type=init_type, fit_method=fit_method, fit_kwargs=fit_kwargs)
+                init_type=init_type, fit_method=fit_method,
+                opt_kwargs=opt_kwargs, fit_kwargs=fit_kwargs)
 
         all_results[model_name] = model_results
 
