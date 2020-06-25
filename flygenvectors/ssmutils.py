@@ -59,7 +59,7 @@ def load_cached_model(fit_func):
     # this is the function we replace original function with
     def wrapper(n_states, *args, **kwargs):
 
-        fit_kwargs = kwargs.pop('fit_kwargs', None)
+        fit_kwargs = kwargs.get('fit_kwargs', None)
         if fit_kwargs is None:
             fit_kwargs = {
                 'save': False, 'load_if_exists': False,
@@ -109,6 +109,8 @@ def fit_model(
         init_type='kmeans', fit_method='em', save_tr_states=False, fit_kwargs=None):
 
     model = HMM(K=n_states, D=data_dim, M=input_dim, **model_kwargs)
+    model.fit_kwargs = fit_kwargs
+    model.model_kwargs = model_kwargs
     model.initialize(data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr)
     init_model(init_type, model, data_tr, inputs_tr, masks_tr, tags_tr)
 
@@ -117,10 +119,10 @@ def fit_model(
 
         lps = model.fit(
             data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr,
-            method=fit_method, num_iters=150, tolerance=1e-2, initialize=False,
+            method='em', num_iters=150, tolerance=1e-2, initialize=False,
             transitions_mstep_kwargs={'optimizer': 'lbfgs', 'tol': 1e-3})
 
-    elif fit_method == 'stochastic_em':
+    elif fit_method == 'stochastic-em':
 
         n_trials = len(data_tr)
 
@@ -134,7 +136,7 @@ def fit_model(
 
         lps = model.fit(
             data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr,
-            method=fit_method, num_epochs=150, initialize=False)
+            method='stochastic_em', num_epochs=150, initialize=False)
 
     else:
         raise NotImplementedError('"%s is not a valid fit method')
@@ -191,6 +193,9 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
             'random' | 'kmeans' | 'pca_me' | 'arhmm'
         model (ssm.HMM object):
         datas (list of np.ndarrays):
+        inputs (list of np.ndarrays):
+        masks (list of np.ndarrays):
+        tags (list of np.ndarrays):
 
     """
 
@@ -234,8 +239,7 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
             initialize=False, transitions_mstep_kwargs={'optimizer': 'lbfgs', 'tol': 1e-3})
 
         # make still state 0th state
-        mses = [
-            np.mean(np.square(model_init.observations.As[i] - np.eye(D_))) for i in range(2)]
+        mses = [np.mean(np.square(model_init.observations.As[i] - np.eye(D_))) for i in range(2)]
         if mses[1] < mses[0]:
             # permute states
             model_init.permute([1, 0])
@@ -254,7 +258,56 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
         zs = np.split(zs, np.cumsum(Ts)[:-1])
         zs = [z[lags:] for z in zs]  # remove the ends
 
-    elif init_type == 'pca_me':
+    elif init_type == 'em':
+
+        import copy
+
+        # load already-trained model that used em
+        model_kwargs = copy.deepcopy(model.model_kwargs)
+        fit_kwargs = copy.deepcopy(model.fit_kwargs)
+        # update model dir (remove new init str, add 2-state-init)
+        old_model_dir = fit_kwargs['model_dir']
+        fit_kwargs['model_dir'] = '_'.join(old_model_dir.split('_')[:-1]) + '_arhmm-init'
+
+        model_file = get_save_file(K, model_kwargs, fit_kwargs)
+
+        print('initializing model from %s' % model_file)
+        with open(model_file, 'rb') as f:
+            model_init = pickle.load(f)['model']
+
+        # extract states
+        if inputs is None:
+            zs = [model_init.most_likely_states(x) for x in datas]
+        else:
+            zs = [model_init.most_likely_states(x, u) for x, u in zip(datas, inputs)]
+
+        zs = [z[lags:] for z in zs]  # remove the ends
+
+    elif init_type == 'em-exact':
+
+        import copy
+
+        # load already-trained model that used em
+        model_kwargs = copy.deepcopy(model.model_kwargs)
+        fit_kwargs = copy.deepcopy(model.fit_kwargs)
+        # update model dir (remove new init str, add 2-state-init)
+        old_model_dir = fit_kwargs['model_dir']
+        fit_kwargs['model_dir'] = '_'.join(old_model_dir.split('_')[:-1]) + '_arhmm-init'
+
+        model_file = get_save_file(K, model_kwargs, fit_kwargs)
+
+        print('initializing model from %s' % model_file)
+        with open(model_file, 'rb') as f:
+            model_init = pickle.load(f)['model']
+
+        model.init_state_distn.log_pi0 = model_init.init_state_distn.log_pi0
+        model.transitions.log_Ps = model_init.transitions.log_Ps
+        model.observations.As = model_init.observations.As
+        model.observations.Vs = model_init.observations.Vs
+        model.observations.bs = model_init.observations.bs
+        model.observations.Sigmas = model_init.observations.Sigmas
+
+    elif init_type == 'pca-me':
 
         # pca on motion energy
         datas_filt = np.copy(datas)
@@ -287,28 +340,71 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
     # ------------------------
     # estimate dynamics params
     # ------------------------
-    # Initialize the weights with linear regression
-    Sigmas = []
-    for k in range(K):
-        ts = [np.where(z == k)[0] for z in zs]
-        Xs = [np.column_stack([data[t + l] for l in range(lags)])
-              for t, data in zip(ts, datas)]
-        ys = [data[t + lags] for t, data in zip(ts, datas)]
+    if init_type != 'em-exact':
+        # Initialize the weights with linear regression
+        Sigmas = []
+        for k in range(K):
+            ts = [np.where(z == k)[0] for z in zs]
+            # Xs = [np.column_stack([data[t + l] for l in range(lags)]) for t, data in zip(ts, datas)]
+            Xs = [np.column_stack([data[t + lags - l - 1] for l in range(lags)])
+                  for t, data in zip(ts, datas)]
+            ys = [data[t + lags] for t, data in zip(ts, datas)]
 
-        # Solve the linear regression
-        coef_, intercept_, Sigma = fit_linear_regression(Xs, ys)
-        model.observations.As[k] = coef_[:, :D * lags]
-        model.observations.Vs[k] = coef_[:, D * lags:]
-        model.observations.bs[k] = intercept_
-        Sigmas.append(Sigma)
+            # Solve the linear regression
+            coef_, intercept_, Sigma = fit_linear_regression(Xs, ys)
+            model.observations.As[k] = coef_[:, :D * lags]
+            model.observations.Vs[k] = coef_[:, D * lags:]
+            model.observations.bs[k] = intercept_
+            Sigmas.append(Sigma)
 
-    # Set the variances all at once to use the setter
-    model.observations.Sigmas = np.array(Sigmas)
+        # Set the variances all at once to use the setter
+        model.observations.Sigmas = np.array(Sigmas)
 
 
 # -------------------------------------------------------------------------------------------------
 # model evaluation functions
 # -------------------------------------------------------------------------------------------------
+
+
+def extract_state_runs(states, indxs, min_length=20):
+    """
+    Find contiguous chunks of data with the same state
+
+    Args:
+        states (list):
+        indxs (list):
+        min_length (int):
+
+    Returns:
+        list
+    """
+
+    K = len(np.unique(np.concatenate([np.unique(s) for s in states])))
+    state_snippets = [[] for _ in range(K)]
+
+    for curr_states, curr_indxs in zip(states, indxs):
+        i_beg = 0
+        curr_state = curr_states[i_beg]
+        curr_len = 1
+        for i in range(1, len(curr_states)):
+            next_state = curr_states[i]
+            if next_state != curr_state:
+                # record indices if state duration long enough
+                if curr_len >= min_length:
+                    state_snippets[curr_state].append(
+                        curr_indxs[i_beg:i])
+                i_beg = i
+                curr_state = next_state
+                curr_len = 1
+            else:
+                curr_len += 1
+        # end of trial cleanup
+        if next_state == curr_state:
+            # record indices if state duration long enough
+            if curr_len >= min_length:
+                state_snippets[curr_state].append(curr_indxs[i_beg:i])
+    return state_snippets
+
 
 def viterbi_ll(model, datas):
     """Calculate log-likelihood of viterbi path."""
@@ -533,14 +629,14 @@ def get_model_dir(base, preprocess_list, final_str=''):
     model_dir = base
     if 'filter' in preprocess_list.keys():
         if preprocess_list['filter']['type'] == 'median':
-            model_dir += '-median-%i' % preprocess_list['filter']['window_size']
+            model_dir += '_median-%i' % preprocess_list['filter']['window_size']
         elif preprocess_list['filter']['type'] == 'savgol':
-            model_dir += '-savgol-%i-%i' % (
+            model_dir += '_savgol-%i-%i' % (
                 preprocess_list['filter']['window_size'], preprocess_list['filter']['order'])
         else:
             raise NotImplementedError
     if final_str:
-        model_dir += '-' + final_str
+        model_dir += '_' + final_str
     return model_dir
 
 
