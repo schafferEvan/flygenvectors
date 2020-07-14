@@ -15,7 +15,7 @@ class reg_obj:
         self.params = {'split_behav':True,
                     'run_full_sweep':True,
                     'sigLimSec':60,
-                    'phaseLimSec': 3,
+                    'phaseLimSec': 60,
                     'M':0,
                     'L':0,
                     'tau':0.1,
@@ -187,6 +187,7 @@ class reg_obj:
             x_c_full = np.convolve(kern,ball,'same')                      # ******* fix 'same' and 'gauss/exp' option *******
             x_c = x_c_full[L:-L]-x_c_full[L:-L].mean()
             x_c /= abs(x_c).max()
+            x_c = np.expand_dims(x_c, axis=0)
         
         alpha_regs = np.concatenate( (np.ones((1,len(ts)))/len(ts), ts.T) )
         # pdb.set_trace()
@@ -195,8 +196,9 @@ class reg_obj:
             'alpha_01':alpha_regs, 
             'beta_0':x_c, 
             'trial':trial_regressors, 
-            'drink_hunger':np.array([drink[L:-L],hunger[L:-L]])
         } 
+        if (np.isnan(drink).sum()==0) and (np.isnan(hunger).sum()==0):
+            regs['drink_hunger'] = np.array([drink[L:-L],hunger[L:-L]])
         # pdb.set_trace()
         self.regressors_dict = regs
         self.regressors_array, self.regressors_array_inv, self.tot_n_regressors = self.get_regressor_array(regs)
@@ -270,7 +272,6 @@ class reg_obj:
                 
                 # for all parameter categories, for all parameters in this category, find fit without this parameter to compute p_val
                 stat = copy.deepcopy(coeff_dict)
-                
                 for i in range(len(reg_labels)):
                     stat_list = []
                     for j in range(coeff_dict[reg_labels[i]].shape[0]):
