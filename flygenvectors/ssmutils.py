@@ -13,23 +13,47 @@ from flygenvectors.utils import get_subdirs
 # -------------------------------------------------------------------------------------------------
 
 def collect_model_kwargs(
-        n_lags_standard, n_lags_sticky, n_lags_recurrent, kappas, observations, fit_hmm=False):
-    """Collect model kwargs."""
+        n_lags_standard, n_lags_sticky, n_lags_recurrent, kappas, observations,
+        observation_kwargs={}, hierarchical=False, fit_hmm=False):
+    """Collect model kwargs.
+
+    Args:
+        n_lags_standard (array-like): number of ar lags for standard transitions
+        n_lags_sticky (array-like): number of ar lags for sticky transitions
+        n_lags_recurrent (array-like): number of ar lags for recurrent transitions
+        kappas (array-like): hyperparam for upweighting diagonal when using sticky transitions
+        observations (str): 'ar' | 'diagonal_ar' | 'robust_ar' | 'diagonal_robust_ar'
+        observation_kwargs (dict): additional kwargs for obs (e.g. tags for hierarchical models)
+        hierarchical (bool): True to fit model with hierarchical observations
+        fit_hmm (bool): True to include hmm in collected models
+
+    Returns:
+        dict
+
+    """
 
     model_kwargs = {}
+
+    if hierarchical:
+        if len(n_lags_recurrent) > 0 or len(n_lags_sticky) > 0:
+            raise NotImplementedError('Cannot fit hierarchical models on recurrent or sticky obs')
+        hier_str = 'hierarchical_'
+    else:
+        hier_str = ''
 
     # add hmms with standard transitions
     if fit_hmm:
         model_kwargs['hmm'] = {
             'transitions': 'standard',
-            'observations': 'gaussian'}
+            'observations': hier_str + 'gaussian',
+            'observation_kwargs': observation_kwargs}
 
     # add models with standard transitions
     for lags in n_lags_standard:
         model_kwargs['arhmm-%i' % lags] = {
             'transitions': 'standard',
-            'observations': observations,
-            'observation_kwargs': {'lags': lags}}
+            'observations': hier_str + observations,
+            'observation_kwargs': {**{'lags': lags}, **observation_kwargs}}
 
     # add models with sticky transitions
     for lags in n_lags_sticky:
@@ -38,15 +62,15 @@ def collect_model_kwargs(
             model_kwargs['arhmm-s%i-%i' % (kap, lags)] = {
                 'transitions': 'sticky',
                 'transition_kwargs': {'kappa': kappa},
-                'observations': observations,
-                'observation_kwargs': {'lags': lags}}
+                'observations': hier_str + observations,
+                'observation_kwargs': {**{'lags': lags}, **observation_kwargs}}
 
     # add models with recurrent transitions
     for lags in n_lags_recurrent:
         model_kwargs['rarhmm-%i' % lags] = {
             'transitions': 'recurrent',
-            'observations': observations,
-            'observation_kwargs': {'lags': lags}}
+            'observations': hier_str + observations,
+            'observation_kwargs': {**{'lags': lags}, **observation_kwargs}}
 
     return model_kwargs
 
@@ -739,7 +763,7 @@ def get_model_name(n_states, model_kwargs):
     return model_name
 
 
-def get_model_dir(base, preprocess_list, fit_method, init_type, final_str=''):
+def get_model_dir(base, preprocess_list, fit_method='', init_type='', final_str=''):
     model_dir = base
     if 'filter' in preprocess_list.keys():
         if preprocess_list['filter']['type'] == 'median':
@@ -753,8 +777,8 @@ def get_model_dir(base, preprocess_list, fit_method, init_type, final_str=''):
     if final_str:
         model_dir += '_' + final_str  # here for legacy reasons
 
-    model_dir += '_%s' % fit_method
-    model_dir += '_%s-init' % init_type
+    model_dir += '_%s' % fit_method if fit_method else ''
+    model_dir += '_%s-init' % init_type if init_type else ''
 
     return model_dir
 
