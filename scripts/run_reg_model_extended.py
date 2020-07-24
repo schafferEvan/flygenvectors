@@ -39,11 +39,7 @@ import regression_model as model
 #import flygenvectors.ssmutils as utils
 
 print('imports complete')
-<<<<<<< HEAD
 sys.stdout.flush() 
-=======
-sys.stdout.flush()
->>>>>>> 62ae45c30a7c3e4d5f23f1f0b3f1d1edb65313ca
 
 
 ## LOAD DATA
@@ -70,11 +66,7 @@ infile = open(main_dir+expt_id+'.pkl','rb')
 data_dict = pickle.load(infile)
 print(expt_id)
 print('data loaded')
-<<<<<<< HEAD
-sys.stdout.flush() 
-=======
 sys.stdout.flush()
->>>>>>> 62ae45c30a7c3e4d5f23f1f0b3f1d1edb65313ca
 
 
 ## FIT MODEL
@@ -90,8 +82,4 @@ np.save( main_dir+'/output/'+expt_id+'_reg_model_P_tot_trial.npy', ro.P_tot['tri
 np.save( main_dir+'/output/'+expt_id+'_reg_model_obj_tot.npy', ro.obj_tot)
 
 #model_fit_tot = {'P_tot':ro.P_tot,'obj_tot':ro.obj_tot}
-<<<<<<< HEAD
 #pickle.dump( model_fit_tot, open( main_dir+'/output/'+expt_id+'_reg_model.pkl', "wb" ) )
-=======
-#pickle.dump( model_fit_tot, open( main_dir+'/output/'+expt_id+'_reg_model.pkl', "wb" ) )
->>>>>>> 62ae45c30a7c3e4d5f23f1f0b3f1d1edb65313ca
