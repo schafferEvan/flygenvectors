@@ -2,6 +2,7 @@ import os
 import glob
 import numpy as np
 from sklearn.decomposition import PCA
+from sklearn.linear_model import ElasticNet
 from scipy.optimize import minimize
 from scipy import stats
 import copy
@@ -38,6 +39,8 @@ class reg_obj:
         self.model_fit = []
         self.P_tot = []
         self.obj_tot = []
+        self.baseline_regs_amp_val = 1000
+        self.elasticNet = False 
 
 
 
@@ -129,7 +132,7 @@ class reg_obj:
 
 
 
-    def get_regressors(self, phi_input=None):
+    def get_regressors(self, phi_input=None, amplify_baseline=False):
         '''build matrix of all regressors.  Stores output as a dictionary and as a concatenated array.
         Also pre-computes inverse of this array.
         params = {'split_behav':True,
@@ -184,7 +187,8 @@ class reg_obj:
             ball = data_dict['behavior']-data_dict['behavior'].mean()
             x_c_full = np.convolve(kern,ball,'same')                      # ******* fix 'same' and 'gauss/exp' option *******
         
-        alpha_regs = np.concatenate( (np.ones((1,len(ts)))/len(ts), ts.T) )
+        # alpha_regs = np.concatenate( (np.ones((1,len(ts)))/len(ts), ts.T) )
+        alpha_regs = np.concatenate( (np.ones((1,len(ts)))/len(ts), ts.T, ts.T**2) )
         # pdb.set_trace()
         # regs = np.concatenate( (alpha_regs, x_c, trial_regressors, np.array([drink[L:-L],hunger[L:-L]])), axis=0 )
         
@@ -214,17 +218,24 @@ class reg_obj:
                 x_c /= abs(x_c).max()
                 x_c = np.expand_dims(x_c, axis=0)
 
-
-            self.regressors_dict[j] = {
-                'alpha_01':alpha_regs, 
-                'trial':trial_regressors, 
-                'beta_0':x_c 
-            }
+            # scale alpha and trial regs to spare them from elastic net penalty
+            if amplify_baseline:
+                self.regressors_dict[j] = {
+                    'alpha_01':alpha_regs*self.baseline_regs_amp_val, 
+                    'trial':trial_regressors*self.baseline_regs_amp_val, 
+                    'beta_0':x_c 
+                }
+            else:
+                self.regressors_dict[j] = {
+                    'alpha_01':alpha_regs, 
+                    'trial':trial_regressors, 
+                    'beta_0':x_c 
+                }
             if (np.isnan(drink).sum()==0) and (np.isnan(hunger).sum()==0):
                 self.regressors_dict[j]['drink_hunger'] = np.array([drink[L:-L],hunger[L:-L]])
 
             regressors_array, regressors_array_inv, self.tot_n_regressors = self.get_regressor_array(self.regressors_dict[j])
-            if (regressors_array.max()>1) or (regressors_array.min()<-1):
+            if (regressors_array.max()>self.baseline_regs_amp_val) or (regressors_array.min()<-self.baseline_regs_amp_val):
                 print('WARNING: regressor not normalized')
             self.regressors_array[j] = regressors_array 
             self.regressors_array_inv[j] = regressors_array_inv
@@ -239,6 +250,7 @@ class reg_obj:
         regressors_array_inv = np.linalg.inv( regressors_array@regressors_array.T )
         tot_n_regressors = regressors_array.shape[0]
         return regressors_array, regressors_array_inv, tot_n_regressors
+
         
     def dict_to_flat_list(self, my_dict):
         # regenerate concatenated coefficient array
@@ -319,7 +331,7 @@ class reg_obj:
 
 
 
-    def fit_reg_model_MLE(self):
+    def fit_reg_model_MLE(self, elasticNetParams={'alpha':0.01,'l1_ratio':0.1}):
         # find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
         # this is an extension of ".taulist_shiftlist_gauss", with two additions:
         #       (1) merges gauss/exp kernel methods with option for either
@@ -332,16 +344,26 @@ class reg_obj:
         phi_star = np.zeros(data_dict[self.activity].shape[0])
         fn_min = np.inf*np.ones(data_dict[self.activity].shape[0])
         
+        if self.elasticNet:
+            elasticNet_obj = ElasticNet(alpha=elasticNetParams['alpha'], l1_ratio=elasticNetParams['l1_ratio'], fit_intercept=False, warm_start=True)
+
         # fit model -  for each value of tau and phi, check if pInv solution is better than previous
         P = [None]*data_dict[self.activity].shape[0] # [] #np.zeros((data_dict['rate'].shape[0],tot_n_regressors))
         for i in range(len(tauList)):
             if not np.mod(i,2): print(i, end=' ')
             self.params['tau'] = tauList[i]
-            self.get_regressors() 
-            
+            if self.elasticNet:
+                self.get_regressors(amplify_baseline=True)
+            else:
+                self.get_regressors(amplify_baseline=False)
+             
             for j in range(len(self.phiList)):
                 for n in range(data_dict[self.activity].shape[0]):
-                    p, obj = self.fit_reg_linear(n=n, phi_idx=j)
+                    if self.elasticNet:
+                        p, obj = self.fit_reg_linear_elasticNet(n=n, phi_idx=j, elasticNet_obj=elasticNet_obj)
+                    else:
+                        # if not elasticNet, do OLS
+                        p, obj = self.fit_reg_linear(n=n, phi_idx=j)
                     if (obj<fn_min[n]):
                         tau_star[n] = tauList[i]
                         phi_star[n] = self.phiList[j]
@@ -368,6 +390,47 @@ class reg_obj:
             #     self.model_fit[n]['success'] = True #res['success']
 
 
+
+
+    def fit_reg_linear_elasticNet(self, n, phi_idx, elasticNet_obj, tseries_to_sub=None, D=None, Dinv=None, reg_labels=None):
+        '''
+        n=cell number
+        phi=offset
+        tseries_to_sub (optional): pre-subtract a timeseries. Useful for parameter sweeps
+        D (optional): provide regressor array. Otherwise defaults to reg array attribute of current object
+        Dinv (optional): provide regressor array. Otherwise defaults to inv reg array attribute of current object
+        reg_labels (optional): required if providing D, unneeded otherwise. Manually provide fields for dict output
+        '''
+        dFF_full = self.data_dict[self.activity][n,:]
+        L = self.params['L']
+        dFF = dFF_full[L:-L]
+        if tseries_to_sub is not None:
+            dFF -= tseries_to_sub
+
+        # for a given tau, fit for other parameters is linear, solved by pseudoinverse
+        if D is None:
+            D = self.regressors_array[phi_idx]
+        
+        dFF = np.expand_dims(dFF, axis=0)
+        enf = elasticNet_obj.fit(D.T, dFF.T)
+        coeffs = enf.coef_
+        dFF_fit = elasticNet_obj.predict(D.T)
+        #coeffs = np.squeeze( (dFF@D.T) @ Dinv )
+        #dFF_fit = coeffs@D #np.matmul(coeffs,D)
+        obj = ((dFF-dFF_fit)**2).sum()
+
+        # split parameters 'coeffs' back into dictionary by labeled regressor
+        if reg_labels is None:
+            reg_labels = list(self.regressors_dict[phi_idx].keys())
+        coeff_dict = {}
+        cumulative_tot = 0
+        for j in range(len(reg_labels)):
+            n_this_reg = self.regressors_dict[phi_idx][ reg_labels[j] ].shape[0]
+            # pdb.set_trace()
+            coeff_dict[reg_labels[j]] = coeffs[ cumulative_tot+np.arange(n_this_reg) ]
+            cumulative_tot += n_this_reg
+        
+        return coeff_dict, obj
 
 
 
@@ -442,7 +505,21 @@ class reg_obj:
                                     self.obj_tot[:,i,j,k0,k1,k2,k3] = obj_tmp
 
                             # pdb.set_trace()
-                                    
+
+    def normalize_rows(self,input_mat,quantiles=(.05,.99)): 
+        output_mat = np.zeros(input_mat.shape)
+        for i in range(input_mat.shape[0]):
+            y = input_mat[i,:].copy()
+            q0 = np.quantile(y,quantiles[0])
+            y[y<q0] = q0
+            y -= q0
+            q1 = np.quantile(y,quantiles[1])
+            y[y>q1] = q1
+            y /= q1
+            output_mat[i,:] = y
+        return output_mat
+    
+
     def refresh_params(self):
         data_dict = self.data_dict
         sigLimSec = self.params['sigLimSec'] #100
@@ -461,7 +538,10 @@ class reg_obj:
         dFF = dFF_full[self.params['L']:-self.params['L']]
         dFF = np.expand_dims(dFF, axis=0)
         self.params['tau'] = self.model_fit[n]['tau']
-        self.get_regressors(phi_input=self.model_fit[n]['phi']) 
+        if self.elasticNet:
+            self.get_regressors(phi_input=self.model_fit[n]['phi'], amplify_baseline=True)
+        else:
+            self.get_regressors(phi_input=self.model_fit[n]['phi'], amplify_baseline=False)
         coeff_dict = self.coeff_dict_from_keys(idx=n)
         coeff_array = self.dict_to_flat_list(coeff_dict)
         dFF_fit = coeff_array@self.regressors_array[0]
