@@ -1,4 +1,5 @@
 import os
+import sys
 import glob
 import numpy as np
 from sklearn.decomposition import PCA
@@ -278,6 +279,7 @@ class reg_obj:
         print('evaluating ')
         for n in range(self.data_dict[self.activity].shape[0]):
             if not np.mod(n,round(self.data_dict[self.activity].shape[0]/10)): print(n, end=' ')
+            sys.stdout.flush()
             if self.model_fit[n]['success']:
                 L = self.params['L']
                 dFF_full = self.data_dict[self.activity][n,:]
