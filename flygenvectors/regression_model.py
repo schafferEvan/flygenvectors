@@ -353,6 +353,7 @@ class reg_obj:
         P = [None]*data_dict[self.activity].shape[0] # [] #np.zeros((data_dict['rate'].shape[0],tot_n_regressors))
         for i in range(len(tauList)):
             if not np.mod(i,2): print(i, end=' ')
+            sys.stdout.flush()
             self.params['tau'] = tauList[i]
             if self.elasticNet:
                 self.get_regressors(amplify_baseline=True)
