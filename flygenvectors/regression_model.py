@@ -509,7 +509,7 @@ class reg_obj:
 
                             # pdb.set_trace()
 
-    def normalize_rows(self,input_mat,quantiles=(.05,.99)): 
+    def normalize_rows(self,input_mat,quantiles=(.05,.99),fix_nans=True): 
         output_mat = np.zeros(input_mat.shape)
         for i in range(input_mat.shape[0]):
             y = input_mat[i,:].copy()
@@ -520,6 +520,8 @@ class reg_obj:
             y[y>q1] = q1
             y /= q1
             output_mat[i,:] = y
+            if fix_nans:
+                y[np.isnan(y)]=0
         return output_mat
     
 
