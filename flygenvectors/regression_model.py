@@ -361,6 +361,7 @@ class reg_obj:
                 self.get_regressors(amplify_baseline=False)
              
             for j in range(len(self.phiList)):
+                if np.sum(np.isnan(self.regressors_array[j]))>0: continue
                 for n in range(data_dict[self.activity].shape[0]):
                     if self.elasticNet:
                         p, obj = self.fit_reg_linear_elasticNet(n=n, phi_idx=j, elasticNet_obj=elasticNet_obj)
