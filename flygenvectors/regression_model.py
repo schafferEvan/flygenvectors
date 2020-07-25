@@ -522,7 +522,7 @@ class reg_obj:
             y /= q1
             output_mat[i,:] = y
             if fix_nans:
-                y[np.isnan(y)]=0
+                output_mat[i,:][np.isnan(output_mat[i,:])]=0
         return output_mat
     
 
