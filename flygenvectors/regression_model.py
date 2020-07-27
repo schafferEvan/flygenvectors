@@ -347,7 +347,7 @@ class reg_obj:
         fn_min = np.inf*np.ones(data_dict[self.activity].shape[0])
         
         if self.elasticNet:
-            elasticNet_obj = ElasticNet(alpha=elasticNetParams['alpha'], l1_ratio=elasticNetParams['l1_ratio'], fit_intercept=False, warm_start=True)
+            elasticNet_obj = ElasticNet(alpha=elasticNetParams['alpha'], l1_ratio=elasticNetParams['l1_ratio'], fit_intercept=True, warm_start=True)
 
         # fit model -  for each value of tau and phi, check if pInv solution is better than previous
         P = [None]*data_dict[self.activity].shape[0] # [] #np.zeros((data_dict['rate'].shape[0],tot_n_regressors))
@@ -433,6 +433,8 @@ class reg_obj:
             # pdb.set_trace()
             coeff_dict[reg_labels[j]] = coeffs[ cumulative_tot+np.arange(n_this_reg) ]
             cumulative_tot += n_this_reg
+        coeff_dict['alpha_01'][0] = elasticNet_obj.intercept_/D[0,0] # fixes compatibility with get_dFF_fit method in this library
+
         
         return coeff_dict, obj
 
