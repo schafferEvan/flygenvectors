@@ -932,30 +932,24 @@ def get_model_fit_as_dict(model_fit):
 def show_param_scatter(model_fit, data_dict, param_name, pval=.01):
     f = get_model_fit_as_dict(model_fit)
     param = f[param_name]
-    rsq = f['rsq']
-    rsq_null = f['rsq_null']
-    stat = f['stat']
+    rsq = f['r_sq']
+    stat = np.zeros(len(param))
+    for i in range(len(param)):
+        stat[i] = f['stat'][i][param_name][0][1]
     success = f['success']
 
     if(param_name=='phi'): 
-        param /= data_dict['scanRate'] 
+        param = param/data_dict['scanRate']
         label = 'Phase (s)'
     elif(param_name=='beta_0'): 
         label = r'$\beta_0$'
 
     pval_text = pval #0.01
-    sig = (stat<pval)*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
-    # sig_text = (stat<pval_text)*(rsq>rsq_null) # 1-sided test that behavior model > null model
+    sig = (stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
     param_sig = param[success*sig]
     param_notsig = param[np.logical_not(success*sig)]
     rsq_sig = rsq[success*sig]
     rsq_notsig = rsq[np.logical_not(success*sig)]
-    # tau_is_pos_sig = tau_is_pos[success*sig]
-    # tau_is_neg_sig = np.logical_not(tau_is_pos_sig)
-    
-    # print('median tau of significant cells = '+str(np.median(tau_sig)))
-    # print('frac of significant cells w/ tau above 60s = '+str( np.sum(tau_sig>60)/len(tau_sig) ))
-    # print('fraction of cells with p<'+str(pval)+' = '+str( (success*sig).sum()/len(success) ))
 
     plt.figure(figsize=(5, 5))
     left, width = 0.1, 0.65
@@ -1500,7 +1494,25 @@ def convert_plot_param_to_plot_field(plot_param, model_fit, data_dict):
     return plot_field, plot_field_idx
 
 
-def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param, cmap, color_lims_scale, pval=0.01, sort_by=[]):
+def generate_color_data_from_model_fit(model_fit, plot_field, plot_field_idx, pval):
+    # generate color_data from model_fit
+    color_data = np.zeros(len(model_fit))
+    sig = [] # significance threshold
+    for i in range(len(model_fit)):
+        if model_fit[i]['success']:
+            if np.isnan(plot_field_idx):
+                color_data[i] = model_fit[i][plot_field]
+                sig.append( model_fit[i]['stat'][plot_field][1]<pval ) # 1-sided test that behavior model > null model
+            else:
+                color_data[i] = model_fit[i][plot_field][plot_field_idx]
+                sig.append( model_fit[i]['stat'][plot_field][plot_field_idx][1]<pval ) # 1-sided test that behavior model > null model
+        else:
+            color_data[i] = np.nan
+            sig.append( False )
+    return color_data, sig
+
+
+def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param, cmap, color_lims_params, pval=0.01, sort_by=[]):
     """
     Plot map of cells for many datasets, colorcoded by desired quantity
 
@@ -1524,6 +1536,47 @@ def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param
     height_width_ratio = dims_in_um[1]/dims_in_um[0]
     NF = len(data_dict_tot)
 
+    if isinstance(color_lims_params[0],str):
+        color_lims_scale = color_lims_params[1]
+        if color_lims_params[0]=='static':
+            color_lims_are_static = True
+            color_lims_master = [np.inf,-np.inf]
+        elif color_lims_params[0]=='global':
+            color_lims_are_static = True
+            color_lims_master = color_lims_params[1]
+        elif color_lims_params[0]=='dynamic':
+            color_lims_are_static = False
+    else:
+        color_lims_scale = color_lims_params
+        color_lims_are_static = False
+
+
+
+    # FINISH THIS LOOP BELOW AND MOVE TO SEPARATE FUNCTION.  ** ALSO ** FIX REFERNCE TO COLOR LIMS IN MAIN LOOP BELOW
+
+    # find static color lims, if desired
+    if color_lims_are_static:
+        if color_lims_params[0]=='static':
+            for nf in range(NF):
+                data_dict = data_dict_tot[nf]['data_dict']
+                model_fit = model_fit_tot[nf]
+                plot_field, plot_field_idx = convert_plot_param_to_plot_field(plot_param, model_fit, data_dict)
+                if plot_field_idx is None: continue
+                color_data, sig = generate_color_data_from_model_fit(model_fit, plot_field, plot_field_idx, pval)
+                # sig cleanup
+                not_sig = np.logical_not(sig)
+                sig = np.flatnonzero(sig) #.tolist()
+                not_sig = np.flatnonzero(not_sig) #.tolist()
+
+                # get color bounds
+                if color_lims_scale[0]<0:
+                    color_lims = [abs(color_lims_scale[0])*min(min(color_data[sig]),-max(color_data[sig])),
+                                      color_lims_scale[1]*max(-min(color_data[sig]),max(color_data[sig]))]
+                else:
+                    color_lims = [color_lims_scale[0]*min(color_data[sig]), color_lims_scale[1]*max(color_data[sig])]
+                color_lims_master = ( np.min((color_lims_master[0],color_lims[0])), np.max((color_lims_master[1],color_lims[1])) )
+
+            
     # # square version
     # n_cols = int(np.ceil(np.sqrt(NF)))
     # n_rows = n_cols
@@ -1549,20 +1602,7 @@ def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param
         if plot_field_idx is None: continue
 
         # generate color_data from model_fit
-        color_data = np.zeros(len(model_fit))
-        sig = [] # significance threshold
-        for i in range(len(model_fit)):
-            if model_fit[i]['success']:
-                if np.isnan(plot_field_idx):
-                    color_data[i] = model_fit[i][plot_field]
-                    sig.append( model_fit[i]['stat'][plot_field][1]<pval ) # 1-sided test that behavior model > null model
-                else:
-                    color_data[i] = model_fit[i][plot_field][plot_field_idx]
-                    sig.append( model_fit[i]['stat'][plot_field][plot_field_idx][1]<pval ) # 1-sided test that behavior model > null model
-            else:
-                color_data[i] = np.nan
-                sig.append( False )
-
+        color_data, sig = generate_color_data_from_model_fit(model_fit, plot_field, plot_field_idx, pval)
                 
         # sig cleanup
         not_sig = np.logical_not(sig)
@@ -1570,11 +1610,14 @@ def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param
         not_sig = np.flatnonzero(not_sig) #.tolist()
 
         # get color bounds
-        if color_lims_scale[0]<0:
-            color_lims = [abs(color_lims_scale[0])*min(min(color_data[sig]),-max(color_data[sig])),
-                              color_lims_scale[1]*max(-min(color_data[sig]),max(color_data[sig]))]
+        if color_lims_are_static:
+            color_lims = color_lims_master
         else:
-            color_lims = [color_lims_scale[0]*min(color_data[sig]), color_lims_scale[1]*max(color_data[sig])]
+            if color_lims_scale[0]<0:
+                color_lims = [abs(color_lims_scale[0])*min(min(color_data[sig]),-max(color_data[sig])),
+                                  color_lims_scale[1]*max(-min(color_data[sig]),max(color_data[sig]))]
+            else:
+                color_lims = [color_lims_scale[0]*min(color_data[sig]), color_lims_scale[1]*max(color_data[sig])]
 
         # optional: reorder list for consistent occlusion. options: {'z', 'val', 'inv_val'}. If empty, default is order of ROI ID
         if sort_by:
@@ -1608,6 +1651,7 @@ def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param
         scaleBar_um = 50 #50 um
         bar_color = 'w'
         ax[i,j].plot( template_dims[1]*.97-(scaleBar_um*ypx_per_um,0), (template_dims[0]*.93, template_dims[0]*.93),bar_color)
+
 
         
 
