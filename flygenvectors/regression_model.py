@@ -556,6 +556,31 @@ class reg_obj:
         return dFF_fit, dFF
 
 
+    def get_null_subtracted_raster(self):
+        self.refresh_params()
+        dFF_full = self.data_dict[self.activity]
+        dFF = dFF_full[:,self.params['L']:-self.params['L']]
+        sl = slice(self.params['L'], dFF_full.shape[1]-self.params['L'])
+        # dFF = np.expand_dims(dFF, axis=0)
+        dFF_fit = np.zeros(dFF.shape)
+        for n in range(dFF.shape[0]):
+            if self.model_fit[n]['success']:
+                self.params['tau'] = self.model_fit[n]['tau']
+                if self.elasticNet:
+                    self.get_regressors(phi_input=self.model_fit[n]['phi'], amplify_baseline=True)
+                else:
+                    self.get_regressors(phi_input=self.model_fit[n]['phi'], amplify_baseline=False)
+                coeff_dict = self.coeff_dict_from_keys(idx=n)
+                reg_labels = list(coeff_dict.keys())
+                # make null dict by setting params of interest to 0
+                for j in range(len(reg_labels)):
+                    if (reg_labels[j]=='alpha_01') or (reg_labels[j]=='trial'): continue
+                    coeff_dict[reg_labels[j]] = np.zeros(coeff_dict[reg_labels[j]].shape)
+                coeff_array = self.dict_to_flat_list(coeff_dict)
+                dFF_fit[n,:] = coeff_array@self.regressors_array[0]
+        return dFF_fit, dFF, sl
+
+
     def fit_and_eval_reg_model_extended(self):
         self.fit_reg_model_MLE()
         self.evaluate_reg_model_extended()

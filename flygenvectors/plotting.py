@@ -1752,7 +1752,7 @@ def trim_dynamic_range(data,q_min,q_max):
     return data
 
 
-def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,include_dlc=False,num_cells=[],time_lims=[]):
+def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,include_dlc=False,num_cells=[],time_lims=[],slice_time=None):
     if(include_dlc):
         import matplotlib.pylab as pl
         f, axes = plt.subplots(10,1,gridspec_kw={'height_ratios':[12,1,1,1,1,1,1,1,1,2]},figsize=(10.5, 9))
@@ -1769,10 +1769,18 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
 
     tPl = data_dict['tPl']
     behavior = data_dict['ball']
+    if slice_time:
+        tPl = tPl[slice_time]
+        behavior = behavior[slice_time]
     if include_dlc:
         dlc = data_dict['dlc']
+        if slice_time:
+            dlc = dlc[slice_time]
     if include_feeding:
         feed = data_dict['drink']
+        if slice_time:
+            feed = feed[slice_time]
+
 
     if num_cells:
         dFF = dFF[:num_cells,:]
@@ -1971,11 +1979,6 @@ def show_maps_for_avg_traces(dict_tot, example_array_tot):
             
 
 
-def display_cmap(cmap):
-    plt.imshow(np.linspace(0, 100, 256)[None, :],  aspect=25,    interpolation='nearest', cmap=cmap) 
-    plt.axis('off')
-
-
 def make_hot_without_black(clrs=100, low_bnd=0.15):
     # old low_bnd=0.1
     from matplotlib import cm
@@ -1989,8 +1992,16 @@ def cold_to_hot_cmap(show_map=False):
     basic_cols=['#95d0fc', (.2,.2,.2), '#ff474c'] #   #03012d, #363737
     my_cmap=LinearSegmentedColormap.from_list('mycmap', basic_cols)
     if show_map:
-        plt.figure(figsize=(5,0.25))
-        plt.imshow(np.expand_dims(np.arange(100),axis=0),cmap=my_cmap,aspect='auto')
-        plt.axis('off')
+        display_cmap(my_cmap)
         plt.show()
     return my_cmap
+
+
+def display_cmap(my_cmap):
+    plt.figure(figsize=(5,0.25))
+    plt.imshow(np.linspace(0, 100, 256)[None, :], interpolation='nearest', cmap=my_cmap, aspect='auto')
+    plt.axis('off')
+    # plt.show()
+
+
+
