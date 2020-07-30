@@ -16,6 +16,7 @@ from sklearn.mixture import GaussianMixture
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.linear_model import Ridge, LinearRegression
 from sklearn.metrics import r2_score
+from skimage.restoration import denoise_tv_chambolle
 
 import matplotlib.pyplot as plt
 from matplotlib import axes, gridspec, colors
@@ -44,16 +45,18 @@ sns.set_context("talk")
 
 
 # LOAD DATA ---------------------------------------------------------------------------
-# main_dir = '/Users/evan/Dropbox/_sandbox/__flygenvectors_tmp/'
-# main_fig_dir = '/Users/evan/Dropbox/_sandbox/__flygenvectors_tmp/'
 main_dir = '/Users/evan/Dropbox/_AxelLab/__flygenvectors/dataShare/_main/'
 main_fig_dir = '/Users/evan/Dropbox/_AxelLab/__flygenvectors/figs/'
 # main_dir = '/Volumes/data1/_flygenvectors_dataShare/_main/_sparseLines/'
 # main_fig_dir = '/Volumes/data1/figsAndMovies/figures/'
 
-exp_date = '2019_06_28' #'2019_10_14' #'2019_07_01' #'2018_08_24' #'2019_10_21' #'2019_10_02' #
-fly_num = 'fly2' #'fly3' #'fly2_run2' #'fly3_run1' #
-remake_pickle = True
+exp_date = '2019_07_01' #'2018_08_24' 
+fly_num = 'fly2' #'fly3_run1'
+
+remake_pickle = False   # rerun regression
+activity = 'dFF'        # metric of neural activity {'dFF', 'rate'}, the latter requires deconvolution
+split_behav = False     # treat behavior from each trial as separate regressor
+elasticNet = False      # run regression with elastic net regularization (alternative is OLS)
 pval = 0.01
 
 data_dict = dataUtils.load_timeseries_simple(exp_date,fly_num,main_dir)
@@ -62,11 +65,11 @@ data_dict['template_dims_in_um'] = data_dict_template['dims_in_um']
 data_dict['template_dims'] = data_dict_template['dims']
 expt_id = exp_date+'_'+fly_num
 fig_folder = main_fig_dir+expt_id+'/'
-clustfig_folder = fig_folder+'clusters/'
+regfig_folder = fig_folder+'regmodel/'
 if not os.path.exists(fig_folder):
-    os.mkdir(main_fig_dir+expt_id)
     os.mkdir(fig_folder)
-    os.mkdir(clustfig_folder)
+if not os.path.exists(regfig_folder):
+    os.mkdir(regfig_folder)
     
 
 # CHOOSE BEHAVIOR TIMESERIES WITH WHICH TO DO ANALYSES -----------------------------------
@@ -84,7 +87,6 @@ elif (behavior_source == 'ball_raw'):
 elif (behavior_source == 'ball_binary'):
     data_dict['behavior'] = dataUtils.binarize_timeseries(data_dict['ball'])
 
-# pdb.set_trace()
 
 # VISUALIZE RAW DATA --------------------------------------------------------------------
 # Note: optional second arg of show_raster_with_behav is color range,
@@ -93,9 +95,9 @@ dt = data_dict['time'][1]-data_dict['time'][0]
 tPl = data_dict['time'][0]+np.linspace(0,dt*len(data_dict['time']),len(data_dict['time']))
 data_dict['tPl'] = tPl
 if (exp_date == '2018_08_24'):
-	plotting.show_raster_with_behav(data_dict,color_range=(0,0.2),include_feeding=False,include_dlc=False)
+	plotting.show_raster_with_behav(data_dict,color_range=(0,0.3),include_feeding=False,include_dlc=False)
 else:
-	plotting.show_raster_with_behav(data_dict,color_range=(0,0.2),include_feeding=False,include_dlc=True)
+	plotting.show_raster_with_behav(data_dict,color_range=(0,0.3),include_feeding=False,include_dlc=True)
 plt.savefig(fig_folder + exp_date + '_' + fly_num +'_raster.pdf',transparent=True, bbox_inches='tight')
 
 
@@ -103,87 +105,67 @@ plt.savefig(fig_folder + exp_date + '_' + fly_num +'_raster.pdf',transparent=Tru
 
 # ANALYSIS OF TIME CONSTANTS RELATING DFF TO BEHAVIOR ------------------------------------
 # find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
-# tauList, corrMat = dataUtils.estimate_neuron_behav_tau(data_dict)
+ro = model.reg_obj(activity=activity)
+ro.data_dict = data_dict
+ro.params['split_behav'] = split_behav
+ro.elasticNet = elasticNet
 if remake_pickle:
-    # model_fit = model.estimate_neuron_behav_reg_model(data_dict)
-    model_fit = model.estimate_neuron_behav_reg_model_taulist(data_dict)
-    pickle.dump( model_fit, open( fig_folder + exp_date + '_' + fly_num +'_reg_model.pkl', "wb" ) )
+    ro.fit_and_eval_reg_model_extended()
+    #model_fit = model.estimate_neuron_behav_reg_model_taulist_shiftlist_gauss(data_dict_decon)
+    pickle.dump( ro.model_fit, open( fig_folder + exp_date + '_' + fly_num +'_'+ro.activity+'_gauss_ols_reg_model.pkl', "wb" ) )
 else:
-    model_fit = pickle.load( open( fig_folder + exp_date + '_' + fly_num +'_reg_model.pkl', "rb" ) )
-tauList = np.logspace(np.log10(data_dict['scanRate']),np.log10(100*data_dict['scanRate']),num=200)  
-tauList_signed = np.concatenate((-tauList[::-1],tauList))
-plotting.show_tau_scatter(model_fit)
-plt.savefig(fig_folder + exp_date + '_' + fly_num +'_tauScatter.pdf',transparent=True, bbox_inches='tight')
+    ro.model_fit = pickle.load( open( fig_folder + exp_date + '_' + fly_num +'_'+ro.activity+'_gauss_ols_reg_model.pkl', "rb" ) )
+f = plotting.get_model_fit_as_dict(ro.model_fit)
 
 
+# PLOT TAU SCATTER ---------------------------------------------------------------------------
+plotting.show_tau_scatter(ro.model_fit)
+plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_'+ro.activity+'_gauss_ols_tauScatter.pdf',transparent=True, bbox_inches='tight')
 
-# SHOW MODEL RESIDUAL -------------------------------------------------------
-plotting.show_residual_raster(data_dict, model_fit, exp_date)
-plt.savefig(fig_folder + exp_date + '_' + fly_num +'_residual.pdf',transparent=True,bbox_inches='tight')
+# PLOT PHI & BETA SCATTER --------------------------------------------------------------------
+param_list=['beta_0','phi']
+for i in range(len(param_list)):
+    param = param_list[i]
+    plotting.show_param_scatter(ro.model_fit, ro.data_dict, param)
+    plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_'+ro.activity+'_gauss_ols_'+param+'Scatter.pdf',transparent=True, bbox_inches='tight')
+
+# # SHOW MODEL RESIDUAL -------------------------------------------------------
+# plotting.show_residual_raster(data_dict, model_fit, exp_date)
+# plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_residual.pdf',transparent=True,bbox_inches='tight')
 
 # # SHOW older PCA MODEL RESIDUAL -------------------------------------------------------
 # plotting.show_PC_residual_raster(data_dict)
 # plt.savefig(fig_folder + exp_date + '_' + fly_num +'_PCresidual.pdf',transparent=True,bbox_inches='tight')
 
 
-
-# MAKE BRAIN VOLUME WITH CELLS COLOR CODED BY TAU -----------------------------------------
-f = plotting.get_model_fit_as_dict(model_fit)
-f['sig'] = (f['stat']<pval)*(f['rsq']>f['rsq_null'])
-tau_argmax = np.zeros(f['tau'].shape)
-tau_argmax_signed = np.zeros(f['tau'].shape)
-for i in range(len(tau_argmax)):
-    tau_argmax[i] = np.argmin(abs( abs(f['tau'][i]) - tauList/data_dict['scanRate'] ))
-    tau_argmax_signed[i] = np.argmin(abs( f['tau'][i] - tauList_signed/data_dict['scanRate'] ))
-tau_argmax = tau_argmax.astype(int)
-tau_argmax[np.logical_not(f['success']*f['sig'])] = 0
-tau_argmax_signed = tau_argmax_signed.astype(int)
-tau_argmax_signed[np.logical_not(f['success']*f['sig'])] = 0
-clrs = len(tauList)
-R, mask_vol = plotting.make_colorCoded_cellMap(tau_argmax, clrs, data_dict)
-
-# MAKE COLORBAR FOR BRAIN VOLUME WITH CELLS COLOR CODED BY TAU
-fullList=tauList/data_dict['scanRate']
-tau_label_list=[1,3,10,30,100]
-tau_loc_list = plotting.make_labels_for_colorbar(tau_label_list, fullList)
-plotting.make_colorBar_for_colorCoded_cellMap(R, mask_vol, tauList, tau_label_list, tau_loc_list, data_dict)
-plt.savefig(fig_folder + exp_date + '_' + fly_num +'_tauMap_colorbar.pdf',transparent=True, bbox_inches='tight')
-
-# SHOW BRAIN VOLUME WITH CELLS COLOR CODED BY TAU
-# in correct spatial dims (bar=50um), color matches above (in secs)
-plotting.show_colorCoded_cellMap(R, mask_vol, tau_loc_list[[0,-1]], data_dict)
-plt.savefig(fig_folder + exp_date + '_' + fly_num +'_tauMap.pdf',transparent=True, bbox_inches='tight')
-
-# # show location of 'slow' cells, color coded by CC
-# cbounds = (-1, 1) # corr from -1 to 1
-# tau_valmax = np.max(corrMat,axis=1) # color by max cc instead of argmax as above
-# S, mask_vol = plotting.make_colorCoded_cellMap(tau_valmax, clrs, data_dict, cbounds)
-
-# # make COLORBAR for 'brain volume with cells color coded by CC
-# cmap = 'bwr'
-# ccList=np.linspace(-1.0, 1.0, num=len(tauList))
-# label_list=[-1,-0.5,0,0.5,1]
-# cc_loc_list = plotting.make_labels_for_colorbar(label_list, ccList)
-# plotting.make_colorBar_for_colorCoded_cellMap(S, mask_vol, ccList, label_list, cc_loc_list, data_dict, cmap)
-# plt.savefig(fig_folder + exp_date + '_' + fly_num +'_ccMap_colorbar.pdf',transparent=True, bbox_inches='tight')
-# plt.show()
-
-# # show brain volume with cells color coded by max CC
-# # in correct spatial dims (bar=50um), color from CC=-1 to CC=1
-# plotting.show_colorCoded_cellMap(S, mask_vol, tau_loc_list[[0,-1]], data_dict, cmap)
-# plt.savefig(fig_folder + exp_date + '_' + fly_num +'_ccMap.pdf',transparent=True, bbox_inches='tight')
-# plt.show()
+# VISUALIZE RAW DATA *SORTED* by PHI & TAU --------------------------------------------------------------------
+param_list=['tau','phi']
+for i in range(len(param_list)):
+    param = param_list[i]
+    data_dict_sorted = copy.deepcopy(data_dict)
+    tau_arg_order = np.argsort(f[param])
+    data_dict_sorted['dFF'] = data_dict_sorted['dFF'][ tau_arg_order ,:]
+    plotting.show_raster_with_behav(data_dict_sorted,color_range=(0,0.3),include_feeding=False,include_dlc=False)
+    plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_'+ro.activity+'_gauss_ols_raster_'+param+'sorted.pdf',transparent=True, bbox_inches='tight')
 
 
-# MAKE BRAIN VOLUME WITH CELLS *as points* COLOR CODED BY TAU ---------------------------------
-plotting.show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax)
-plt.savefig(fig_folder + exp_date + '_' + fly_num +'_tauMap_pts.pdf',bbox_inches='tight')
+# MAKE BRAIN VOLUME WITH CELLS COLOR CODED BY each parameter -----------------------------------------
+param = 'tau'
+plotting.show_colorCoded_cellMap_points(ro.data_dict, ro.model_fit, param, cmap=plotting.make_hot_without_black(show_map=False)) #, pval=0.01, color_lims=[vmin,vmax])
+plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_'+param+'_map.pdf',transparent=False, bbox_inches='tight')
 
-# MAKE BRAIN VOLUME WITH CELLS *as points* COLOR CODED BY signed TAU --------------------------
-# ryb = cm.get_cmap('RdYlBu', 101)
-# ryb = ListedColormap(ryb(np.linspace(-100, 100, 101)))
-plotting.show_colorCoded_cellMap_points(data_dict, model_fit, tau_argmax_signed, cmap='RdYlBu', pval=0.01, color_lims=[0, len(tauList_signed)-1])
-plt.savefig(fig_folder + exp_date + '_' + fly_num +'_tauMap_signed_pts.pdf',bbox_inches='tight')
+param_list=['beta_0','phi']
+for i in range(len(param_list)):
+    param = param_list[i]
+    plotting.show_colorCoded_cellMap_points(ro.data_dict, ro.model_fit, param, cmap=plotting.cold_to_hot_cmap(show_map=False)) #, pval=0.01, color_lims=[vmin,vmax])
+    plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_'+param+'_map.pdf',transparent=False, bbox_inches='tight')
+
+    # # MAKE COLORBAR FOR BRAIN VOLUME WITH CELLS COLOR CODED BY TAU
+    # fullList=tauList/data_dict['scanRate']
+    # tau_label_list=[1,3,10,30,100]
+    # tau_loc_list = plotting.make_labels_for_colorbar(tau_label_list, fullList)
+    # plotting.make_colorBar_for_colorCoded_cellMap(R, mask_vol, tauList, tau_label_list, tau_loc_list, data_dict)
+    # plt.savefig(fig_folder + exp_date + '_' + fly_num +'_tauMap_colorbar.pdf',transparent=True, bbox_inches='tight')
 
 
 
