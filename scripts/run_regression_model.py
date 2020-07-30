@@ -1,171 +1,54 @@
+#!/usr/bin/python
+"""
+Master script to run regression & plotting on all datasets
+"""
 
-import sys
-sys.path.insert(0, '../flygenvectors/')
+import make_regression_plots_single_fly as mk_reg_plt
 
-import os
-import numpy as np
-from glob import glob
-import pickle
 
-import scipy.io as sio
-from scipy import sparse, signal
-from scipy.stats import zscore
+run_exp_list = [
+            ['2018_08_24','fly3_run1'],
+            ['2018_08_24','fly2_run2'],
+            ['2019_07_01','fly2'],
+            ['2019_10_14','fly3'],
+            ['2019_06_28','fly2'],
+            ['2019_10_14','fly2'],
+            ['2019_10_18','fly3'],
+            ['2019_10_21','fly1'],
+            ['2019_10_10','fly3'],
+            ['2019_08_14','fly1']]
 
-from sklearn.decomposition import PCA, FastICA
-from sklearn.mixture import GaussianMixture
-from sklearn.cluster import AgglomerativeClustering
-from sklearn.linear_model import Ridge, LinearRegression
-from sklearn.metrics import r2_score
-from skimage.restoration import denoise_tv_chambolle
 
-import matplotlib.pyplot as plt
-from matplotlib import axes, gridspec, colors
-from mpl_toolkits import mplot3d
-import matplotlib.pylab as pl
-import matplotlib.cm as cm
-from matplotlib.colors import ListedColormap
-
-import data as dataUtils
-import regression_model as model
-import plotting
-import flygenvectors.ssmutils as utils
-import pdb
-
-# from IPython.display import set_matplotlib_formats
-# set_matplotlib_formats('png', 'pdf')
-
-import seaborn as sns
-sns.set_style("white")
-sns.set_context("talk")
+feed_exp_list = [
+            ['2019_04_18','fly2'],
+            ['2019_04_22','fly1'],
+            ['2019_04_22','fly3'],
+            ['2019_04_24','fly3'],
+            ['2019_04_24','fly1'],
+            ['2019_04_25','fly3'],
+            ['2019_05_07','fly1'],
+            ['2019_03_12','fly4'],
+            ['2019_02_19','fly1'],
+            ['2019_02_26','fly1_2']]
 
 
 
-
-
-
-
-# LOAD DATA ---------------------------------------------------------------------------
-main_dir = '/Users/evan/Dropbox/_AxelLab/__flygenvectors/dataShare/_main/'
-main_fig_dir = '/Users/evan/Dropbox/_AxelLab/__flygenvectors/figs/'
-# main_dir = '/Volumes/data1/_flygenvectors_dataShare/_main/_sparseLines/'
-# main_fig_dir = '/Volumes/data1/figsAndMovies/figures/'
-
-exp_date = '2019_07_01' #'2018_08_24' 
-fly_num = 'fly2' #'fly3_run1'
-
-remake_pickle = False   # rerun regression
+main_dir = '/Users/evan/Dropbox/_AxelLab/__flygenvectors/dataShare/_main/' #'/Volumes/data1/_flygenvectors_dataShare/_main/_sparseLines/'
+main_fig_dir = '/Users/evan/Dropbox/_AxelLab/__flygenvectors/figs/' #'/Volumes/data1/figsAndMovies/figures/'
+remake_pickle = True   # rerun regression
 activity = 'dFF'        # metric of neural activity {'dFF', 'rate'}, the latter requires deconvolution
 split_behav = False     # treat behavior from each trial as separate regressor
 elasticNet = False      # run regression with elastic net regularization (alternative is OLS)
-pval = 0.01
 
-data_dict = dataUtils.load_timeseries_simple(exp_date,fly_num,main_dir)
-data_dict_template = dataUtils.load_timeseries_simple('2018_08_24','fly2_run2',main_dir)
-data_dict['template_dims_in_um'] = data_dict_template['dims_in_um']
-data_dict['template_dims'] = data_dict_template['dims']
-expt_id = exp_date+'_'+fly_num
-fig_folder = main_fig_dir+expt_id+'/'
-regfig_folder = fig_folder+'regmodel/'
-if not os.path.exists(fig_folder):
-    os.mkdir(fig_folder)
-if not os.path.exists(regfig_folder):
-    os.mkdir(regfig_folder)
-    
-
-# CHOOSE BEHAVIOR TIMESERIES WITH WHICH TO DO ANALYSES -----------------------------------
-behavior_source = 'ball_raw' #{dlc_med, ball_raw, ball_binary}
-
-if (behavior_source == 'dlc_med'):
-    dlc_energy = dataUtils.get_dlc_motion_energy(data_dict)
-    data_dict['behavior'] = np.median(dlc_energy,axis=1)
-    data_dict['behavior'] = np.concatenate((data_dict['behavior'],[data_dict['behavior'][-1]]))
-    # data_dict['time'] = data_dict['time'][:-1]
-    # data_dict['ball'] = data_dict['ball'][:-1]
-    # data_dict['dFF'] = data_dict['dFF'][:,:-1]
-elif (behavior_source == 'ball_raw'):
-    data_dict['behavior'] = data_dict['ball'].flatten()
-elif (behavior_source == 'ball_binary'):
-    data_dict['behavior'] = dataUtils.binarize_timeseries(data_dict['ball'])
+input_dict = {
+    'main_dir':main_dir, 'main_fig_dir':main_fig_dir, 'exp_date':None, 'fly_num':None, 
+    'remake_pickle':remake_pickle, 'activity':activity, 'split_behav':split_behav, 'elasticNet':elasticNet
+    }
 
 
-# VISUALIZE RAW DATA --------------------------------------------------------------------
-# Note: optional second arg of show_raster_with_behav is color range,
-# accepts (min,max) tuple, defaults to (0,0.4), also accepts 'auto'
-dt = data_dict['time'][1]-data_dict['time'][0]
-tPl = data_dict['time'][0]+np.linspace(0,dt*len(data_dict['time']),len(data_dict['time']))
-data_dict['tPl'] = tPl
-if (exp_date == '2018_08_24'):
-	plotting.show_raster_with_behav(data_dict,color_range=(0,0.3),include_feeding=False,include_dlc=False)
-else:
-	plotting.show_raster_with_behav(data_dict,color_range=(0,0.3),include_feeding=False,include_dlc=True)
-plt.savefig(fig_folder + exp_date + '_' + fly_num +'_raster.pdf',transparent=True, bbox_inches='tight')
-
-
-
-
-# ANALYSIS OF TIME CONSTANTS RELATING DFF TO BEHAVIOR ------------------------------------
-# find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
-ro = model.reg_obj(activity=activity)
-ro.data_dict = data_dict
-ro.params['split_behav'] = split_behav
-ro.elasticNet = elasticNet
-if remake_pickle:
-    ro.fit_and_eval_reg_model_extended()
-    #model_fit = model.estimate_neuron_behav_reg_model_taulist_shiftlist_gauss(data_dict_decon)
-    pickle.dump( ro.model_fit, open( fig_folder + exp_date + '_' + fly_num +'_'+ro.activity+'_gauss_ols_reg_model.pkl', "wb" ) )
-else:
-    ro.model_fit = pickle.load( open( fig_folder + exp_date + '_' + fly_num +'_'+ro.activity+'_gauss_ols_reg_model.pkl', "rb" ) )
-f = plotting.get_model_fit_as_dict(ro.model_fit)
-
-
-# PLOT TAU SCATTER ---------------------------------------------------------------------------
-plotting.show_tau_scatter(ro.model_fit)
-plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_'+ro.activity+'_gauss_ols_tauScatter.pdf',transparent=True, bbox_inches='tight')
-
-# PLOT PHI & BETA SCATTER --------------------------------------------------------------------
-param_list=['beta_0','phi']
-for i in range(len(param_list)):
-    param = param_list[i]
-    plotting.show_param_scatter(ro.model_fit, ro.data_dict, param)
-    plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_'+ro.activity+'_gauss_ols_'+param+'Scatter.pdf',transparent=True, bbox_inches='tight')
-
-# # SHOW MODEL RESIDUAL -------------------------------------------------------
-# plotting.show_residual_raster(data_dict, model_fit, exp_date)
-# plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_residual.pdf',transparent=True,bbox_inches='tight')
-
-# # SHOW older PCA MODEL RESIDUAL -------------------------------------------------------
-# plotting.show_PC_residual_raster(data_dict)
-# plt.savefig(fig_folder + exp_date + '_' + fly_num +'_PCresidual.pdf',transparent=True,bbox_inches='tight')
-
-
-# VISUALIZE RAW DATA *SORTED* by PHI & TAU --------------------------------------------------------------------
-param_list=['tau','phi']
-for i in range(len(param_list)):
-    param = param_list[i]
-    data_dict_sorted = copy.deepcopy(data_dict)
-    tau_arg_order = np.argsort(f[param])
-    data_dict_sorted['dFF'] = data_dict_sorted['dFF'][ tau_arg_order ,:]
-    plotting.show_raster_with_behav(data_dict_sorted,color_range=(0,0.3),include_feeding=False,include_dlc=False)
-    plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_'+ro.activity+'_gauss_ols_raster_'+param+'sorted.pdf',transparent=True, bbox_inches='tight')
-
-
-# MAKE BRAIN VOLUME WITH CELLS COLOR CODED BY each parameter -----------------------------------------
-param = 'tau'
-plotting.show_colorCoded_cellMap_points(ro.data_dict, ro.model_fit, param, cmap=plotting.make_hot_without_black(show_map=False)) #, pval=0.01, color_lims=[vmin,vmax])
-plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_'+param+'_map.pdf',transparent=False, bbox_inches='tight')
-
-param_list=['beta_0','phi']
-for i in range(len(param_list)):
-    param = param_list[i]
-    plotting.show_colorCoded_cellMap_points(ro.data_dict, ro.model_fit, param, cmap=plotting.cold_to_hot_cmap(show_map=False)) #, pval=0.01, color_lims=[vmin,vmax])
-    plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_'+param+'_map.pdf',transparent=False, bbox_inches='tight')
-
-    # # MAKE COLORBAR FOR BRAIN VOLUME WITH CELLS COLOR CODED BY TAU
-    # fullList=tauList/data_dict['scanRate']
-    # tau_label_list=[1,3,10,30,100]
-    # tau_loc_list = plotting.make_labels_for_colorbar(tau_label_list, fullList)
-    # plotting.make_colorBar_for_colorCoded_cellMap(R, mask_vol, tauList, tau_label_list, tau_loc_list, data_dict)
-    # plt.savefig(fig_folder + exp_date + '_' + fly_num +'_tauMap_colorbar.pdf',transparent=True, bbox_inches='tight')
-
-
+exp_list = run_exp_list
+for i in range(1,len(exp_list)):
+    input_dict['exp_date'] = exp_list[i][0]
+    input_dict['fly_num'] = exp_list[i][1]
+    mk_reg_plt.run_all(input_dict=input_dict)
 
