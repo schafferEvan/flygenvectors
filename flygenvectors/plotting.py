@@ -1373,11 +1373,12 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
         for i in range(len(model_fit)):
             if np.isnan(plot_field_idx):
                 color_data[i] = model_fit[i][plot_field]
-                sig.append( model_fit[i]['stat'][plot_field][1]<pval ) # 1-sided test that behavior model > null model
+                sig.append( model_fit[i]['stat'][plot_field][0][1]<pval ) # 1-sided test that behavior model > null model
             else:
                 color_data[i] = model_fit[i][plot_field][plot_field_idx]
                 sig.append( model_fit[i]['stat'][plot_field][plot_field_idx][1]<pval ) # 1-sided test that behavior model > null model
-                
+        if plot_field=='tau': color_data = np.log10(color_data)
+
         # sig cleanup
         not_sig = np.logical_not(sig)
         sig = np.flatnonzero(sig) #.tolist()
