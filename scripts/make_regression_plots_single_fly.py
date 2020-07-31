@@ -71,7 +71,11 @@ def run_all(input_dict=None):
         os.mkdir(fig_folder)
     if not os.path.exists(regfig_folder):
         os.mkdir(regfig_folder)
-        
+    
+    # reg model object
+    ro = model.reg_obj(activity=activity)
+    ro.expt_id = expt_id
+    ro.data_dict = data_dict    
 
     # CHOOSE BEHAVIOR TIMESERIES WITH WHICH TO DO ANALYSES -----------------------------------
     behavior_source = 'ball_raw' #{dlc_med, ball_raw, ball_binary}
@@ -87,6 +91,7 @@ def run_all(input_dict=None):
         data_dict['behavior'] = data_dict['ball'].flatten()
     elif (behavior_source == 'ball_binary'):
         data_dict['behavior'] = dataUtils.binarize_timeseries(data_dict['ball'])
+    ro.get_smooth_behavior()
 
 
     # VISUALIZE RAW DATA --------------------------------------------------------------------
@@ -100,14 +105,12 @@ def run_all(input_dict=None):
     else:
         plotting.show_raster_with_behav(data_dict,color_range=(0,0.3),include_feeding=False,include_dlc=True)
     plt.savefig(fig_folder + exp_date + '_' + fly_num +'_raster.pdf',transparent=True, bbox_inches='tight')
-
+    plt.close('all')
 
 
 
     # ANALYSIS OF TIME CONSTANTS RELATING DFF TO BEHAVIOR ------------------------------------
     # find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
-    ro = model.reg_obj(activity=activity)
-    ro.data_dict = data_dict
     ro.params['split_behav'] = split_behav
     ro.elasticNet = elasticNet
     if remake_pickle:
@@ -122,6 +125,7 @@ def run_all(input_dict=None):
     # PLOT TAU SCATTER ---------------------------------------------------------------------------
     plotting.show_tau_scatter(ro.model_fit)
     plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_'+ro.activity+'_gauss_ols_tauScatter.pdf',transparent=True, bbox_inches='tight')
+    plt.close('all')
 
     # PLOT PHI & BETA SCATTER --------------------------------------------------------------------
     param_list=['beta_0','phi']
@@ -129,6 +133,7 @@ def run_all(input_dict=None):
         param = param_list[i]
         plotting.show_param_scatter(ro.model_fit, ro.data_dict, param)
         plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_'+ro.activity+'_gauss_ols_'+param+'Scatter.pdf',transparent=True, bbox_inches='tight')
+        plt.close('all')
 
     # # SHOW MODEL RESIDUAL -------------------------------------------------------
     # plotting.show_residual_raster(data_dict, model_fit, exp_date)
@@ -137,7 +142,7 @@ def run_all(input_dict=None):
     # # SHOW older PCA MODEL RESIDUAL -------------------------------------------------------
     # plotting.show_PC_residual_raster(data_dict)
     # plt.savefig(fig_folder + exp_date + '_' + fly_num +'_PCresidual.pdf',transparent=True,bbox_inches='tight')
-
+    # plt.close('all')
 
     # VISUALIZE RAW DATA *SORTED* by PHI & TAU --------------------------------------------------------------------
     param_list=['tau','phi']
@@ -148,18 +153,21 @@ def run_all(input_dict=None):
         data_dict_sorted['dFF'] = data_dict_sorted['dFF'][ tau_arg_order ,:]
         plotting.show_raster_with_behav(data_dict_sorted,color_range=(0,0.3),include_feeding=False,include_dlc=False)
         plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_'+ro.activity+'_gauss_ols_raster_'+param+'sorted.pdf',transparent=True, bbox_inches='tight')
+        plt.close('all')
 
 
     # MAKE BRAIN VOLUME WITH CELLS COLOR CODED BY each parameter -----------------------------------------
     param = 'tau'
     plotting.show_colorCoded_cellMap_points(ro.data_dict, ro.model_fit, param, cmap=plotting.make_hot_without_black(), color_lims_scale=[0.05,0.95]) 
     plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_'+param+'_map.pdf',transparent=False, bbox_inches='tight')
+    plt.close('all')
 
     param_list=['beta_0','phi']
     for i in range(len(param_list)):
         param = param_list[i]
         plotting.show_colorCoded_cellMap_points(ro.data_dict, ro.model_fit, param, cmap=plotting.cold_to_hot_cmap(show_map=False)) #, pval=0.01, color_lims=[vmin,vmax])
         plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_'+param+'_map.pdf',transparent=False, bbox_inches='tight')
+        plt.close('all')
 
         # # MAKE COLORBAR FOR BRAIN VOLUME WITH CELLS COLOR CODED BY TAU
         # fullList=tauList/data_dict['scanRate']

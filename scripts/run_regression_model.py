@@ -47,7 +47,8 @@ input_dict = {
 
 
 exp_list = run_exp_list
-for i in range(1,len(exp_list)):
+for i in range(len(exp_list)):
+    print('\n\n\n ----- '+exp_list[i][0]+' '+exp_list[i][1]+' -----\n')
     input_dict['exp_date'] = exp_list[i][0]
     input_dict['fly_num'] = exp_list[i][1]
     mk_reg_plt.run_all(input_dict=input_dict)

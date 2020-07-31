@@ -35,6 +35,10 @@ def load_timeseries_simple(expt_id, fly_num, base_data_dir=None):
         data_dict[key] = val
 
     data_dict['A'] = sparse.load_npz(file_path_A)
+    if 'drink' not in data_dict.keys():
+        data_dict['drink'] = np.zeros(data_dict['ball'].shape)
+    if 'stim' not in data_dict.keys():
+        data_dict['stim'] = np.zeros(data_dict['ball'].shape)
 
     return data_dict
 
