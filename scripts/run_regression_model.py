@@ -4,6 +4,8 @@ Master script to run regression & plotting on all datasets
 """
 
 import make_regression_plots_single_fly as mk_reg_plt
+from datetime import datetime
+import sys
 
 
 run_exp_list = [
@@ -39,6 +41,12 @@ remake_pickle = True   # rerun regression
 activity = 'dFF'        # metric of neural activity {'dFF', 'rate'}, the latter requires deconvolution
 split_behav = False     # treat behavior from each trial as separate regressor
 elasticNet = False      # run regression with elastic net regularization (alternative is OLS)
+
+# make timestamped log file
+now = datetime.now()
+dt_string = now.strftime("%Y_%m_%d_at_%H%M")
+logfile = main_fig_dir + '_logs/' + dt_string + '.log'
+sys.stdout = Logger(logfile)
 
 input_dict = {
     'main_dir':main_dir, 'main_fig_dir':main_fig_dir, 'exp_date':None, 'fly_num':None, 
