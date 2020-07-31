@@ -4,6 +4,7 @@ import glob
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.linear_model import ElasticNet
+from skimage.restoration import denoise_tv_chambolle
 from scipy.optimize import minimize
 from scipy import stats
 import copy
@@ -14,6 +15,7 @@ import pdb
 class reg_obj:
     def __init__(self,activity='dFF'):
         self.data_dict = {}
+        self.exp_id = None
         self.activity=activity # valid values: {'dFF', 'rate'}, determines what trace is used for fit
         self.params = {'split_behav':True,
                     'run_full_sweep':True,
@@ -153,10 +155,16 @@ class reg_obj:
         hunger = np.zeros(data_dict['drink'].shape)
         hunger[d1:]=1
         hunger = np.squeeze(hunger)-hunger.mean()
-        hunger /= abs(hunger).max()
+        if abs(hunger).max()==0:
+            hunger = np.nan*np.ones(hunger.shape)
+        else:
+            hunger /= abs(hunger).max()
         drink = np.squeeze(data_dict['drink'].astype(float))
         drink -= drink.mean()
-        drink /= abs(drink).max()
+        if abs(drink).max()==0:
+            drink = np.nan*np.ones(drink.shape)
+        else:
+            drink /= abs(drink).max()
 
         # define trial flag regressors
         U = np.unique(data_dict['trialFlag'])
@@ -579,6 +587,55 @@ class reg_obj:
                 coeff_array = self.dict_to_flat_list(coeff_dict)
                 dFF_fit[n,:] = coeff_array@self.regressors_array[0]
         return dFF_fit, dFF, sl
+
+
+    def get_smooth_behavior(self):
+        # filter behavior with TV denoising. requires customized settings for seome datasets
+        if not self.expt_id: 
+            print('***** warning: Missing exp_id *******')
+
+        tv_params = np.array([.01,.9,.05])
+        if self.expt_id=='2018_08_24_fly3_run1':
+            tv_params[[0,2]] = [0.2,0.01]
+        elif self.expt_id=='2018_08_24_fly2_run2':
+            tv_params[2]=0.01
+        elif self.expt_id=='2019_07_01_fly2':
+            [] #ok
+        elif self.expt_id=='2019_10_14_fly3':
+            tv_params[[0,2]]=[0.05,0.01]
+        elif self.expt_id=='2019_06_28_fly2':
+            tv_params[0]=0.1
+        elif self.expt_id=='2019_06_30_fly1':
+            [] #ok
+        elif self.expt_id=='2019_10_14_fly2':
+            tv_params[0]=0.1
+        elif self.expt_id=='2019_10_14_fly4':
+            tv_params[0]=0.05
+        elif self.expt_id=='2019_10_18_fly3':
+            tv_params[0]=0.05
+        elif self.expt_id=='2019_10_21_fly1':
+            [] #ok
+        elif self.expt_id=='2019_10_10_fly3':
+            tv_params[0]=0.05
+        elif self.expt_id=='2019_10_02_fly2':
+            tv_params[0]=0.1
+        elif self.expt_id=='2019_08_14_fly1':
+            [] #ok
+        else:
+            print('**** warning: no exp_id match ****')
+        
+        beh = self.data_dict['behavior']
+        m = beh.min()
+        M = beh.max()
+        l = m+tv_params[0]*(M-m)
+        h = m+tv_params[1]*(M-m)
+        beh[beh<l]=l
+        beh[beh>h]=h
+        beh -= l
+        self.data_dict['behavior'] = denoise_tv_chambolle(beh, weight=tv_params[2])
+
+
+
 
 
     def fit_and_eval_reg_model_extended(self):
