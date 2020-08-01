@@ -77,6 +77,11 @@ def run_all(input_dict=None):
     ro.expt_id = expt_id
     ro.data_dict = data_dict    
 
+    # time
+    dt = data_dict['time'][1]-data_dict['time'][0]
+    tPl = data_dict['time'][0]+np.linspace(0,dt*len(data_dict['time']),len(data_dict['time']))
+    data_dict['tPl'] = tPl
+
     # CHOOSE BEHAVIOR TIMESERIES WITH WHICH TO DO ANALYSES -----------------------------------
     behavior_source = 'ball_raw' #{dlc_med, ball_raw, ball_binary}
 
@@ -94,20 +99,6 @@ def run_all(input_dict=None):
     ro.get_smooth_behavior()
 
 
-    # VISUALIZE RAW DATA --------------------------------------------------------------------
-    # Note: optional second arg of show_raster_with_behav is color range,
-    # accepts (min,max) tuple, defaults to (0,0.4), also accepts 'auto'
-    dt = data_dict['time'][1]-data_dict['time'][0]
-    tPl = data_dict['time'][0]+np.linspace(0,dt*len(data_dict['time']),len(data_dict['time']))
-    data_dict['tPl'] = tPl
-    if (exp_date == '2018_08_24'):
-        plotting.show_raster_with_behav(data_dict,color_range=(0,0.3),include_feeding=False,include_dlc=False)
-    else:
-        plotting.show_raster_with_behav(data_dict,color_range=(0,0.3),include_feeding=False,include_dlc=True)
-    plt.savefig(fig_folder + exp_date + '_' + fly_num +'_raster.pdf',transparent=True, bbox_inches='tight')
-    plt.close('all')
-
-
 
     # ANALYSIS OF TIME CONSTANTS RELATING DFF TO BEHAVIOR ------------------------------------
     # find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
@@ -120,6 +111,28 @@ def run_all(input_dict=None):
     else:
         ro.model_fit = pickle.load( open( fig_folder + exp_date + '_' + fly_num +'_'+ro.activity+'_gauss_ols_reg_model.pkl', "rb" ) )
     f = plotting.get_model_fit_as_dict(ro.model_fit)
+
+
+    # # VISUALIZE RAW RASTER ------------------------------------
+    # Note: optional second arg of show_raster_with_behav is color range,
+    # accepts (min,max) tuple, defaults to (0,0.4), also accepts 'auto'
+    if (exp_date == '2018_08_24'):
+        plotting.show_raster_with_behav(data_dict,color_range=(0,0.3),include_feeding=False,include_dlc=False)
+    else:
+        plotting.show_raster_with_behav(data_dict,color_range=(0,0.3),include_feeding=False,include_dlc=True)
+    plt.savefig(fig_folder + exp_date + '_' + fly_num +'_raster.pdf',transparent=False, bbox_inches='tight')
+    plt.close('all')
+
+    # # VISUALIZE NULL-SUBTRACTED RASTER -------------------------
+    dFF_fit_tot, dFF_tot, sl = ro.get_null_subtracted_raster()
+    dict_temp = copy.deepcopy(data_dict)
+    dict_temp['dFF'] = dFF_tot-dFF_fit_tot
+    if (exp_date == '2018_08_24'):
+        plotting.show_raster_with_behav(dict_temp,color_range=(0,0.4),include_feeding=False,include_dlc=False,slice_time=sl)
+    else:
+        plotting.show_raster_with_behav(dict_temp,color_range=(0,0.4),include_feeding=False,include_dlc=True,slice_time=sl)
+    plt.savefig(fig_folder + exp_date + '_' + fly_num +'_raster_base_subtracted.pdf',transparent=False, bbox_inches='tight')
+    plt.close('all')
 
 
     # PLOT TAU SCATTER ---------------------------------------------------------------------------
