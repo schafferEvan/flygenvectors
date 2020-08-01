@@ -1827,7 +1827,7 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
     axes[-1].plot(tPl,behavior,'k')
     axes[-1].set_xlim([min(tPl),max(tPl)])
     if(include_feeding):
-        axes[-1].plot(tPl,feed*max(behavior),'c')
+        axes[-1].plot(tPl,feed*max(behavior),'c',alpha=0.7)
         axes[-1].set_ylabel('feeding\nlocomotion')
     else:
         axes[-1].set_ylabel('ball\n')
