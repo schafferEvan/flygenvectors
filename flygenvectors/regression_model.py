@@ -564,7 +564,10 @@ class reg_obj:
         return dFF_fit, dFF
 
 
-    def get_null_subtracted_raster(self):
+    def get_null_subtracted_raster(self, extra_regs_to_use=None):
+        """ default is to return fit with just alpha and trial regs. 
+        Using extra_regs, option to return fit with any additional regs: [ ['partial_reg', idx], ['full_reg'] ] 
+        extra_regs are the regressors TO SUBTRACT """
         self.refresh_params()
         dFF_full = self.data_dict[self.activity]
         dFF = dFF_full[:,self.params['L']:-self.params['L']]
@@ -583,7 +586,17 @@ class reg_obj:
                 # make null dict by setting params of interest to 0
                 for j in range(len(reg_labels)):
                     if (reg_labels[j]=='alpha_01') or (reg_labels[j]=='trial'): continue
-                    coeff_dict[reg_labels[j]] = np.zeros(coeff_dict[reg_labels[j]].shape)
+                    if extra_regs_to_use:
+                        tmp_reg = np.zeros(coeff_dict[reg_labels[j]].shape)
+                        for sublist in extra_regs_to_use:
+                            if reg_labels[j] in sublist: 
+                                if len(sublist) == 1: 
+                                    continue # use all elements of this regressor
+                                else:
+                                    el_to_zero = [z for z in range(len(coeff_dict[reg_labels[j]])) if z != sublist[1]]
+                                    coeff_dict[reg_labels[j]][el_to_zero] = 0 #use some elements of this regressor
+                    else:
+                        coeff_dict[reg_labels[j]] = np.zeros(coeff_dict[reg_labels[j]].shape)
                 coeff_array = self.dict_to_flat_list(coeff_dict)
                 dFF_fit[n,:] = coeff_array@self.regressors_array[0]
         return dFF_fit, dFF, sl
