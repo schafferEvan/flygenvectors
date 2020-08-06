@@ -520,19 +520,33 @@ class reg_obj:
 
                             # pdb.set_trace()
 
-    def normalize_rows(self,input_mat,quantiles=(.05,.99),fix_nans=True): 
+    def normalize_rows(self,input_mat,quantiles=(.01,.99),fix_nans=True): 
         output_mat = np.zeros(input_mat.shape)
+        q0 = np.zeros(input_mat.shape[0])
+        q1 = np.zeros(input_mat.shape[0])
         for i in range(input_mat.shape[0]):
             y = input_mat[i,:].copy()
-            q0 = np.quantile(y,quantiles[0])
-            y[y<q0] = q0
-            y -= q0
-            q1 = np.quantile(y,quantiles[1])
-            y[y>q1] = q1
-            y /= q1
+            q0[i] = np.quantile(y,quantiles[0])
+            q1[i] = np.quantile(y,quantiles[1])
+            y[y<q0[i]] = q0[i]
+            y[y>q1[i]] = q1[i]
+            y -= q0[i]
+            y /= (q1[i]-q0[i])
             output_mat[i,:] = y
             if fix_nans:
                 output_mat[i,:][np.isnan(output_mat[i,:])]=0
+        return output_mat, q0, q1
+
+
+    def unnormalize_rows(self,input_mat,q0,q1): 
+        # then integrate into data loading in _hunger notebook
+        # then integrate into use of residual raster to plot reinflated residuals
+        # then set everything to run overnight
+
+        # inverts "normalize_rows", except for cropped extrema
+        output_mat = np.zeros(input_mat.shape)
+        for i in range(input_mat.shape[0]):
+            output_mat[i,:] = input_mat[i,:]*(q1[i]-q0[i]) + q0[i]
         return output_mat
     
 
