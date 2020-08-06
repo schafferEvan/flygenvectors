@@ -1753,7 +1753,7 @@ def trim_dynamic_range(data,q_min,q_max):
     return data
 
 
-def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,include_dlc=False,num_cells=[],time_lims=[],slice_time=None):
+def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,include_dlc=False,num_cells=[],time_lims=[],slice_time=None,title='Raw'):
     if(include_dlc):
         import matplotlib.pylab as pl
         f, axes = plt.subplots(10,1,gridspec_kw={'height_ratios':[12,1,1,1,1,1,1,1,1,2]},figsize=(10.5, 9))
@@ -1799,7 +1799,7 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
         dFF, aspect='auto', 
         cmap='inferno', vmin=cmin, vmax=cmax)
     plt.sca(axes[0])
-    plt.title('Raw')
+    plt.title(title)
     axes[0].set_xlim([0,len(behavior)])
     plt.xticks([])
     plt.ylabel('Neuron')
@@ -1978,6 +1978,69 @@ def show_maps_for_avg_traces(dict_tot, example_array_tot):
     pval=10**-8 #0.00001
     show_colorCoded_cellMap_points_grid(data_tot, plot_filter, idx_tot, cmap='tab10', color_lims_tot=color_lims_tot, pval=pval, sort_by='z')
             
+
+
+
+def show_activity_traces(model_fit, data_dict, plot_param, n_ex, slice_time=None):
+    """
+    plot_param: param for sorting, in format [['partial_reg', idx]] or  'full_reg'
+    n_ex: number of examples.  n_ex>0 gives largest, n_ex<0 gives smallest, n_ex=0 GIVES AVG of everything
+    """
+    from matplotlib.gridspec import GridSpec
+    scanRate = data_dict['scanRate']
+    dFF = data_dict['dFF'] #trim_dynamic_range(data_dict['dFF'], 0.01, 0.95)
+
+    f = get_model_fit_as_dict(model_fit)
+    if type(plot_param) is list:
+        param = f[plot_param[0]][:,plot_param[1]]
+        ttl = plot_param[0]+'_'+str(plot_param[1])+' Ex:'+str(n_ex)
+    else:
+        param = f[plot_param]
+        ttl = plot_param+' Ex:'+str(n_ex)
+    s = np.argsort(param)[::-1]
+
+    if n_ex>0:
+        traces = dFF[s[:n_ex],:]
+        print(s[:n_ex])
+    elif n_ex<0:
+        traces = dFF[s[n_ex:],:]
+        print(s[n_ex:])
+    else:
+        traces = np.expand_dims( dFF.mean(axis=0), axis=0)
+
+    tPl = data_dict['tPl']
+    behavior = data_dict['behavior']
+    feed = data_dict['drink']
+    stim = data_dict['stim']
+    if slice_time:
+        tPl = tPl[slice_time]
+        behavior = behavior[slice_time]
+        feed = feed[slice_time]
+        stim = stim[slice_time]
+
+    fig = plt.figure(figsize=(14,5))
+    gs = GridSpec(2,1, height_ratios=[3.,1.],hspace=.05)
+
+    axes = fig.add_subplot(gs[0])
+    axes.plot(tPl, traces.T)
+    axes.set_xlim([min(tPl),max(tPl)])
+    axes.spines['top'].set_visible(False)
+    axes.spines['bottom'].set_visible(False)
+    axes.spines['right'].set_visible(False)
+    axes.set_title(ttl)
+    
+    axes = fig.add_subplot(gs[1])
+    axes.plot(tPl, behavior, 'k')
+    axes.plot(tPl, stim, 'k', alpha=0.3)
+    axes.plot(tPl, feed, 'c',alpha=0.7)
+    axes.set_xlim([min(tPl),max(tPl)])
+    axes.set_ylabel('feeding\nlocomotion')
+    axes.spines['top'].set_visible(False)
+    axes.spines['right'].set_visible(False)
+    axes.set_yticks([])
+    axes.set_xlabel('Time (s)')
+
+
 
 
 def make_hot_without_black(clrs=100, low_bnd=0.15):
