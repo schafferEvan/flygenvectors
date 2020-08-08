@@ -616,20 +616,22 @@ class reg_obj:
         return dFF_fit, dFF, sl
 
 
-    def get_smooth_behavior(self):
+    def get_smooth_behavior(self, split_behav=False):
         # filter behavior with TV denoising. requires customized settings for seome datasets
         if not self.expt_id: 
             print('***** warning: Missing exp_id *******')
 
-        tv_params = np.array([.01,.9,.05])
+        tv_params = [.01,.9,.05] #np.array([.01,.9,.05])
         if self.expt_id=='2018_08_24_fly3_run1':
-            tv_params[[0,2]] = [0.2,0.01]
+            tv_params[0] = 0.2
+            tv_params[2] = 0.01
         elif self.expt_id=='2018_08_24_fly2_run2':
             tv_params[2]=0.01
         elif self.expt_id=='2019_07_01_fly2':
             [] #ok
         elif self.expt_id=='2019_10_14_fly3':
-            tv_params[[0,2]]=[0.05,0.01]
+            tv_params[0]=0.05
+            tv_params[2]=0.01
         elif self.expt_id=='2019_06_28_fly2':
             tv_params[0]=0.1
         elif self.expt_id=='2019_06_30_fly1':
@@ -648,18 +650,64 @@ class reg_obj:
             tv_params[0]=0.1
         elif self.expt_id=='2019_08_14_fly1':
             [] #ok
+        elif self.expt_id=='2019_04_18_fly2':
+            tv_params[0]=[.01, 0.12, 0.01]
+        elif self.expt_id=='2019_04_22_fly1':
+            tv_params[0]=[.01, 0.2, 0.01, 0.01]
+        elif self.expt_id=='2019_04_22_fly3':
+            [] #ok
+        elif self.expt_id=='2019_04_24_fly3':
+            [] #ok
+        elif self.expt_id=='2019_04_24_fly1':
+            [] #ok
+        elif self.expt_id=='2019_04_25_fly3':
+            tv_params[2]=[.05, .01, .01]
+        elif self.expt_id=='2019_05_07_fly1':
+            tv_params[2]=[.05, .01, .01]
+        elif self.expt_id=='2019_03_12_fly4':
+            tv_params[0]=0.15
+            tv_params[2]=0.01
+        elif self.expt_id=='2019_02_19_fly1':
+            tv_params[0]=0.2
+            tv_params[2]=0.01
+        elif self.expt_id=='2019_02_26_fly1_2':
+            tv_params[0]=0.2
+            tv_params[2]=0.01
         else:
             print('**** warning: no exp_id match ****')
         
-        beh = self.data_dict['behavior']
-        m = beh.min()
-        M = beh.max()
-        l = m+tv_params[0]*(M-m)
-        h = m+tv_params[1]*(M-m)
-        beh[beh<l]=l
-        beh[beh>h]=h
-        beh -= l
-        self.data_dict['behavior'] = denoise_tv_chambolle(beh, weight=tv_params[2])
+        if split_behav:
+            trial_flag = self.data_dict['trialFlag']
+            U = np.unique(trial_flag)
+            NT = len(U)
+            for i in range(NT):
+                p=[0,0,0]
+                for j in range(3):
+                    if isinstance(tv_params[j], list):
+                        p[j]=tv_params[j][i]
+                    else:
+                        p[j]=tv_params[j]
+
+                is_this_trial = np.squeeze(trial_flag==U[i])
+                beh = self.data_dict['behavior'][is_this_trial]
+                m = beh.min()
+                M = beh.max()
+                l = m+p[0]*(M-m)
+                h = m+p[1]*(M-m)
+                beh[beh<l]=l
+                beh[beh>h]=h
+                beh -= l
+                self.data_dict['behavior'][is_this_trial] = denoise_tv_chambolle(beh, weight=p[2])
+        else:
+            beh = self.data_dict['behavior']
+            m = beh.min()
+            M = beh.max()
+            l = m+tv_params[0]*(M-m)
+            h = m+tv_params[1]*(M-m)
+            beh[beh<l]=l
+            beh[beh>h]=h
+            beh -= l
+            self.data_dict['behavior'] = denoise_tv_chambolle(beh, weight=tv_params[2])
 
 
 
