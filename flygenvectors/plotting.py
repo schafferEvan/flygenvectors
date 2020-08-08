@@ -1770,17 +1770,23 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
 
     tPl = data_dict['tPl']
     behavior = data_dict['ball']
+    trial_flag = data_dict['trialFlag']
+    U = np.unique(trial_flag)
+    NT = len(U)
     if slice_time:
         tPl = tPl[slice_time]
         behavior = behavior[slice_time]
+        trial_flag = trial_flag[slice_time]
     if include_dlc:
         dlc = data_dict['dlc']
         if slice_time:
             dlc = dlc[slice_time]
     if include_feeding:
         feed = data_dict['drink']
+        stim = data_dict['stim']
         if slice_time:
             feed = feed[slice_time]
+            stim = stim[slice_time]
 
 
     if num_cells:
@@ -1790,10 +1796,12 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
         dFF = dFF[:,time_lims[0]:time_lims[1]]
         tPl = tPl[time_lims[0]:time_lims[1]]
         behavior = behavior[time_lims[0]:time_lims[1]]
+        trial_flag = trial_flag[time_lims[0]:time_lims[1]]
         if include_dlc:
             dlc = dlc[time_lims[0]:time_lims[1],:]
         if include_feeding:
             feed = feed[time_lims[0]:time_lims[1]]
+            stim = stim[time_lims[0]:time_lims[1]]
         
     im = axes[0].imshow(
         dFF, aspect='auto', 
@@ -1824,12 +1832,23 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
     
 
     plt.sca(axes[-1])
-    axes[-1].plot(tPl,behavior,'k')
-    axes[-1].set_xlim([min(tPl),max(tPl)])
     if(include_feeding):
-        axes[-1].plot(tPl,feed*max(behavior),'c',alpha=0.7)
+        for i in range(NT):
+            is_this_trial = np.squeeze(trial_flag==U[i])
+            behav_this_trial = behavior[is_this_trial]
+            time_this_trial = tPl[is_this_trial]
+            if i==1:
+                axes[-1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
+            else:
+                axes[-1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'k')
+
+        axes[-1].set_xlim([min(tPl),max(tPl)])
+        axes[-1].plot(tPl,stim,'c',alpha=0.3)
+        axes[-1].plot(tPl,feed,'c',alpha=0.7)
         axes[-1].set_ylabel('feeding\nlocomotion')
     else:
+        axes[-1].plot(tPl,behavior,'k')
+        axes[-1].set_xlim([min(tPl),max(tPl)])
         axes[-1].set_ylabel('ball\n')
     axes[-1].set_yticks([])
     plt.xlabel('Time (s)')
@@ -1999,12 +2018,22 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, slice_time=None
         ttl = plot_param+' Ex:'+str(n_ex)
     s = np.argsort(param)[::-1]
 
-    if n_ex>0:
-        traces = dFF[s[:n_ex],:]
-        print(s[:n_ex])
-    elif n_ex<0:
-        traces = dFF[s[n_ex:],:]
-        print(s[n_ex:])
+    # pdb.set_trace()
+    if isinstance(n_ex, list):
+        num_ex = n_ex[1]
+        start_ex = n_ex[0]
+    else:
+        num_ex = n_ex
+        start_ex = 0
+    if num_ex>0:
+        traces = dFF[s[start_ex:start_ex+num_ex],:]
+        #print(s[:num_ex])
+    elif num_ex<0:
+        if not start_ex:
+            traces = dFF[s[start_ex+num_ex:],:]
+        else:
+            traces = dFF[s[start_ex+num_ex:start_ex],:]
+            #print(s[num_ex:])
     else:
         traces = np.expand_dims( dFF.mean(axis=0), axis=0)
 
