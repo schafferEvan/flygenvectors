@@ -7,6 +7,7 @@ from sklearn.linear_model import ElasticNet
 from skimage.restoration import denoise_tv_chambolle
 from scipy.optimize import minimize
 from scipy import stats
+import matplotlib.pyplot as plt
 import copy
 import pdb
 
@@ -135,7 +136,7 @@ class reg_obj:
 
 
 
-    def get_regressors(self, phi_input=None, amplify_baseline=False):
+    def get_regressors(self, phi_input=None, amplify_baseline=False, just_null_model=False):
         '''build matrix of all regressors.  Stores output as a dictionary and as a concatenated array.
         Also pre-computes inverse of this array.
         params = {'split_behav':True,
@@ -144,9 +145,13 @@ class reg_obj:
                     'tau':tau,
                     'mu':mu
                  }
-        phi_input: bypasses default sweep through all phi. useful for eval step, ignore for other functions''' 
+        phi_input: bypasses default sweep through all phi. useful for eval step, ignore for other functions
+        amplify_baseline: scale alpha and trial regs to spare them from elastic net penalty
+        just_null_model: returns just alpha and trial regs''' 
+        self.refresh_params()
         data_dict = self.data_dict
         params = self.params
+        if just_null_model: params['split_behav'] = False
         L = params['L']
         time = data_dict['time']-data_dict['time'].mean() #data_dict['time'][0]
         ts_full = time #np.squeeze(time)
@@ -192,6 +197,8 @@ class reg_obj:
                 ball[i,is_this_trial] = data_dict['behavior'][is_this_trial]-data_dict['behavior'][is_this_trial].mean()
                 # x_c_full[i,:] = np.convolve(kern,ball[i,:],'same')                      # ******* fix 'same' and 'gauss/exp' option *******
                 x_c_full[i,is_this_trial] = np.convolve(kern,ball[i,:],'same')[is_this_trial] 
+        elif just_null_model:
+            x_c_full = []
         else:
             ball = data_dict['behavior']-data_dict['behavior'].mean()
             x_c_full = np.convolve(kern,ball,'same')                      # ******* fix 'same' and 'gauss/exp' option *******
@@ -201,7 +208,9 @@ class reg_obj:
         # pdb.set_trace()
         # regs = np.concatenate( (alpha_regs, x_c, trial_regressors, np.array([drink[L:-L],hunger[L:-L]])), axis=0 )
         
-        if not phi_input:
+        if just_null_model:
+            phi_list_for_loop = [0]
+        elif not phi_input:
             phi_list_for_loop = self.phiList
         else:
             phi_list_for_loop = [phi_input]
@@ -219,6 +228,8 @@ class reg_obj:
                     else:
                         x_c[i,:] = x_c_full[i,L+phi:-(L-phi)]-x_c_full[i,L+phi:-(L-phi)].mean()
                     x_c[i,:] /= abs(x_c[i,:]).max()
+            elif just_null_model:
+                x_c = []
             else:
                 if(phi==L):
                     x_c = x_c_full[L+phi:]-x_c_full[L+phi:].mean()
@@ -228,7 +239,12 @@ class reg_obj:
                 x_c = np.expand_dims(x_c, axis=0)
 
             # scale alpha and trial regs to spare them from elastic net penalty
-            if amplify_baseline:
+            if just_null_model:
+                self.regressors_dict[j] = {
+                    'alpha_01':alpha_regs, 
+                    'trial':trial_regressors
+                }
+            elif amplify_baseline:
                 self.regressors_dict[j] = {
                     'alpha_01':alpha_regs*self.baseline_regs_amp_val, 
                     'trial':trial_regressors*self.baseline_regs_amp_val, 
@@ -240,7 +256,7 @@ class reg_obj:
                     'trial':trial_regressors, 
                     'beta_0':x_c 
                 }
-            if (np.isnan(drink).sum()==0) and (np.isnan(hunger).sum()==0):
+            if (np.isnan(drink).sum()==0) and (np.isnan(hunger).sum()==0) and not just_null_model:
                 self.regressors_dict[j]['drink_hunger'] = np.array([drink[L:-L],hunger[L:-L]])
 
             regressors_array, regressors_array_inv, self.tot_n_regressors = self.get_regressor_array(self.regressors_dict[j])
@@ -578,7 +594,7 @@ class reg_obj:
         return dFF_fit, dFF
 
 
-    def get_null_subtracted_raster(self, extra_regs_to_use=None):
+    def get_null_subtracted_raster(self, extra_regs_to_use=None, just_null_model=False):
         """ default is to return fit with just alpha and trial regs. 
         Using extra_regs, option to return fit with any additional regs: [ ['partial_reg', idx], ['full_reg'] ] 
         extra_regs are the regressors TO SUBTRACT """
@@ -592,9 +608,9 @@ class reg_obj:
             if self.model_fit[n]['success']:
                 self.params['tau'] = self.model_fit[n]['tau']
                 if self.elasticNet:
-                    self.get_regressors(phi_input=self.model_fit[n]['phi'], amplify_baseline=True)
+                    self.get_regressors(phi_input=self.model_fit[n]['phi'], amplify_baseline=True, just_null_model=just_null_model)
                 else:
-                    self.get_regressors(phi_input=self.model_fit[n]['phi'], amplify_baseline=False)
+                    self.get_regressors(phi_input=self.model_fit[n]['phi'], amplify_baseline=False, just_null_model=just_null_model)
                 coeff_dict = self.coeff_dict_from_keys(idx=n)
                 reg_labels = list(coeff_dict.keys())
                 # make null dict by setting params of interest to 0
@@ -710,6 +726,37 @@ class reg_obj:
             self.data_dict['behavior'] = denoise_tv_chambolle(beh, weight=tv_params[2])
 
 
+    def estimate_motion_artifacts(self, inv_cv_thresh=1.0, make_hist=False):
+        self.inv_cv_thresh = inv_cv_thresh
+        self.get_regressors(just_null_model=True)
+        self.data_dict['dFF'] = self.data_dict['dRR'].copy()
+        self.model_fit = []
+        for n in range(self.data_dict['dRR'].shape[0]):
+            p, _ = self.fit_reg_linear(n=n, phi_idx=0)
+            d = copy.deepcopy(p)
+            d['tau'] = 1
+            d['phi'] = 0
+            d['success'] = True
+            d['activity'] = 'dFF'
+            d['kern'] = 'gauss'
+            self.model_fit.append(d)    
+        R0, dFF, _ = self.get_null_subtracted_raster(just_null_model=True)
+        dRR0 = dFF-R0
+        v=dRR0.var(axis=1)
+        m=R0.mean(axis=1)
+        self.motion_cv_inv = v/m**2
+        self.motion_cv_inv[np.isnan(self.motion_cv_inv)] = np.inf
+        if make_hist:
+            cv = self.motion_cv_inv.copy()
+            plt.figure(figsize=(7,3))
+            cv[cv>2*inv_cv_thresh]=2*inv_cv_thresh
+            plt.hist(cv,50)
+            yl = plt.ylim()
+            plt.plot([inv_cv_thresh,inv_cv_thresh], yl, 'r--')
+            plt.xlim(-0.01,0.01+2*inv_cv_thresh)
+            plt.xlabel(r'CV$^{-1}$ (red)')
+            plt.ylabel('count')
+            plt.tight_layout()
 
 
 
