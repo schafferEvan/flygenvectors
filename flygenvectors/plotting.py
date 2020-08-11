@@ -2027,13 +2027,14 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, slice_time=None
         start_ex = 0
     if num_ex>0:
         traces = dFF[s[start_ex:start_ex+num_ex],:]
-        #print(s[:num_ex])
+        print(s[:num_ex])
     elif num_ex<0:
         if not start_ex:
             traces = dFF[s[start_ex+num_ex:],:]
+            print(s[num_ex:])
         else:
             traces = dFF[s[start_ex+num_ex:start_ex],:]
-            #print(s[num_ex:])
+            # print(s[num_ex:])
     else:
         traces = np.expand_dims( dFF.mean(axis=0), axis=0)
 
