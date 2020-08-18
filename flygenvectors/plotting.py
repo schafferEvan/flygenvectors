@@ -1839,11 +1839,13 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
             time_this_trial = tPl[is_this_trial]
             if i==1:
                 axes[-1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
+            elif (i==2) and (NT==4):
+                axes[-1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
             else:
                 axes[-1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'k')
 
         axes[-1].set_xlim([min(tPl),max(tPl)])
-        axes[-1].plot(tPl,stim,'c',alpha=0.3)
+        axes[-1].plot(tPl,stim,'c:',alpha=0.6)
         axes[-1].plot(tPl,feed,'c',alpha=0.7)
         axes[-1].set_ylabel('feeding\nlocomotion')
     else:

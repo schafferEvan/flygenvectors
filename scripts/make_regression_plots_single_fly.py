@@ -96,7 +96,7 @@ def run_all(input_dict=None):
         data_dict['behavior'] = data_dict['ball'].flatten()
     elif (behavior_source == 'ball_binary'):
         data_dict['behavior'] = dataUtils.binarize_timeseries(data_dict['ball'])
-    ro.get_smooth_behavior()
+    ro.get_smooth_behavior(split_behav=split_behav)
 
 
 
