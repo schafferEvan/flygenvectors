@@ -210,7 +210,7 @@ class reg_obj:
         
         if just_null_model:
             phi_list_for_loop = [0]
-        elif not phi_input:
+        elif phi_input is None:
             phi_list_for_loop = self.phiList
         else:
             phi_list_for_loop = [phi_input]
@@ -313,7 +313,11 @@ class reg_obj:
                 # for a given tau, fit for other parameters is linear, solved by pseudoinverse
                 self.params['tau'] = self.model_fit[n]['tau']
                 # phi_idx = np.argmin(abs(self.model_fit[n]['phi']-self.phiList))
-                self.get_regressors(phi_input=self.model_fit[n]['phi'])
+                if self.elasticNet:
+                    self.get_regressors(phi_input=self.model_fit[n]['phi'], amplify_baseline=True)
+                else:
+                    self.get_regressors(phi_input=self.model_fit[n]['phi'], amplify_baseline=False)
+
                 D = self.regressors_array[0] #array len()=1 here
                 
                 # regenerate concatenated coefficient array
@@ -324,13 +328,17 @@ class reg_obj:
                 # pdb.set_trace()
                 dFF_fit = coeff_array@D
                 SS_res = ( (dFF-dFF_fit)**2 )
+                # res_var_tot = (dFF-dFF_fit).var()
                 SS_tot = ( (dFF-dFF.mean())**2 ) #( (dFF_without_linpart-dFF_without_linpart.mean())**2 )
-                r_sq = 1-SS_res.sum()/SS_tot.sum()
+                r_sq_tot = 1-SS_res.sum()/SS_tot.sum()
                 
                 # for all parameter categories, for all parameters in this category, find fit without this parameter to compute p_val
                 stat = copy.deepcopy(coeff_dict)
+                r_sq = copy.deepcopy(coeff_dict)
+                r_sq['tot'] = r_sq_tot
                 for i in range(len(reg_labels)):
                     stat_list = []
+                    r_sq_list = []
                     for j in range(coeff_dict[reg_labels[i]].shape[0]):
                         j_inc = [x for x in range(coeff_dict[reg_labels[i]].shape[0]) if x != j]
                         reg_null = copy.deepcopy(self.regressors_dict[0])
@@ -344,8 +352,14 @@ class reg_obj:
                         p_n = self.dict_to_flat_list(p_n_dict)
                         dFF_fit_null = np.squeeze(p_n@null_self.regressors_array[0])   
                         SS_res_0 = ( (dFF-dFF_fit_null)**2 )
+                        # res_var_0 = (dFF-dFF_fit_null).var()
                         stat_list.append( stats.wilcoxon(np.squeeze(SS_res_0),np.squeeze(SS_res)) )
+                        r_sq_list.append( (SS_res_0.sum()-SS_res.sum())/SS_res.sum() )  # var explained relative to residual, not total variance
+                        if r_sq_list[-1]<0:
+                            print('shit')
+                            pdb.set_trace()
                     stat[reg_labels[i]] = stat_list
+                    r_sq[reg_labels[i]] = r_sq_list
                 
                 stat['tau'] = stat['beta_0']
                 stat['phi'] = stat['beta_0']    
@@ -616,7 +630,7 @@ class reg_obj:
                 # make null dict by setting params of interest to 0
                 for j in range(len(reg_labels)):
                     if (reg_labels[j]=='alpha_01') or (reg_labels[j]=='trial'): continue
-                    if extra_regs_to_use:
+                    if extra_regs_to_use is not None:
                         tmp_reg = np.zeros(coeff_dict[reg_labels[j]].shape)
                         for sublist in extra_regs_to_use:
                             if reg_labels[j] in sublist: 
@@ -634,6 +648,7 @@ class reg_obj:
 
     def get_smooth_behavior(self, split_behav=False):
         # filter behavior with TV denoising. requires customized settings for seome datasets
+        # pdb.set_trace()
         if not self.expt_id: 
             print('***** warning: Missing exp_id *******')
 
@@ -726,12 +741,14 @@ class reg_obj:
             self.data_dict['behavior'] = denoise_tv_chambolle(beh, weight=tv_params[2])
 
 
-    def estimate_motion_artifacts(self, inv_cv_thresh=1.0, make_hist=False):
+    def estimate_motion_artifacts(self, inv_cv_thresh=1.0, max_dRR_thresh=0.5, make_hist=False):
         self.inv_cv_thresh = inv_cv_thresh
+        self.max_dRR_thresh = max_dRR_thresh
         self.get_regressors(just_null_model=True)
         self.data_dict['dFF'] = self.data_dict['dRR'].copy()
         self.model_fit = []
         for n in range(self.data_dict['dRR'].shape[0]):
+            # pdb.set_trace()
             p, _ = self.fit_reg_linear(n=n, phi_idx=0)
             d = copy.deepcopy(p)
             d['tau'] = 1
@@ -744,6 +761,7 @@ class reg_obj:
         dRR0 = dFF-R0
         v=dRR0.var(axis=1)
         m=R0.mean(axis=1)
+        self.mag = dRR0.max(axis=1)-dRR0.min(axis=1)
         self.motion_cv_inv = v/m**2
         self.motion_cv_inv[np.isnan(self.motion_cv_inv)] = np.inf
         if make_hist:
@@ -757,6 +775,7 @@ class reg_obj:
             plt.xlabel(r'CV$^{-1}$ (red)')
             plt.ylabel('count')
             plt.tight_layout()
+        return dRR0, R0
 
 
 
