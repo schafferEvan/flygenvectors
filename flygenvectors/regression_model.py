@@ -301,10 +301,12 @@ class reg_obj:
         self.refresh_params()
         null_self = copy.deepcopy(self)
         print('evaluating ')
+        # pdb.set_trace()
         for n in range(self.data_dict[self.activity].shape[0]):
             if not np.mod(n,round(self.data_dict[self.activity].shape[0]/10)): print(n, end=' ')
             sys.stdout.flush()
             if self.model_fit[n]['success']:
+                # pdb.set_trace()
                 L = self.params['L']
                 dFF_full = self.data_dict[self.activity][n,:]
                 dFF = dFF_full[L:-L]
@@ -335,16 +337,19 @@ class reg_obj:
                 # for all parameter categories, for all parameters in this category, find fit without this parameter to compute p_val
                 stat = copy.deepcopy(coeff_dict)
                 r_sq = copy.deepcopy(coeff_dict)
+                cc = copy.deepcopy(coeff_dict)
                 r_sq['tot'] = r_sq_tot
                 for i in range(len(reg_labels)):
                     stat_list = []
                     r_sq_list = []
+                    cc_list = []
                     for j in range(coeff_dict[reg_labels[i]].shape[0]):
                         j_inc = [x for x in range(coeff_dict[reg_labels[i]].shape[0]) if x != j]
                         reg_null = copy.deepcopy(self.regressors_dict[0])
                         reg_null[reg_labels[i]] = reg_null[reg_labels[i]][j_inc,:]
                         null_self.regressors_dict = [reg_null]
-                        # pdb.set_trace()
+                        
+                        # stats and r^2 are computed from *new* fit leaving out a regressor
                         regressors_array, regressors_array_inv, _ = self.get_regressor_array(reg_null) # ****** this should be null_self, eliminate arguments
                         null_self.regressors_array = [regressors_array]
                         null_self.regressors_array_inv = [regressors_array_inv]
@@ -355,19 +360,34 @@ class reg_obj:
                         # res_var_0 = (dFF-dFF_fit_null).var()
                         stat_list.append( stats.wilcoxon(np.squeeze(SS_res_0),np.squeeze(SS_res)) )
                         r_sq_list.append( (SS_res_0.sum()-SS_res.sum())/SS_res.sum() )  # var explained relative to residual, not total variance
+                        
+                        # cc is computed from *old* fit leaving out regressor
+                        coeff_dict_0 = copy.deepcopy(coeff_dict)
+                        coeff_dict_0[reg_labels[i]] = coeff_dict_0[reg_labels[i]][j_inc]
+                        coeff_0 = self.dict_to_flat_list(coeff_dict_0)
+                        dFF_fit_null_0 = np.squeeze(coeff_0@null_self.regressors_array[0]) 
+                        # pdb.set_trace()
+
+                        norm_resid = dFF - dFF_fit_null_0 - (dFF-dFF_fit_null_0).mean()
+                        norm_reg = self.regressors_dict[0][reg_labels[i]][j,:].copy()
+                        norm_reg -= norm_reg.mean()
+                        cc_list.append( (norm_resid*norm_reg).mean()/(norm_resid.std()*norm_reg.std()) )
                         if r_sq_list[-1]<0:
                             print('shit')
                             pdb.set_trace()
                     stat[reg_labels[i]] = stat_list
                     r_sq[reg_labels[i]] = r_sq_list
+                    cc[reg_labels[i]] = cc_list
                 
                 stat['tau'] = stat['beta_0']
                 stat['phi'] = stat['beta_0']    
                 self.model_fit[n]['r_sq'] = r_sq #1-SS_res.sum()/SS_tot.sum()
                 self.model_fit[n]['stat'] = stat
+                self.model_fit[n]['cc'] = cc
             else:
                 self.model_fit[n]['r_sq'] = None
                 self.model_fit[n]['stat'] = None
+                self.model_fit[n]['cc'] = None
 
 
 
@@ -741,7 +761,7 @@ class reg_obj:
             self.data_dict['behavior'] = denoise_tv_chambolle(beh, weight=tv_params[2])
 
 
-    def estimate_motion_artifacts(self, inv_cv_thresh=1.0, max_dRR_thresh=0.5, make_hist=False):
+    def estimate_motion_artifacts(self, inv_cv_thresh=1.0, max_dRR_thresh=0.3, make_hist=False):
         self.inv_cv_thresh = inv_cv_thresh
         self.max_dRR_thresh = max_dRR_thresh
         self.get_regressors(just_null_model=True)
