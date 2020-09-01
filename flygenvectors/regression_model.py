@@ -25,7 +25,8 @@ class reg_obj:
                     'M':0,
                     'L':0,
                     'tau':0.1,
-                    'mu':0
+                    'mu':0,
+                    'tau_feed':0.1
                  }
         self.regressors_dict = {
             'alpha_01':np.array([]), 
@@ -156,20 +157,7 @@ class reg_obj:
         time = data_dict['time']-data_dict['time'].mean() #data_dict['time'][0]
         ts_full = time #np.squeeze(time)
         t_exp = np.linspace(1,params['M'],params['M'])/data_dict['scanRate']
-        d1 = np.argmax(data_dict['drink'])
-        hunger = np.zeros(data_dict['drink'].shape)
-        hunger[d1:]=1
-        hunger = np.squeeze(hunger)-hunger.mean()
-        if abs(hunger).max()==0:
-            hunger = np.nan*np.ones(hunger.shape)
-        else:
-            hunger /= abs(hunger).max()
-        drink = np.squeeze(data_dict['drink'].astype(float))
-        drink -= drink.mean()
-        if abs(drink).max()==0:
-            drink = np.nan*np.ones(drink.shape)
-        else:
-            drink /= abs(drink).max()
+
 
         # define trial flag regressors
         U = np.unique(data_dict['trialFlag'])
@@ -203,9 +191,30 @@ class reg_obj:
             ball = data_dict['behavior']-data_dict['behavior'].mean()
             x_c_full = np.convolve(kern,ball,'same')                      # ******* fix 'same' and 'gauss/exp' option *******
         
+        ## legacy version
+        # d1 = np.argmax(data_dict['drink'])
+        # hunger = np.zeros(data_dict['drink'].shape)
+        # hunger[d1:]=1
+        # hunger = np.squeeze(hunger)-hunger.mean()
+        # if abs(hunger).max()==0:
+        #     hunger = np.nan*np.ones(hunger.shape)
+        # else:
+        #     hunger /= abs(hunger).max()
+        d1 = np.argmax(data_dict['drink'])
+        feed_raw = np.squeeze(data_dict['drink'].astype(float))
+        feed_raw -= feed_raw.mean()
+        if abs(feed_raw).max()==0:
+            feed_raw = np.nan*np.ones(feed_raw.shape)
+        else:
+            feed_raw /= abs(feed_raw).max()
+        feed_kern = np.exp(-t_exp/params['tau_feed'])
+        feed_conv = np.convolve(feed_kern,feed_raw,'full')[:-len(feed_kern)+1]
+        feed_conv[:d1-1] = feed_conv[d1-1] #erase conv artifacts
+        feed_conv -= feed_conv.mean()
+        feed_conv /= feed_conv.max()
+
         # alpha_regs = np.concatenate( (np.ones((1,len(ts)))/len(ts), ts.T) )
         alpha_regs = np.concatenate( (np.ones((1,len(ts)))/len(ts), ts.T, ts.T**2) )
-        # pdb.set_trace()
         # regs = np.concatenate( (alpha_regs, x_c, trial_regressors, np.array([drink[L:-L],hunger[L:-L]])), axis=0 )
         
         if just_null_model:
@@ -256,9 +265,12 @@ class reg_obj:
                     'trial':trial_regressors, 
                     'beta_0':x_c 
                 }
-            if (np.isnan(drink).sum()==0) and (np.isnan(hunger).sum()==0) and not just_null_model:
-                self.regressors_dict[j]['drink_hunger'] = np.array([drink[L:-L],hunger[L:-L]])
+            # if (np.isnan(drink).sum()==0) and (np.isnan(hunger).sum()==0) and not just_null_model:
+            #     self.regressors_dict[j]['drink_hunger'] = np.array([drink[L:-L],hunger[L:-L]])
+            if (np.isnan(feed_conv).sum()==0) and not just_null_model:
+                self.regressors_dict[j]['drink_hunger'] = np.expand_dims(feed_conv[L:-L], axis=0) #np.array(feed_conv[L:-L])
 
+            # pdb.set_trace()
             regressors_array, regressors_array_inv, self.tot_n_regressors = self.get_regressor_array(self.regressors_dict[j])
             if (regressors_array.max()>self.baseline_regs_amp_val) or (regressors_array.min()<-self.baseline_regs_amp_val):
                 print('WARNING: regressor not normalized')
@@ -399,8 +411,10 @@ class reg_obj:
         
         self.refresh_params()
         data_dict = self.data_dict
-        tauList = self.tauList
+        tauList = self.tauList.copy()
+        tauList_feed = self.tauList.copy()
         tau_star = np.zeros(data_dict[self.activity].shape[0])
+        tau_feed_star = np.zeros(data_dict[self.activity].shape[0])
         phi_star = np.zeros(data_dict[self.activity].shape[0])
         fn_min = np.inf*np.ones(data_dict[self.activity].shape[0])
         
@@ -409,28 +423,31 @@ class reg_obj:
 
         # fit model -  for each value of tau and phi, check if pInv solution is better than previous
         P = [None]*data_dict[self.activity].shape[0] # [] #np.zeros((data_dict['rate'].shape[0],tot_n_regressors))
-        for i in range(len(tauList)):
-            if not np.mod(i,2): print(i, end=' ')
-            sys.stdout.flush()
-            self.params['tau'] = tauList[i]
-            if self.elasticNet:
-                self.get_regressors(amplify_baseline=True)
-            else:
-                self.get_regressors(amplify_baseline=False)
-             
-            for j in range(len(self.phiList)):
-                if np.sum(np.isnan(self.regressors_array[j]))>0: continue
-                for n in range(data_dict[self.activity].shape[0]):
-                    if self.elasticNet:
-                        p, obj = self.fit_reg_linear_elasticNet(n=n, phi_idx=j, elasticNet_obj=elasticNet_obj)
-                    else:
-                        # if not elasticNet, do OLS
-                        p, obj = self.fit_reg_linear(n=n, phi_idx=j)
-                    if (obj<fn_min[n]):
-                        tau_star[n] = tauList[i]
-                        phi_star[n] = self.phiList[j]
-                        P[n] = p
-                        fn_min[n] = obj
+        for ii in range(len(tauList_feed)):
+            self.params['tau_feed'] = tauList_feed[ii]
+            for i in range(len(tauList)):
+                if not np.mod(i,2): print(i, end=' ')
+                sys.stdout.flush()
+                self.params['tau'] = tauList[i]
+                if self.elasticNet:
+                    self.get_regressors(amplify_baseline=True)
+                else:
+                    self.get_regressors(amplify_baseline=False)
+                 
+                for j in range(len(self.phiList)):
+                    if np.sum(np.isnan(self.regressors_array[j]))>0: continue
+                    for n in range(data_dict[self.activity].shape[0]):
+                        if self.elasticNet:
+                            p, obj = self.fit_reg_linear_elasticNet(n=n, phi_idx=j, elasticNet_obj=elasticNet_obj)
+                        else:
+                            # if not elasticNet, do OLS
+                            p, obj = self.fit_reg_linear(n=n, phi_idx=j)
+                        if (obj<fn_min[n]):
+                            tau_star[n] = tauList[i]
+                            tau_feed_star[n] = tauList_feed[ii]
+                            phi_star[n] = self.phiList[j]
+                            P[n] = p
+                            fn_min[n] = obj
                     
         # collect output ********* redo with dictionary defined at outset to eliminate need for this ---------
         self.model_fit = []
@@ -439,6 +456,7 @@ class reg_obj:
             if P[n] is not None:
                 d = copy.deepcopy(P[n])
                 d['tau'] = tau_star[n]
+                d['tau_feed'] = tau_feed_star[n]
                 d['phi'] = int(phi_star[n])
                 d['success'] = True #res['success']
             else:
@@ -606,7 +624,7 @@ class reg_obj:
         phaseLimSec = self.params['phaseLimSec'] #20
         sigLim = sigLimSec*data_dict['scanRate']
         self.params['L'] = int(phaseLimSec*data_dict['scanRate'])
-        self.params['M'] = round(-sigLim*np.log(0.1)).astype(int)
+        self.params['M'] = round(-sigLim*np.log(0.1)) #.astype(int)
         self.params['mu'] = .5*self.params['M']/data_dict['scanRate']
         self.phiList = np.linspace(-self.params['L'],self.params['L'], num=2*phaseLimSec+1 ).astype(int)
         self.tauList = np.logspace(-1,np.log10(sigLimSec),num=60)
@@ -618,6 +636,7 @@ class reg_obj:
         dFF = dFF_full[self.params['L']:-self.params['L']]
         dFF = np.expand_dims(dFF, axis=0)
         self.params['tau'] = self.model_fit[n]['tau']
+        self.params['tau_feed'] = self.model_fit[n]['tau_feed']
         if self.elasticNet:
             self.get_regressors(phi_input=self.model_fit[n]['phi'], amplify_baseline=True)
         else:
@@ -641,6 +660,7 @@ class reg_obj:
         for n in range(dFF.shape[0]):
             if self.model_fit[n]['success']:
                 self.params['tau'] = self.model_fit[n]['tau']
+                self.params['tau_feed'] = self.model_fit[n]['tau_feed']
                 if self.elasticNet:
                     self.get_regressors(phi_input=self.model_fit[n]['phi'], amplify_baseline=True, just_null_model=just_null_model)
                 else:
@@ -772,6 +792,7 @@ class reg_obj:
             p, _ = self.fit_reg_linear(n=n, phi_idx=0)
             d = copy.deepcopy(p)
             d['tau'] = 1
+            d['tau_feed'] = 1
             d['phi'] = 0
             d['success'] = True
             d['activity'] = 'dFF'
