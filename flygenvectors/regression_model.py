@@ -326,6 +326,7 @@ class reg_obj:
 
                 # for a given tau, fit for other parameters is linear, solved by pseudoinverse
                 self.params['tau'] = self.model_fit[n]['tau']
+                self.params['tau_feed'] = self.model_fit[n]['tau_feed']
                 # phi_idx = np.argmin(abs(self.model_fit[n]['phi']-self.phiList))
                 if self.elasticNet:
                     self.get_regressors(phi_input=self.model_fit[n]['phi'], amplify_baseline=True)
@@ -386,7 +387,7 @@ class reg_obj:
                         cc_list.append( (norm_resid*norm_reg).mean()/(norm_resid.std()*norm_reg.std()) )
                         if r_sq_list[-1]<0:
                             print('shit')
-                            pdb.set_trace()
+                            # pdb.set_trace()
                     stat[reg_labels[i]] = stat_list
                     r_sq[reg_labels[i]] = r_sq_list
                     cc[reg_labels[i]] = cc_list
@@ -412,7 +413,7 @@ class reg_obj:
         self.refresh_params()
         data_dict = self.data_dict
         tauList = self.tauList.copy()
-        tauList_feed = self.tauList.copy()
+        tauList_feed = self.tauList_feed.copy()
         tau_star = np.zeros(data_dict[self.activity].shape[0])
         tau_feed_star = np.zeros(data_dict[self.activity].shape[0])
         phi_star = np.zeros(data_dict[self.activity].shape[0])
@@ -628,6 +629,7 @@ class reg_obj:
         self.params['mu'] = .5*self.params['M']/data_dict['scanRate']
         self.phiList = np.linspace(-self.params['L'],self.params['L'], num=2*phaseLimSec+1 ).astype(int)
         self.tauList = np.logspace(-1,np.log10(sigLimSec),num=60)
+        self.tauList_feed = np.logspace(-1,np.log10(sigLimSec),num=13) #self.tauList.copy()
                 
 
     def get_dFF_fit(self, n):
