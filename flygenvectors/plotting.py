@@ -894,39 +894,20 @@ def get_model_fit_as_dict(model_fit):
         vals = [None]*len(model_fit)
         for i in range(len(model_fit)):
             vals[i] = model_fit[i][reg_labels[j]]
-        fit_dict[reg_labels[j]] = np.array(vals)
+        fit_dict[reg_labels[j]] = np.squeeze(np.array(vals))
     return fit_dict
 
-    # tau = np.zeros(len(model_fit))
-    # phi = np.zeros(len(model_fit))
-    # beta_0 = np.zeros(len(model_fit))
-    # if isinstance(model_fit[0]['beta_1'],np.ndarray):
-    #     beta_1 = np.zeros((len(model_fit),len(model_fit[0]['beta_1'])))
-    # else:
-    #     beta_1 = np.zeros((len(model_fit),1))
-    # rsq = np.zeros(len(model_fit))
-    # rsq_null = np.zeros(len(model_fit))
-    # stat = np.zeros( (len(model_fit), np.shape(model_fit[0]['stat'])[0] ) )
-    # success = []
-    # for i in range(len(model_fit)):
-    #     tau[i] = model_fit[i]['tau']
-    #     phi[i] = model_fit[i]['phi']
-    #     beta_0[i] = model_fit[i]['beta_0']
-    #     beta_1[i,:] = model_fit[i]['beta_1']
-    #     rsq[i] = model_fit[i]['r_sq']
-    #     # rsq_null[i] = model_fit[i]['r_sq_null']
-    #     for j in range(np.shape(model_fit[0]['stat'])[0]):
-    #         stat[i,j] = model_fit[i]['stat'][j][1]
-    #     success.append(model_fit[i]['success'])
-    # fit_dict['tau'] = tau
-    # fit_dict['phi'] = phi
-    # fit_dict['beta_0'] = beta_0
-    # fit_dict['beta_1'] = beta_1
-    # fit_dict['rsq'] = rsq
-    # # fit_dict['rsq_null'] = rsq_null
-    # fit_dict['stat'] = stat
-    # # fit_dict['success'] = success
-    # return fit_dict
+
+def unroll_model_fit_stats(model_fit):
+    # takes model_fit list and unrolls specified nested dicts
+    import copy
+    # unroll_keys = ['cc', 'r_sq']
+    model_fit_un = copy.deepcopy(model_fit)
+    reg_labels = list(model_fit_un[0]['cc'].keys())
+    for j in range(len(reg_labels)):
+        for n in range(len(model_fit_un)):
+            model_fit_un[n][reg_labels[j]+'_cc'] = model_fit_un[n]['cc'][reg_labels[j]]
+    return model_fit_un
 
 
 def show_param_scatter(model_fit, data_dict, param_name, pval=.01):
@@ -1377,7 +1358,7 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
             else:
                 color_data[i] = model_fit[i][plot_field][plot_field_idx]
                 sig.append( model_fit[i]['stat'][plot_field][plot_field_idx][1]<pval ) # 1-sided test that behavior model > null model
-        if plot_field=='tau': color_data = np.log10(color_data)
+        if (plot_field=='tau') or (plot_field=='tau_feed'): color_data = np.log10(color_data)
 
         # sig cleanup
         not_sig = np.logical_not(sig)
@@ -1503,7 +1484,7 @@ def generate_color_data_from_model_fit(model_fit, plot_field, plot_field_idx, pv
         if model_fit[i]['success']:
             if np.isnan(plot_field_idx):
                 color_data[i] = model_fit[i][plot_field]
-                sig.append( model_fit[i]['stat'][plot_field][1]<pval ) # 1-sided test that behavior model > null model
+                sig.append( model_fit[i]['stat'][plot_field][0][1]<pval ) # 1-sided test that behavior model > null model
             else:
                 color_data[i] = model_fit[i][plot_field][plot_field_idx]
                 sig.append( model_fit[i]['stat'][plot_field][plot_field_idx][1]<pval ) # 1-sided test that behavior model > null model
