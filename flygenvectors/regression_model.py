@@ -625,7 +625,7 @@ class reg_obj:
         phaseLimSec = self.params['phaseLimSec'] #20
         sigLim = sigLimSec*data_dict['scanRate']
         self.params['L'] = int(phaseLimSec*data_dict['scanRate'])
-        self.params['M'] = round(-sigLim*np.log(0.1)) #.astype(int)
+        self.params['M'] = np.round(-sigLim*np.log(0.1)).astype(int)
         self.params['mu'] = .5*self.params['M']/data_dict['scanRate']
         self.phiList = np.linspace(-self.params['L'],self.params['L'], num=2*phaseLimSec+1 ).astype(int)
         self.tauList = np.logspace(-1,np.log10(sigLimSec),num=60)
