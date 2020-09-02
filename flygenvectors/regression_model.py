@@ -4,7 +4,6 @@ import glob
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.linear_model import ElasticNet
-from skimage.restoration import denoise_tv_chambolle
 from scipy.optimize import minimize
 from scipy import stats
 import matplotlib.pyplot as plt
@@ -690,6 +689,8 @@ class reg_obj:
 
 
     def get_smooth_behavior(self, split_behav=False):
+        from skimage.restoration import denoise_tv_chambolle
+
         # filter behavior with TV denoising. requires customized settings for seome datasets
         # pdb.set_trace()
         if not self.expt_id: 
