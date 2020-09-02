@@ -46,6 +46,7 @@ class reg_obj:
         self.obj_tot = []
         self.baseline_regs_amp_val = 1000
         self.elasticNet = False 
+        self.num_tau_feed_steps = 30
 
 
 
@@ -629,7 +630,7 @@ class reg_obj:
         self.params['mu'] = .5*self.params['M']/data_dict['scanRate']
         self.phiList = np.linspace(-self.params['L'],self.params['L'], num=2*phaseLimSec+1 ).astype(int)
         self.tauList = np.logspace(-1,np.log10(sigLimSec),num=60)
-        self.tauList_feed = np.logspace(-1,np.log10(sigLimSec),num=13) #self.tauList.copy()
+        self.tauList_feed = np.logspace(-1,np.log10(sigLimSec),num=self.num_tau_feed_steps) #self.tauList.copy()
                 
 
     def get_dFF_fit(self, n):
