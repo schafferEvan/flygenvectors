@@ -393,7 +393,8 @@ class reg_obj:
                     cc[reg_labels[i]] = cc_list
                 
                 stat['tau'] = stat['beta_0']
-                stat['phi'] = stat['beta_0']    
+                stat['phi'] = stat['beta_0'] 
+                stat['tau_feed'] = stat['drink_hunger']    
                 self.model_fit[n]['r_sq'] = r_sq #1-SS_res.sum()/SS_tot.sum()
                 self.model_fit[n]['stat'] = stat
                 self.model_fit[n]['cc'] = cc
