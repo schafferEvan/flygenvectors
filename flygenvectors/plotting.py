@@ -906,7 +906,8 @@ def unroll_model_fit_stats(model_fit):
     reg_labels = list(model_fit_un[0]['cc'].keys())
     for j in range(len(reg_labels)):
         for n in range(len(model_fit_un)):
-            model_fit_un[n][reg_labels[j]+'_cc'] = model_fit_un[n]['cc'][reg_labels[j]]
+            model_fit_un[n][reg_labels[j]+'_cc'] = np.array(model_fit_un[n]['cc'][reg_labels[j]])
+            model_fit_un[n]['stat'][reg_labels[j]+'_cc'] = model_fit_un[n]['stat'][reg_labels[j]]
     return model_fit_un
 
 
@@ -1438,7 +1439,7 @@ def convert_plot_param_to_plot_field(plot_param, model_fit, data_dict):
     # mapper to sort different kinds of behavior so plots are grouped correctly
     if type(plot_param) is list:
         plot_field = plot_param[0]
-        if plot_field=='beta_0':
+        if (plot_field=='beta_0') or (plot_field=='beta_0_cc'):
             #behavior can be running or flailing. plot_param[1] is meant to be 0 if running and 1 if flailing.
             #For datasets with only feeding and flailing, there's only one trial, but needs to go with 1s
             data_tmp = model_fit[0][plot_field]
@@ -1483,7 +1484,7 @@ def generate_color_data_from_model_fit(model_fit, plot_field, plot_field_idx, pv
     for i in range(len(model_fit)):
         if model_fit[i]['success']:
             if np.isnan(plot_field_idx):
-                color_data[i] = model_fit[i][plot_field]
+                color_data[i] = np.squeeze(model_fit[i][plot_field]) #model_fit[i][plot_field]
                 sig.append( model_fit[i]['stat'][plot_field][0][1]<pval ) # 1-sided test that behavior model > null model
             else:
                 color_data[i] = model_fit[i][plot_field][plot_field_idx]
