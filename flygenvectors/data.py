@@ -1,4 +1,4 @@
-import os
+import os, sys
 import glob
 import numpy as np
 from sklearn.decomposition import PCA
@@ -35,6 +35,10 @@ def load_timeseries_simple(expt_id, fly_num, base_data_dir=None):
         data_dict[key] = val
 
     data_dict['A'] = sparse.load_npz(file_path_A)
+    if 'drink' not in data_dict.keys():
+        data_dict['drink'] = np.zeros(data_dict['ball'].shape)
+    if 'stim' not in data_dict.keys():
+        data_dict['stim'] = np.zeros(data_dict['ball'].shape)
 
     return data_dict
 
@@ -394,3 +398,17 @@ def get_dlc_motion_energy(data_dict):
         legEnergy[legEnergy>M]=M
         dlc_energy[:,i] = legEnergy
     return dlc_energy
+
+
+class Logger(object):
+    # for printing stdout to both screen and logfile
+    def __init__(self, fname="logfile.log"):
+        self.terminal = sys.stdout
+        self.log = open(fname, "a")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)  
+
+    def flush(self):
+        pass    

@@ -62,7 +62,7 @@ i = int(sys.argv[1]) # DATASET TO LOAD
 exp_date = exp_list[i][0]
 fly_num = exp_list[i][1]
 expt_id = exp_list[i][0] + '_' + exp_list[i][1]
-infile = open(main_dir+expt_id+'.pkl','rb')
+infile = open(main_dir+expt_id+'_dict.pkl','rb')
 data_dict = pickle.load(infile)
 print(expt_id)
 print('data loaded')
@@ -70,16 +70,19 @@ sys.stdout.flush()
 
 
 ## FIT MODEL
-ro = model.reg_obj()
+reg_ver = 'ols' #'ols' # options:{'ols','elnet'}
+if reg_ver=='ols':
+    name_append = '_gauss_reg_model'
+elif reg_ver=='elnet':
+    name_append = '_gauss_elnet_reg_model'
+
+ro = model.reg_obj(activity='dFF')
 ro.data_dict = data_dict
-ro.fit_reg_model_full_likelihood()
-
-
+ro.params['split_behav'] = True
+ro.fit_and_eval_reg_model_extended()
+        
 ## SAVE OUTPUT
-#np.savez( main_dir+'/output/'+expt_id+'_reg_model.npz', P_tot=ro.P_tot, obj_tot=ro.obj_tot )
-np.save( main_dir+'/output/'+expt_id+'_reg_model_P_tot_alpha_01.npy', ro.P_tot['alpha_01'])
-np.save( main_dir+'/output/'+expt_id+'_reg_model_P_tot_trial.npy', ro.P_tot['trial'])
-np.save( main_dir+'/output/'+expt_id+'_reg_model_obj_tot.npy', ro.obj_tot)
+pickle.dump( ro.model_fit, open( main_dir + '/output/' + expt_id + '_' + ro.activity + name_append + '.pkl', "wb" ) )
+        
 
-#model_fit_tot = {'P_tot':ro.P_tot,'obj_tot':ro.obj_tot}
-#pickle.dump( model_fit_tot, open( main_dir+'/output/'+expt_id+'_reg_model.pkl', "wb" ) )
+

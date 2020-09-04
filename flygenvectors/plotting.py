@@ -894,68 +894,44 @@ def get_model_fit_as_dict(model_fit):
         vals = [None]*len(model_fit)
         for i in range(len(model_fit)):
             vals[i] = model_fit[i][reg_labels[j]]
-        fit_dict[reg_labels[j]] = np.array(vals)
+        fit_dict[reg_labels[j]] = np.squeeze(np.array(vals))
     return fit_dict
 
-    # tau = np.zeros(len(model_fit))
-    # phi = np.zeros(len(model_fit))
-    # beta_0 = np.zeros(len(model_fit))
-    # if isinstance(model_fit[0]['beta_1'],np.ndarray):
-    #     beta_1 = np.zeros((len(model_fit),len(model_fit[0]['beta_1'])))
-    # else:
-    #     beta_1 = np.zeros((len(model_fit),1))
-    # rsq = np.zeros(len(model_fit))
-    # rsq_null = np.zeros(len(model_fit))
-    # stat = np.zeros( (len(model_fit), np.shape(model_fit[0]['stat'])[0] ) )
-    # success = []
-    # for i in range(len(model_fit)):
-    #     tau[i] = model_fit[i]['tau']
-    #     phi[i] = model_fit[i]['phi']
-    #     beta_0[i] = model_fit[i]['beta_0']
-    #     beta_1[i,:] = model_fit[i]['beta_1']
-    #     rsq[i] = model_fit[i]['r_sq']
-    #     # rsq_null[i] = model_fit[i]['r_sq_null']
-    #     for j in range(np.shape(model_fit[0]['stat'])[0]):
-    #         stat[i,j] = model_fit[i]['stat'][j][1]
-    #     success.append(model_fit[i]['success'])
-    # fit_dict['tau'] = tau
-    # fit_dict['phi'] = phi
-    # fit_dict['beta_0'] = beta_0
-    # fit_dict['beta_1'] = beta_1
-    # fit_dict['rsq'] = rsq
-    # # fit_dict['rsq_null'] = rsq_null
-    # fit_dict['stat'] = stat
-    # # fit_dict['success'] = success
-    # return fit_dict
+
+def unroll_model_fit_stats(model_fit):
+    # takes model_fit list and unrolls specified nested dicts
+    import copy
+    # unroll_keys = ['cc', 'r_sq']
+    model_fit_un = copy.deepcopy(model_fit)
+    reg_labels = list(model_fit_un[0]['cc'].keys())
+    for j in range(len(reg_labels)):
+        for n in range(len(model_fit_un)):
+            model_fit_un[n][reg_labels[j]+'_cc'] = np.array(model_fit_un[n]['cc'][reg_labels[j]])
+            model_fit_un[n]['stat'][reg_labels[j]+'_cc'] = model_fit_un[n]['stat'][reg_labels[j]]
+    return model_fit_un
 
 
 def show_param_scatter(model_fit, data_dict, param_name, pval=.01):
     f = get_model_fit_as_dict(model_fit)
     param = f[param_name]
-    rsq = f['rsq']
-    rsq_null = f['rsq_null']
-    stat = f['stat']
+    rsq = f['r_sq']
+    stat = np.zeros(len(param))
+    for i in range(len(param)):
+        stat[i] = f['stat'][i][param_name][0][1]
     success = f['success']
 
     if(param_name=='phi'): 
-        param /= data_dict['scanRate'] 
+        param = param/data_dict['scanRate']
         label = 'Phase (s)'
     elif(param_name=='beta_0'): 
         label = r'$\beta_0$'
 
     pval_text = pval #0.01
-    sig = (stat<pval)*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
-    # sig_text = (stat<pval_text)*(rsq>rsq_null) # 1-sided test that behavior model > null model
+    sig = (stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
     param_sig = param[success*sig]
     param_notsig = param[np.logical_not(success*sig)]
     rsq_sig = rsq[success*sig]
     rsq_notsig = rsq[np.logical_not(success*sig)]
-    # tau_is_pos_sig = tau_is_pos[success*sig]
-    # tau_is_neg_sig = np.logical_not(tau_is_pos_sig)
-    
-    # print('median tau of significant cells = '+str(np.median(tau_sig)))
-    # print('frac of significant cells w/ tau above 60s = '+str( np.sum(tau_sig>60)/len(tau_sig) ))
-    # print('fraction of cells with p<'+str(pval)+' = '+str( (success*sig).sum()/len(success) ))
 
     plt.figure(figsize=(5, 5))
     left, width = 0.1, 0.65
@@ -1379,11 +1355,12 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
         for i in range(len(model_fit)):
             if np.isnan(plot_field_idx):
                 color_data[i] = model_fit[i][plot_field]
-                sig.append( model_fit[i]['stat'][plot_field][1]<pval ) # 1-sided test that behavior model > null model
+                sig.append( model_fit[i]['stat'][plot_field][0][1]<pval ) # 1-sided test that behavior model > null model
             else:
                 color_data[i] = model_fit[i][plot_field][plot_field_idx]
                 sig.append( model_fit[i]['stat'][plot_field][plot_field_idx][1]<pval ) # 1-sided test that behavior model > null model
-                
+        if (plot_field=='tau') or (plot_field=='tau_feed'): color_data = np.log10(color_data)
+
         # sig cleanup
         not_sig = np.logical_not(sig)
         sig = np.flatnonzero(sig) #.tolist()
@@ -1462,7 +1439,7 @@ def convert_plot_param_to_plot_field(plot_param, model_fit, data_dict):
     # mapper to sort different kinds of behavior so plots are grouped correctly
     if type(plot_param) is list:
         plot_field = plot_param[0]
-        if plot_field=='beta_0':
+        if (plot_field=='beta_0') or (plot_field=='beta_0_cc'):
             #behavior can be running or flailing. plot_param[1] is meant to be 0 if running and 1 if flailing.
             #For datasets with only feeding and flailing, there's only one trial, but needs to go with 1s
             data_tmp = model_fit[0][plot_field]
@@ -1500,7 +1477,25 @@ def convert_plot_param_to_plot_field(plot_param, model_fit, data_dict):
     return plot_field, plot_field_idx
 
 
-def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param, cmap, color_lims_scale, pval=0.01, sort_by=[]):
+def generate_color_data_from_model_fit(model_fit, plot_field, plot_field_idx, pval):
+    # generate color_data from model_fit
+    color_data = np.zeros(len(model_fit))
+    sig = [] # significance threshold
+    for i in range(len(model_fit)):
+        if model_fit[i]['success']:
+            if np.isnan(plot_field_idx):
+                color_data[i] = np.squeeze(model_fit[i][plot_field]) #model_fit[i][plot_field]
+                sig.append( model_fit[i]['stat'][plot_field][0][1]<pval ) # 1-sided test that behavior model > null model
+            else:
+                color_data[i] = model_fit[i][plot_field][plot_field_idx]
+                sig.append( model_fit[i]['stat'][plot_field][plot_field_idx][1]<pval ) # 1-sided test that behavior model > null model
+        else:
+            color_data[i] = np.nan
+            sig.append( False )
+    return color_data, sig
+
+
+def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param, cmap, color_lims_params, pval=0.01, sort_by=[]):
     """
     Plot map of cells for many datasets, colorcoded by desired quantity
 
@@ -1524,6 +1519,47 @@ def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param
     height_width_ratio = dims_in_um[1]/dims_in_um[0]
     NF = len(data_dict_tot)
 
+    if isinstance(color_lims_params[0],str):
+        color_lims_scale = color_lims_params[1]
+        if color_lims_params[0]=='static':
+            color_lims_are_static = True
+            color_lims_master = [np.inf,-np.inf]
+        elif color_lims_params[0]=='global':
+            color_lims_are_static = True
+            color_lims_master = color_lims_params[1]
+        elif color_lims_params[0]=='dynamic':
+            color_lims_are_static = False
+    else:
+        color_lims_scale = color_lims_params
+        color_lims_are_static = False
+
+
+
+    # FINISH THIS LOOP BELOW AND MOVE TO SEPARATE FUNCTION.  ** ALSO ** FIX REFERNCE TO COLOR LIMS IN MAIN LOOP BELOW
+
+    # find static color lims, if desired
+    if color_lims_are_static:
+        if color_lims_params[0]=='static':
+            for nf in range(NF):
+                data_dict = data_dict_tot[nf]['data_dict']
+                model_fit = model_fit_tot[nf]
+                plot_field, plot_field_idx = convert_plot_param_to_plot_field(plot_param, model_fit, data_dict)
+                if plot_field_idx is None: continue
+                color_data, sig = generate_color_data_from_model_fit(model_fit, plot_field, plot_field_idx, pval)
+                # sig cleanup
+                not_sig = np.logical_not(sig)
+                sig = np.flatnonzero(sig) #.tolist()
+                not_sig = np.flatnonzero(not_sig) #.tolist()
+
+                # get color bounds
+                if color_lims_scale[0]<0:
+                    color_lims = [abs(color_lims_scale[0])*min(min(color_data[sig]),-max(color_data[sig])),
+                                      color_lims_scale[1]*max(-min(color_data[sig]),max(color_data[sig]))]
+                else:
+                    color_lims = [color_lims_scale[0]*min(color_data[sig]), color_lims_scale[1]*max(color_data[sig])]
+                color_lims_master = ( np.min((color_lims_master[0],color_lims[0])), np.max((color_lims_master[1],color_lims[1])) )
+
+            
     # # square version
     # n_cols = int(np.ceil(np.sqrt(NF)))
     # n_rows = n_cols
@@ -1549,20 +1585,7 @@ def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param
         if plot_field_idx is None: continue
 
         # generate color_data from model_fit
-        color_data = np.zeros(len(model_fit))
-        sig = [] # significance threshold
-        for i in range(len(model_fit)):
-            if model_fit[i]['success']:
-                if np.isnan(plot_field_idx):
-                    color_data[i] = model_fit[i][plot_field]
-                    sig.append( model_fit[i]['stat'][plot_field][1]<pval ) # 1-sided test that behavior model > null model
-                else:
-                    color_data[i] = model_fit[i][plot_field][plot_field_idx]
-                    sig.append( model_fit[i]['stat'][plot_field][plot_field_idx][1]<pval ) # 1-sided test that behavior model > null model
-            else:
-                color_data[i] = np.nan
-                sig.append( False )
-
+        color_data, sig = generate_color_data_from_model_fit(model_fit, plot_field, plot_field_idx, pval)
                 
         # sig cleanup
         not_sig = np.logical_not(sig)
@@ -1570,11 +1593,14 @@ def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param
         not_sig = np.flatnonzero(not_sig) #.tolist()
 
         # get color bounds
-        if color_lims_scale[0]<0:
-            color_lims = [abs(color_lims_scale[0])*min(min(color_data[sig]),-max(color_data[sig])),
-                              color_lims_scale[1]*max(-min(color_data[sig]),max(color_data[sig]))]
+        if color_lims_are_static:
+            color_lims = color_lims_master
         else:
-            color_lims = [color_lims_scale[0]*min(color_data[sig]), color_lims_scale[1]*max(color_data[sig])]
+            if color_lims_scale[0]<0:
+                color_lims = [abs(color_lims_scale[0])*min(min(color_data[sig]),-max(color_data[sig])),
+                                  color_lims_scale[1]*max(-min(color_data[sig]),max(color_data[sig]))]
+            else:
+                color_lims = [color_lims_scale[0]*min(color_data[sig]), color_lims_scale[1]*max(color_data[sig])]
 
         # optional: reorder list for consistent occlusion. options: {'z', 'val', 'inv_val'}. If empty, default is order of ROI ID
         if sort_by:
@@ -1608,6 +1634,7 @@ def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param
         scaleBar_um = 50 #50 um
         bar_color = 'w'
         ax[i,j].plot( template_dims[1]*.97-(scaleBar_um*ypx_per_um,0), (template_dims[0]*.93, template_dims[0]*.93),bar_color)
+
 
         
 
@@ -1708,7 +1735,7 @@ def trim_dynamic_range(data,q_min,q_max):
     return data
 
 
-def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,include_dlc=False,num_cells=[],time_lims=[]):
+def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,include_dlc=False,num_cells=[],time_lims=[],slice_time=None,title='Raw'):
     if(include_dlc):
         import matplotlib.pylab as pl
         f, axes = plt.subplots(10,1,gridspec_kw={'height_ratios':[12,1,1,1,1,1,1,1,1,2]},figsize=(10.5, 9))
@@ -1725,10 +1752,24 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
 
     tPl = data_dict['tPl']
     behavior = data_dict['ball']
+    trial_flag = data_dict['trialFlag']
+    U = np.unique(trial_flag)
+    NT = len(U)
+    if slice_time:
+        tPl = tPl[slice_time]
+        behavior = behavior[slice_time]
+        trial_flag = trial_flag[slice_time]
     if include_dlc:
         dlc = data_dict['dlc']
+        if slice_time:
+            dlc = dlc[slice_time]
     if include_feeding:
         feed = data_dict['drink']
+        stim = data_dict['stim']
+        if slice_time:
+            feed = feed[slice_time]
+            stim = stim[slice_time]
+
 
     if num_cells:
         dFF = dFF[:num_cells,:]
@@ -1737,16 +1778,18 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
         dFF = dFF[:,time_lims[0]:time_lims[1]]
         tPl = tPl[time_lims[0]:time_lims[1]]
         behavior = behavior[time_lims[0]:time_lims[1]]
+        trial_flag = trial_flag[time_lims[0]:time_lims[1]]
         if include_dlc:
             dlc = dlc[time_lims[0]:time_lims[1],:]
         if include_feeding:
             feed = feed[time_lims[0]:time_lims[1]]
+            stim = stim[time_lims[0]:time_lims[1]]
         
     im = axes[0].imshow(
         dFF, aspect='auto', 
         cmap='inferno', vmin=cmin, vmax=cmax)
     plt.sca(axes[0])
-    plt.title('Raw')
+    plt.title(title)
     axes[0].set_xlim([0,len(behavior)])
     plt.xticks([])
     plt.ylabel('Neuron')
@@ -1771,12 +1814,25 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
     
 
     plt.sca(axes[-1])
-    axes[-1].plot(tPl,behavior,'k')
-    axes[-1].set_xlim([min(tPl),max(tPl)])
     if(include_feeding):
-        axes[-1].plot(tPl,feed*max(behavior),'c')
+        for i in range(NT):
+            is_this_trial = np.squeeze(trial_flag==U[i])
+            behav_this_trial = behavior[is_this_trial]
+            time_this_trial = tPl[is_this_trial]
+            if i==1:
+                axes[-1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
+            elif (i==2) and (NT==4):
+                axes[-1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
+            else:
+                axes[-1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'k')
+
+        axes[-1].set_xlim([min(tPl),max(tPl)])
+        axes[-1].plot(tPl,stim,'c:',alpha=0.6)
+        axes[-1].plot(tPl,feed,'c',alpha=0.7)
         axes[-1].set_ylabel('feeding\nlocomotion')
     else:
+        axes[-1].plot(tPl,behavior,'k')
+        axes[-1].set_xlim([min(tPl),max(tPl)])
         axes[-1].set_ylabel('ball\n')
     axes[-1].set_yticks([])
     plt.xlabel('Time (s)')
@@ -1927,9 +1983,78 @@ def show_maps_for_avg_traces(dict_tot, example_array_tot):
             
 
 
-def display_cmap(cmap):
-    plt.imshow(np.linspace(0, 100, 256)[None, :],  aspect=25,    interpolation='nearest', cmap=cmap) 
-    plt.axis('off')
+
+def show_activity_traces(model_fit, data_dict, plot_param, n_ex, slice_time=None):
+    """
+    plot_param: param for sorting, in format [['partial_reg', idx]] or  'full_reg'
+    n_ex: number of examples.  n_ex>0 gives largest, n_ex<0 gives smallest, n_ex=0 GIVES AVG of everything
+    """
+    from matplotlib.gridspec import GridSpec
+    scanRate = data_dict['scanRate']
+    dFF = data_dict['dFF'] #trim_dynamic_range(data_dict['dFF'], 0.01, 0.95)
+
+    f = get_model_fit_as_dict(model_fit)
+    if type(plot_param) is list:
+        param = f[plot_param[0]][:,plot_param[1]]
+        ttl = plot_param[0]+'_'+str(plot_param[1])+' Ex:'+str(n_ex)
+    else:
+        param = f[plot_param]
+        ttl = plot_param+' Ex:'+str(n_ex)
+    s = np.argsort(param)[::-1]
+
+    # pdb.set_trace()
+    if isinstance(n_ex, list):
+        num_ex = n_ex[1]
+        start_ex = n_ex[0]
+    else:
+        num_ex = n_ex
+        start_ex = 0
+    if num_ex>0:
+        traces = dFF[s[start_ex:start_ex+num_ex],:]
+        print(s[:num_ex])
+    elif num_ex<0:
+        if not start_ex:
+            traces = dFF[s[start_ex+num_ex:],:]
+            print(s[num_ex:])
+        else:
+            traces = dFF[s[start_ex+num_ex:start_ex],:]
+            # print(s[num_ex:])
+    else:
+        traces = np.expand_dims( dFF.mean(axis=0), axis=0)
+
+    tPl = data_dict['tPl']
+    behavior = data_dict['behavior']
+    feed = data_dict['drink']
+    stim = data_dict['stim']
+    if slice_time:
+        tPl = tPl[slice_time]
+        behavior = behavior[slice_time]
+        feed = feed[slice_time]
+        stim = stim[slice_time]
+
+    fig = plt.figure(figsize=(14,5))
+    gs = GridSpec(2,1, height_ratios=[3.,1.],hspace=.05)
+
+    axes = fig.add_subplot(gs[0])
+    axes.plot(tPl, traces.T)
+    axes.set_xlim([min(tPl),max(tPl)])
+    axes.spines['top'].set_visible(False)
+    axes.spines['bottom'].set_visible(False)
+    axes.spines['right'].set_visible(False)
+    axes.set_title(ttl)
+    
+    axes = fig.add_subplot(gs[1])
+    axes.plot(tPl, behavior, 'k')
+    axes.plot(tPl, stim, 'k', alpha=0.3)
+    axes.plot(tPl, feed, 'c',alpha=0.7)
+    axes.set_xlim([min(tPl),max(tPl)])
+    axes.set_ylabel('feeding\nlocomotion')
+    axes.spines['top'].set_visible(False)
+    axes.spines['right'].set_visible(False)
+    axes.set_yticks([])
+    axes.set_xlabel('Time (s)')
+
+
 
 
 def make_hot_without_black(clrs=100, low_bnd=0.15):
@@ -1945,8 +2070,16 @@ def cold_to_hot_cmap(show_map=False):
     basic_cols=['#95d0fc', (.2,.2,.2), '#ff474c'] #   #03012d, #363737
     my_cmap=LinearSegmentedColormap.from_list('mycmap', basic_cols)
     if show_map:
-        plt.figure(figsize=(5,0.25))
-        plt.imshow(np.expand_dims(np.arange(100),axis=0),cmap=my_cmap,aspect='auto')
-        plt.axis('off')
+        display_cmap(my_cmap)
         plt.show()
     return my_cmap
+
+
+def display_cmap(my_cmap):
+    plt.figure(figsize=(5,0.25))
+    plt.imshow(np.linspace(0, 100, 256)[None, :], interpolation='nearest', cmap=my_cmap, aspect='auto')
+    plt.axis('off')
+    # plt.show()
+
+
+

@@ -29,7 +29,7 @@ import matplotlib.pylab as pl
 from sklearn.decomposition import PCA, FastICA
 from sklearn.mixture import GaussianMixture
 from sklearn.cluster import AgglomerativeClustering
-from sklearn.linear_model import Ridge, LinearRegression
+from sklearn.linear_model import Ridge, LinearRegression, ElasticNet
 from sklearn.metrics import r2_score
 # from skimage.restoration import denoise_tv_chambolle
 
@@ -37,6 +37,7 @@ import data as dataUtils
 import regression_model as model
 #import plotting
 #import flygenvectors.ssmutils as utils
+
 
 print('imports complete')
 sys.stdout.flush() 
@@ -70,16 +71,16 @@ sys.stdout.flush()
 
 
 ## FIT MODEL
-ro = model.reg_obj()
+ro = model.reg_obj(activity='dFF')
+ro.elasticNet = True
 ro.data_dict = data_dict
-ro.fit_reg_model_full_likelihood()
+ro.data_dict['dFF'] = ro.normalize_rows(ro.data_dict['dFF'])
+
+ro.params['split_behav'] = True
+ro.fit_reg_model_MLE()
+ro.evaluate_reg_model_extended()
+#ro.fit_reg_model_full_likelihood()
 
 
 ## SAVE OUTPUT
-#np.savez( main_dir+'/output/'+expt_id+'_reg_model.npz', P_tot=ro.P_tot, obj_tot=ro.obj_tot )
-np.save( main_dir+'/output/'+expt_id+'_reg_model_P_tot_alpha_01.npy', ro.P_tot['alpha_01'])
-np.save( main_dir+'/output/'+expt_id+'_reg_model_P_tot_trial.npy', ro.P_tot['trial'])
-np.save( main_dir+'/output/'+expt_id+'_reg_model_obj_tot.npy', ro.obj_tot)
-
-#model_fit_tot = {'P_tot':ro.P_tot,'obj_tot':ro.obj_tot}
-#pickle.dump( model_fit_tot, open( main_dir+'/output/'+expt_id+'_reg_model.pkl', "wb" ) )
+pickle.dump( ro.model_fit, open( main_dir+'/output/'+expt_id +'_'+ro.activity+'_gauss_elnet_reg_model.pkl', "wb" ) )
