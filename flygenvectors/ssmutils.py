@@ -540,7 +540,8 @@ def k_step_ll(model, datas, k_max):
     return k_step_lls
 
 
-def k_step_r2(model, datas, k_max, n_samp=10, with_noise=True, return_type='per_batch_r2'):
+def k_step_r2(
+        model, datas, k_max, n_samp=10, obs_noise=True, disc_noise=True, return_type='total_r2'):
     """Determine the k-step ahead r2.
 
     Args:
@@ -548,7 +549,10 @@ def k_step_r2(model, datas, k_max, n_samp=10, with_noise=True, return_type='per_
         datas:
         k_max:
         n_samp:
-        with_noise:
+        obs_noise: bool
+            turn observation noise on/off
+        disc_noise: bool
+            turn discrete state sampling on/off
         return_type:
             'per_batch_r2'
             'total_r2'
@@ -580,19 +584,38 @@ def k_step_r2(model, datas, k_max, n_samp=10, with_noise=True, return_type='per_
         x_true_all = data[L + k_max - 1: T + 1]
         x_pred_all = np.zeros((n_samp, (T - 1), D, k_max))
 
-        # zs = model.most_likely_states(data)
+        if not disc_noise:
+            zs = model.most_likely_states(data)
+            inputs = np.zeros((T,) + (model.observations.M,))
 
         # collect sampled data
         for t in range(L - 1, T):
             # find the most likely discrete state at time t based on its past
-            zs = model.most_likely_states(data[:t + 1])[-L:]
+            if disc_noise:
+                data_t = data[:t + 1]
+                zs = model.most_likely_states(data_t)[-L:]
+            else:
+                pass
+
             # sample forward in time n_samp times
             for n in range(n_samp):
                 # sample forward in time k_max steps
-                _, x_pred = model.sample(
-                    k_max, prefix=(zs, data[t - L + 1:t + 1]), with_noise=with_noise)
-                # _, x_pred = model.sample(
-                #     k_max, prefix=(zs[t-L+1:t+1], data[t-L+1:t+1]), with_noise=False)
+                if disc_noise:
+                    _, x_pred = model.sample(
+                        k_max, prefix=(zs, data_t[-L:]), with_noise=obs_noise)
+                else:
+                    pad = L
+                    x_pred = np.concatenate((data[t - L + 1:t + 1], np.zeros((k_max, D))))
+                    for k in range(pad, pad + k_max):
+                        if t + 1 + k - pad < T:
+                            x_pred[k, :] = model.observations.sample_x(
+                                zs[t + 1 + k - pad], x_pred[:k], input=inputs[t], tag=None,
+                                with_noise=obs_noise)
+                        else:
+                            # beyond the end of the data sample; return zeros
+                            pass
+                    x_pred = x_pred[pad:]
+
                 # predicted x values in the forward prediction time
                 x_pred_all[n, t - L + 1, :, :] = np.transpose(x_pred)[None, None, :, :]
 
