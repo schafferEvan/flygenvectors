@@ -173,6 +173,12 @@ def fit_model(
             data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr, method='stochastic_em',
             initialize=False, **opt_kwargs)
 
+    elif fit_method == 'stochastic_em_conj':
+
+        lps = model.fit(
+            data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr, method='stochastic_em_conj',
+            initialize=False, **opt_kwargs)
+
     else:
         raise NotImplementedError('"%s is not a valid fit method' % fit_method)
 
@@ -182,11 +188,14 @@ def fit_model(
 
     # sort states by usage
     inputs_tr = [None] * len(data_tr) if inputs_tr is None else inputs_tr
-    states_tr = [model.most_likely_states(x, u) for x, u in zip(data_tr, inputs_tr)]
+    tags_tr = [None] * len(data_tr) if tags_tr is None else tags_tr
+    states_tr = [
+        model.most_likely_states(x, u, tag=t) for x, u, t in zip(data_tr, inputs_tr, tags_tr)]
     usage = np.bincount(np.concatenate(states_tr), minlength=n_states)
     model.permute(np.argsort(-usage))
     if save_tr_states:
-        states_tr = [model.most_likely_states(x, u) for x, u in zip(data_tr, inputs_tr)]
+        states_tr = [
+            model.most_likely_states(x, u, tag=t) for x, u, t in zip(data_tr, inputs_tr, tags_tr)]
     else:
         states_tr = []
 
@@ -261,9 +270,16 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
     elif init_type == 'arhmm':
 
         D_ = 4
-        pca = PCA(D_)
-        xs = pca.fit_transform(np.vstack(datas))
-        xs = np.split(xs, np.cumsum(Ts)[:-1])
+        if datas[0].shape[1] > D_:
+            # perform pca
+            pca = PCA(D_)
+            xs = pca.fit_transform(np.vstack(datas))
+            xs = np.split(xs, np.cumsum(Ts)[:-1])
+        else:
+            # keep original data
+            import copy
+            D_ = D
+            xs = copy.deepcopy(datas)
 
         model_init = HMM(
             K=2, D=D_, M=0, transitions='standard', observations='ar',
@@ -387,13 +403,21 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
 
             # Solve the linear regression
             coef_, intercept_, Sigma = fit_linear_regression(Xs, ys)
-            model.observations.As[k] = coef_[:, :D * lags]
-            model.observations.Vs[k] = coef_[:, D * lags:]
-            model.observations.bs[k] = intercept_
+            if str(model.observations.__class__).find('Hierarchical') > -1:
+                model.observations.global_ar_model.As[k] = coef_[:, :D * lags]
+                model.observations.global_ar_model.Vs[k] = coef_[:, D * lags:]
+                model.observations.global_ar_model.bs[k] = intercept_
+            else:
+                model.observations.As[k] = coef_[:, :D * lags]
+                model.observations.Vs[k] = coef_[:, D * lags:]
+                model.observations.bs[k] = intercept_
             Sigmas.append(Sigma)
 
         # Set the variances all at once to use the setter
-        model.observations.Sigmas = np.array(Sigmas)
+        if str(model.observations.__class__).find('Hierarchical') > -1:
+            model.observations.global_ar_model.Sigmas = np.array(Sigmas)
+        else:
+            model.observations.Sigmas = np.array(Sigmas)
 
 
 # -------------------------------------------------------------------------------------------------
