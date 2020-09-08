@@ -901,20 +901,22 @@ def get_model_fit_as_dict(model_fit):
 def unroll_model_fit_stats(model_fit):
     # takes model_fit list and unrolls specified nested dicts
     import copy
-    # unroll_keys = ['cc', 'r_sq']
+    unroll_keys = ['cc', 'r_sq']
     model_fit_un = copy.deepcopy(model_fit)
-    reg_labels = list(model_fit_un[0]['cc'].keys())
-    for j in range(len(reg_labels)):
-        for n in range(len(model_fit_un)):
-            model_fit_un[n][reg_labels[j]+'_cc'] = np.array(model_fit_un[n]['cc'][reg_labels[j]])
-            model_fit_un[n]['stat'][reg_labels[j]+'_cc'] = model_fit_un[n]['stat'][reg_labels[j]]
+    for key in unroll_keys:
+        reg_labels = list(model_fit_un[0][key].keys())
+        for j in range(len(reg_labels)):
+            for n in range(len(model_fit_un)):
+                model_fit_un[n][reg_labels[j]+'_'+key] = np.array(model_fit_un[n][key][reg_labels[j]])
+                if key=='cc':
+                    model_fit_un[n]['stat'][reg_labels[j]+'_'+key] = model_fit_un[n]['stat'][reg_labels[j]]
     return model_fit_un
 
 
 def show_param_scatter(model_fit, data_dict, param_name, pval=.01):
     f = get_model_fit_as_dict(model_fit)
     param = f[param_name]
-    rsq = f['r_sq']
+    rsq = f['tot_r_sq']
     stat = np.zeros(len(param))
     for i in range(len(param)):
         stat[i] = f['stat'][i][param_name][0][1]
@@ -925,6 +927,10 @@ def show_param_scatter(model_fit, data_dict, param_name, pval=.01):
         label = 'Phase (s)'
     elif(param_name=='beta_0'): 
         label = r'$\beta_0$'
+    elif(param_name=='tau_feed'):
+        label = r'$\tau_{feed}$'
+    else:
+        label=param_name
 
     pval_text = pval #0.01
     sig = (stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
@@ -1495,7 +1501,32 @@ def generate_color_data_from_model_fit(model_fit, plot_field, plot_field_idx, pv
     return color_data, sig
 
 
-def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param, cmap, color_lims_params, pval=0.01, sort_by=[]):
+def apply_alpha_to_color_data(color_data, model_fit, cmap, color_lims, params_for_alpha):
+    # use a second model parameter to control alpha in color_data
+    color_data[color_data>color_lims[1]] = color_lims[1]
+    color_data -= color_lims[0]
+    color_data /= color_data.max()
+    color_data_full = cmap(color_data)
+    alpha_tmp = np.zeros(len(color_data))
+    for i in range(len(color_data)):
+        if model_fit[i]['success']:
+            alpha_tmp[i] = abs(np.squeeze(model_fit[i][params_for_alpha[0]])) #model_fit[i][plot_field]
+        else:
+            alpha_tmp[i] = 0
+    alpha_tmp = (alpha_tmp-alpha_tmp.min())/(alpha_tmp.max()-alpha_tmp.min())
+    if params_for_alpha[1]>0:
+        # positive param gives greater than
+        alpha_tmp[alpha_tmp>params_for_alpha[1]]=1
+        alpha_tmp[alpha_tmp<params_for_alpha[1]]=0
+    else:
+        # negative param gives less than
+        alpha_tmp[alpha_tmp<-params_for_alpha[1]]=1
+        alpha_tmp[alpha_tmp>-params_for_alpha[1]]=0
+    color_data_full[:,-1] = alpha_tmp
+    return color_data_full
+
+
+def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param, cmap, color_lims_params, pval=0.01, sort_by=[], params_for_alpha=None):
     """
     Plot map of cells for many datasets, colorcoded by desired quantity
 
@@ -1503,6 +1534,7 @@ def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param
         data_dict_tot (list): list of dictionaries for each dataset
         model_fit (list): list of dictionaries for each dataset
         color_data_tot (list OR string): if list, 
+        params_for_alpha: optional, bypasses 'sig' option and sets alpha of each point according to another model param. Format ['param_name', thresh_val]
     """
 
     from matplotlib import colors
@@ -1602,6 +1634,10 @@ def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param
             else:
                 color_lims = [color_lims_scale[0]*min(color_data[sig]), color_lims_scale[1]*max(color_data[sig])]
 
+        # set transparency (& saturation) from another model parameter
+        if params_for_alpha is not None:
+            color_data_full = apply_alpha_to_color_data(color_data, model_fit, cmap, color_lims, params_for_alpha)
+
         # optional: reorder list for consistent occlusion. options: {'z', 'val', 'inv_val'}. If empty, default is order of ROI ID
         if sort_by:
             if sort_by=='z':
@@ -1618,11 +1654,18 @@ def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param
         i = round(nf - j*n_rows)
         ax[i,j].set_axis_on()
         ax[i,j].set_aspect(height_width_ratio)
-        if(len(not_sig)):
-            ax[i,j].scatter(data_dict['aligned_centroids'][not_sig,0],
-                        data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(len(not_sig)), cmap=gry, s=point_size)
-        ax[i,j].scatter(data_dict['aligned_centroids'][sig,0],
-                    data_dict['aligned_centroids'][sig,1], c=color_data[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
+        if params_for_alpha is None:
+            # make not_sig points gray and sig points by colormap
+            if(len(not_sig)):
+                ax[i,j].scatter(data_dict['aligned_centroids'][not_sig,0],
+                            data_dict['aligned_centroids'][not_sig,1], c=.5*np.ones(len(not_sig)), cmap=gry, s=point_size)
+            ax[i,j].scatter(data_dict['aligned_centroids'][sig,0],
+                            data_dict['aligned_centroids'][sig,1], c=color_data[sig], cmap=cmap, s=point_size, vmin=color_lims[0], vmax=color_lims[1])
+        else:
+            # make all points gray and overlay points with colormap and alpha
+            ax[i,j].scatter(data_dict['aligned_centroids'][:,0],
+                            data_dict['aligned_centroids'][:,1], c=.5*np.ones(len(color_data)), cmap=gry, s=point_size)
+            ax[i,j].scatter(data_dict['aligned_centroids'][:,0], data_dict['aligned_centroids'][:,1], c=color_data_full, s=point_size)
         ax[i,j].set_facecolor((0.0, 0.0, 0.0))
         ax[i,j].set_xticks([])
         ax[i,j].set_yticks([])
@@ -1635,8 +1678,6 @@ def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param
         bar_color = 'w'
         ax[i,j].plot( template_dims[1]*.97-(scaleBar_um*ypx_per_um,0), (template_dims[0]*.93, template_dims[0]*.93),bar_color)
 
-
-        
 
 
 
