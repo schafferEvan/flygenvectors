@@ -39,8 +39,16 @@ class Labels(object):
     def load_from_csv(self, filename=None):
         from numpy import genfromtxt
         if filename is None:
-            filename = glob.glob(
-                os.path.join(self.base_data_dir, self.expt_id, '*DeepCut*.csv'))[0]
+            if self.algo == 'dlc':
+                filename = glob.glob(
+                    os.path.join(self.base_data_dir, self.expt_id, '*DeepCut*.csv'))[0]
+            elif self.algo == 'dgp':
+                filename = os.path.join(
+                    self.base_data_dir, 'behavior', 'labels',
+                    'resnet-50_ws=%1.1e_wt=%1.1e' % (0, 0),
+                    self.expt_id + '_labeled.csv')
+            else:
+                raise NotImplementedError
         if self.verbose:
             print('loading labels from %s...' % filename, end='')
         dlc = genfromtxt(filename, delimiter=',', dtype=None, encoding=None)
@@ -110,6 +118,31 @@ class Labels(object):
         if self.verbose:
             print('done')
             print('total time points: %i' % self.labels['x'].shape[0])
+
+    def load_from_h5(self, filename=None):
+        """Load from h5 output by DGP."""
+        import h5py
+
+        if filename is None:
+            filename = os.path.join(
+                self.base_data_dir, 'behavior', 'labels',
+                'resnet-50_ws=%1.1e_wt=%1.1e' % (0, 0),
+                self.expt_id + '_labeled.h5')
+
+        if self.verbose:
+            print('loading labels from %s...' % filename, end='')
+
+        with h5py.File(file, 'r') as f:
+            t = f['df_with_missing']['table'][()]
+        l = np.concatenate([t[i][1][None, :] for i in range(len(t))])
+
+        self.labels['x'] = l[:, 0::3]
+        self.labels['y'] = l[:, 1::3]
+        self.labels['l'] = l[:, 2::3]
+
+        if self.verbose:
+            print('done')
+            print('total time points: %i' % dlc.shape[0])
 
     def preprocess(self, preproc_dict):
         self.preproc = copy.deepcopy(preproc_dict)
