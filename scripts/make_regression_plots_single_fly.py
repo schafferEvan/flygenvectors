@@ -144,7 +144,14 @@ def run_all(input_dict=None):
     param_list=['beta_0','phi']
     for i in range(len(param_list)):
         param = param_list[i]
-        plotting.show_param_scatter(ro.model_fit, ro.data_dict, param)
+        try:
+            # new format
+            model_fit_unrolled = plotting.unroll_model_fit_stats(ro.model_fit)
+            plotting.show_param_scatter(model_fit_unrolled, ro.data_dict, param)
+        except:
+            # old format
+            plotting.show_param_scatter(ro.model_fit, ro.data_dict, param)
+
         plt.savefig(regfig_folder + exp_date + '_' + fly_num +'_'+ro.activity+'_gauss_ols_'+param+'Scatter.pdf',transparent=True, bbox_inches='tight')
         plt.close('all')
 

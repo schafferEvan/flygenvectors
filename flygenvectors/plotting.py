@@ -2025,7 +2025,7 @@ def show_maps_for_avg_traces(dict_tot, example_array_tot):
 
 
 
-def show_activity_traces(model_fit, data_dict, plot_param, n_ex, slice_time=None):
+def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding=False, slice_time=None):
     """
     plot_param: param for sorting, in format [['partial_reg', idx]] or  'full_reg'
     n_ex: number of examples.  n_ex>0 gives largest, n_ex<0 gives smallest, n_ex=0 GIVES AVG of everything
@@ -2067,11 +2067,13 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, slice_time=None
     behavior = data_dict['behavior']
     feed = data_dict['drink']
     stim = data_dict['stim']
+    trial_flag = data_dict['trialFlag']
     if slice_time:
         tPl = tPl[slice_time]
         behavior = behavior[slice_time]
         feed = feed[slice_time]
         stim = stim[slice_time]
+        trial_flag = trial_flag[slice_time]
 
     fig = plt.figure(figsize=(14,5))
     gs = GridSpec(2,1, height_ratios=[3.,1.],hspace=.05)
@@ -2082,12 +2084,29 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, slice_time=None
     axes.spines['top'].set_visible(False)
     axes.spines['bottom'].set_visible(False)
     axes.spines['right'].set_visible(False)
+    axes.set_ylabel(r'$\Delta F/F$')
     axes.set_title(ttl)
     
     axes = fig.add_subplot(gs[1])
-    axes.plot(tPl, behavior, 'k')
-    axes.plot(tPl, stim, 'k', alpha=0.3)
-    axes.plot(tPl, feed, 'c',alpha=0.7)
+
+    if not include_feeding:
+        axes.plot(tPl, behavior, 'k')
+    else:
+        U = np.unique(trial_flag)
+        NT = len(U)
+        for i in range(NT):
+            is_this_trial = np.squeeze(trial_flag==U[i])
+            behav_this_trial = behavior[is_this_trial]
+            time_this_trial = tPl[is_this_trial]
+            if i==1:
+                axes.plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
+            elif (i==2) and (NT==4):
+                axes.plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
+            else:
+                axes.plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'k')
+        axes.plot(tPl, stim, 'k', alpha=0.3)
+        axes.plot(tPl, feed, 'c',alpha=0.7)    
+    
     axes.set_xlim([min(tPl),max(tPl)])
     axes.set_ylabel('feeding\nlocomotion')
     axes.spines['top'].set_visible(False)
