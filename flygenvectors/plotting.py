@@ -1792,7 +1792,7 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
         cmin, cmax = color_range
 
     tPl = data_dict['tPl']
-    behavior = data_dict['ball']
+    behavior = data_dict['behavior']
     trial_flag = data_dict['trialFlag']
     U = np.unique(trial_flag)
     NT = len(U)
@@ -1868,8 +1868,10 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
                 axes[-1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'k')
 
         axes[-1].set_xlim([min(tPl),max(tPl)])
-        axes[-1].plot(tPl,stim,'c:',alpha=0.6)
-        axes[-1].plot(tPl,feed,'c',alpha=0.7)
+        axes[-1].plot(tPl, stim, color='darkviolet', alpha=0.7)
+        axes[-1].plot(tPl, feed, color='royalblue',alpha=0.8)
+        # axes[-1].plot(tPl,stim,'c:',alpha=0.6)
+        # axes[-1].plot(tPl,feed,'c',alpha=0.7)
         axes[-1].set_ylabel('feeding\nlocomotion')
     else:
         axes[-1].plot(tPl,behavior,'k')
@@ -2068,12 +2070,17 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding
     feed = data_dict['drink']
     stim = data_dict['stim']
     trial_flag = data_dict['trialFlag']
+    if 'sucrose_touch' in data_dict: 
+        s1 = next(x for x, val in enumerate(data_dict['sucrose_touch']) if val > 0) 
+        sucrose_touch = np.zeros(data_dict['sucrose_touch'].shape)
+        sucrose_touch[s1:s1+10] = 1
     if slice_time:
         tPl = tPl[slice_time]
         behavior = behavior[slice_time]
         feed = feed[slice_time]
         stim = stim[slice_time]
         trial_flag = trial_flag[slice_time]
+        if 'sucrose_touch' in data_dict: sucrose_touch = sucrose_touch[slice_time]
 
     fig = plt.figure(figsize=(14,5))
     gs = GridSpec(2,1, height_ratios=[3.,1.],hspace=.05)
@@ -2104,8 +2111,10 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding
                 axes.plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
             else:
                 axes.plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'k')
-        axes.plot(tPl, stim, 'k', alpha=0.3)
-        axes.plot(tPl, feed, 'c',alpha=0.7)    
+        if 'sucrose_touch' in data_dict:
+            axes.plot(tPl, sucrose_touch, '--', color='darkgreen', alpha=0.7)
+        axes.plot(tPl, stim, color='darkviolet', alpha=0.7)
+        axes.plot(tPl, feed, color='royalblue',alpha=0.8)
     
     axes.set_xlim([min(tPl),max(tPl)])
     axes.set_ylabel('feeding\nlocomotion')

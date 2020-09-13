@@ -414,7 +414,7 @@ class reg_obj:
         self.refresh_params()
         data_dict = self.data_dict
         tauList = self.tauList.copy()
-        if data_dict['drink'].max()>0
+        if data_dict['drink'].max()>0:
             tauList_feed = self.tauList_feed.copy()
         else:
             tauList_feed = [0]
