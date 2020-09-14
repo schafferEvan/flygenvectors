@@ -132,7 +132,7 @@ class Labels(object):
         if self.verbose:
             print('loading labels from %s...' % filename, end='')
 
-        with h5py.File(file, 'r') as f:
+        with h5py.File(filename, 'r') as f:
             t = f['df_with_missing']['table'][()]
         l = np.concatenate([t[i][1][None, :] for i in range(len(t))])
 
@@ -142,7 +142,7 @@ class Labels(object):
 
         if self.verbose:
             print('done')
-            print('total time points: %i' % dlc.shape[0])
+            print('total time points: %i' % l.shape[0])
 
     def preprocess(self, preproc_dict):
         self.preproc = copy.deepcopy(preproc_dict)
@@ -316,7 +316,7 @@ def preprocess_and_split_data(
         elif load_from == 'pkl':
             label_obj[n].load_from_pkl()  # summer 2020 dgp labels
         elif load_from == 'h5':
-            raise NotImplementedError  # up-to-date dgp labels
+            label_obj[n].load_from_h5()  # up-to-date dgp labels
         else:
             raise NotImplementedError('"%s" is not a valid label file format')
 
