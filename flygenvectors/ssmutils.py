@@ -164,10 +164,7 @@ def fit_model(
             tags_tr = [None] * n_trials
 
         if opt_kwargs is None:
-            opt_kwargs = {
-                'num_epochs': 150,  # total passes through data
-                'num_steps': 1  # number of optimization steps per data chunk
-            }
+            opt_kwargs = {'num_epochs': 150}  # total passes through data
 
         lps = model.fit(
             data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr, method='stochastic_em',
@@ -222,6 +219,7 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
         for arhmms on the fly data, because the fly is often standing still in many different
         poses. These poses will be assigned to different clusters, thus breaking the "still" state
         into many initial states
+    * init_type = diff-clust: perform kmeans clustering on differenced data
     * init_type = pca_me: first compute the motion energy of the data (square of differences of
         consecutive time points) and then perform PCA. A threshold applied to the first dimension
         does a reasonable job of separating the data into "moving" and "still" timepoints. All
@@ -243,15 +241,32 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
 
     """
 
-    from ssm.regression import fit_linear_regression
+    from ssm.util import one_hot
     from sklearn.cluster import KMeans
     from sklearn.decomposition import PCA
     from scipy.signal import savgol_filter
+    from scipy.stats import norm
 
     Ts = [data.shape[0] for data in datas]
     K = model.K
     D = model.observations.D
+    M = model.observations.M
     lags = model.observations.lags
+
+    if inputs is None:
+        inputs = [np.zeros((data.shape[0],) + (M,)) for data in datas]
+    elif not isinstance(inputs, (list, tuple)):
+        inputs = [inputs]
+
+    if masks is None:
+        masks = [np.ones_like(data, dtype=bool) for data in datas]
+    elif not isinstance(masks, (list, tuple)):
+        masks = [masks]
+
+    if tags is None:
+        tags = [None] * len(datas)
+    elif not isinstance(tags, (list, tuple)):
+        tags = [tags]
 
     # --------------------------
     # initialize discrete states
@@ -265,7 +280,56 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
         km = KMeans(K)
         km.fit(np.vstack(datas))
         zs = np.split(km.labels_, np.cumsum(Ts)[:-1])
-        zs = [z[lags:] for z in zs]
+
+    elif init_type == 'kmeans-diff':
+
+        km = KMeans(K)
+        datas_diff = [np.vstack([np.zeros((1, D)), np.diff(data, axis=0)]) for data in datas]
+        km.fit(np.vstack(datas_diff))
+        zs = np.split(km.labels_, np.cumsum(Ts)[:-1])
+
+    elif init_type == 'kmeans-move':
+
+        D_ = 4
+        if datas[0].shape[1] > D_:
+            # perform pca
+            pca = PCA(D_)
+            xs = pca.fit_transform(np.vstack(datas))
+            xs = np.split(xs, np.cumsum(Ts)[:-1])
+        else:
+            # keep original data
+            import copy
+            D_ = D
+            xs = copy.deepcopy(datas)
+
+        model_init = HMM(
+            K=2, D=D_, M=0, transitions='standard', observations='ar',
+            observations_kwargs={'lags': 1})
+        init_model('pca-me', model_init, xs)
+        model_init.fit(
+            xs, inputs=None, method='em', num_iters=100, tolerance=1e-2,
+            initialize=False, transitions_mstep_kwargs={'optimizer': 'lbfgs', 'tol': 1e-3})
+
+        # make still state 0th state
+        mses = [np.mean(np.square(model_init.observations.As[i] - np.eye(D_))) for i in range(2)]
+        if mses[1] < mses[0]:
+            # permute states
+            model_init.permute([1, 0])
+        moving_state = 1
+
+        inputs_tr = [None] * len(datas)
+        zs = [model_init.most_likely_states(x, u) for x, u in zip(xs, inputs_tr)]
+        zs = np.concatenate(zs, axis=0)
+
+        # cluster moving data
+        km = KMeans(K - 1)
+        if np.sum(zs == moving_state) > K - 1:
+            datas_diff = [np.vstack([np.zeros((1, D)), np.diff(data, axis=0)]) for data in datas]
+            km.fit(np.vstack(datas_diff)[zs == moving_state])
+            zs[zs == moving_state] = km.labels_ + 1
+
+        # split
+        zs = np.split(zs, np.cumsum(Ts)[:-1])
 
     elif init_type == 'arhmm':
 
@@ -302,12 +366,12 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
 
         # cluster moving data
         km = KMeans(K - 1)
-        km.fit(np.vstack(datas)[zs == moving_state])
-        zs[zs == moving_state] = km.labels_ + 1
+        if np.sum(zs == moving_state) > K - 1:
+            km.fit(np.vstack(datas)[zs == moving_state])
+            zs[zs == moving_state] = km.labels_ + 1
 
         # split
         zs = np.split(zs, np.cumsum(Ts)[:-1])
-        zs = [z[lags:] for z in zs]  # remove the ends
 
     elif init_type == 'em':
 
@@ -332,8 +396,6 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
         else:
             zs = [model_init.most_likely_states(x, u) for x, u in zip(datas, inputs)]
 
-        zs = [z[lags:] for z in zs]  # remove the ends
-
     elif init_type == 'em-exact':
 
         import copy
@@ -357,6 +419,8 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
         model.observations.Vs = model_init.observations.Vs
         model.observations.bs = model_init.observations.bs
         model.observations.Sigmas = model_init.observations.Sigmas
+
+        zs = None
 
     elif init_type == 'pca-me':
 
@@ -383,7 +447,6 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
 
         # split
         zs = np.split(zs, np.cumsum(Ts)[:-1])
-        zs = [z[lags:] for z in zs]  # remove the ends
 
     else:
         raise NotImplementedError('Invalid "init_type" of "%s"' % init_type)
@@ -393,31 +456,30 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
     # ------------------------
     if init_type != 'em-exact':
 
-        # Initialize the weights with linear regression
-        Sigmas = []
-        for k in range(K):
-            ts = [np.where(z == k)[0] for z in zs]
-            Xs = [np.column_stack([data[t + lags - l - 1] for l in range(lags)])
-                  for t, data in zip(ts, datas)]
-            ys = [data[t + lags] for t, data in zip(ts, datas)]
+        Ezs = [one_hot(z, K) for z in zs]
+        expectations = [(Ez, None, None) for Ez in Ezs]
 
-            # Solve the linear regression
-            coef_, intercept_, Sigma = fit_linear_regression(Xs, ys)
-            if str(model.observations.__class__).find('Hierarchical') > -1:
-                model.observations.global_ar_model.As[k] = coef_[:, :D * lags]
-                model.observations.global_ar_model.Vs[k] = coef_[:, D * lags:]
-                model.observations.global_ar_model.bs[k] = intercept_
-            else:
-                model.observations.As[k] = coef_[:, :D * lags]
-                model.observations.Vs[k] = coef_[:, D * lags:]
-                model.observations.bs[k] = intercept_
-            Sigmas.append(Sigma)
-
-        # Set the variances all at once to use the setter
         if str(model.observations.__class__).find('Hierarchical') > -1:
-            model.observations.global_ar_model.Sigmas = np.array(Sigmas)
+            obs = model.observations
+            # initialize parameters for global ar model
+            obs.global_ar_model.m_step(expectations, datas, inputs, masks, tags)
+            # update prior
+            obs._update_hierarchical_prior()
+            # Copy global parameters to per-group models
+            for ar in obs.per_group_ar_models:
+                ar.As = obs.global_ar_model.As.copy()
+                ar.Vs = obs.global_ar_model.Vs.copy()
+                ar.bs = obs.global_ar_model.bs.copy()
+                ar.Sigmas = obs.global_ar_model.Sigmas.copy()
+
+                ar.As = norm.rvs(obs.global_ar_model.As, np.sqrt(obs.cond_variance_A))
+                ar.Vs = norm.rvs(obs.global_ar_model.Vs, np.sqrt(obs.cond_variance_V))
+                ar.bs = norm.rvs(obs.global_ar_model.bs, np.sqrt(obs.cond_variance_b))
+                ar.Sigmas = obs.global_ar_model.Sigmas.copy()
         else:
-            model.observations.Sigmas = np.array(Sigmas)
+            model.observations.m_step(expectations, datas, inputs, masks, tags)
+
+    return None
 
 
 # -------------------------------------------------------------------------------------------------
@@ -648,6 +710,7 @@ def test_k_step_r2():
     class TestObs(object):
         def __init__(self, lags):
             self.lags = lags
+            self.M = 0
 
     class TestModel(object):
         def __init__(self, D, L):
@@ -671,7 +734,9 @@ def test_k_step_r2():
 
     model = TestModel(D, L)
 
-    r2s = k_step_r2(model, [data], k_max, n_samp=n_samp, with_noise=False)
+    r2s = k_step_r2(
+        model, [data], k_max, n_samp=n_samp, obs_noise=True, disc_noise=True,
+        return_type='per_batch_r2')
 
     assert np.allclose(r2s, 1)
     for k in range(k_max - 1):
