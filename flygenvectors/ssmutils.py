@@ -130,54 +130,43 @@ def fit_model(
         inputs_tr=None, inputs_val=None, inputs_test=None,
         masks_tr=None, masks_val=None, masks_test=None,
         tags_tr=None, tags_val=None, tags_test=None,
-        init_type='kmeans', fit_method='em', opt_kwargs=None,
+        init_type='kmeans', fit_method='em', opt_kwargs=None, n_restarts=1,
         save_tr_states=False, fit_kwargs=None):
 
-    model = HMM(K=n_states, D=data_dim, M=input_dim, **model_kwargs)
-    model.fit_kwargs = fit_kwargs
-    model.model_kwargs = model_kwargs
-    model.initialize(data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr)
-    init_model(init_type, model, data_tr, inputs_tr, masks_tr, tags_tr)
-
     if fit_method == 'em':
-
         if opt_kwargs is None:
             opt_kwargs = {
                 'num_iters': 150,
                 'tolerance': 1e-2,
                 'transition_mstep_kwargs': {'optimizer': 'lbfgs', 'tol': 1e-3}}
-
-        lps = model.fit(
-            data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr, method='em',
-            initialize=False, **opt_kwargs)
-
-    elif fit_method == 'stochastic-em':
-
-        n_trials = len(data_tr)
-
-        if inputs_tr is None:
-            M = (model.M,) if isinstance(model.M, int) else model.M
-            inputs_tr = [np.zeros((data.shape[0],) + M) for data in data_tr]
-        if masks_tr is None:
-            masks_tr = [np.ones_like(data, dtype=bool) for data in data_tr]
-        if tags_tr is None:
-            tags_tr = [None] * n_trials
-
-        if opt_kwargs is None:
-            opt_kwargs = {'num_epochs': 150}  # total passes through data
-
-        lps = model.fit(
-            data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr, method='stochastic_em',
-            initialize=False, **opt_kwargs)
-
     elif fit_method == 'stochastic_em_conj':
-
-        lps = model.fit(
-            data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr, method='stochastic_em_conj',
-            initialize=False, **opt_kwargs)
+        pass
 
     else:
         raise NotImplementedError('"%s is not a valid fit method' % fit_method)
+
+
+    all_models = []
+    all_lps = []
+    for r in range(n_restarts):
+        np.random.seed(r)
+        model_tmp = HMM(K=n_states, D=data_dim, M=input_dim, **model_kwargs)
+        model_tmp.fit_kwargs = fit_kwargs
+        model_tmp.model_kwargs = model_kwargs
+        # model.initialize(data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr)
+        init_model(init_type, model_tmp, data_tr, inputs_tr, masks_tr, tags_tr)
+        lps_tmp = model_tmp.fit(
+            data_tr, inputs=inputs_tr, masks=masks_tr, tags=tags_tr, method=fit_method,
+            initialize=False, **opt_kwargs)
+        all_models.append(model_tmp)
+        all_lps.append(lps_tmp)
+
+    if isinstance(lps_tmp, tuple):
+        best_model_idx = np.argmax([lps[0][-1] for lps in all_lps])
+    else:
+        best_model_idx = np.argmax([lps[-1] for lps in all_lps])
+    model = all_models[best_model_idx]
+    lps = all_lps[best_model_idx]
 
     # compute stats
     ll_val = model.log_likelihood(data_val, inputs=inputs_val, masks=masks_val, tags=tags_val)
@@ -202,7 +191,9 @@ def fit_model(
         'states_tr': states_tr,
         'lps': lps,
         'll_val': ll_val,
-        'll_test': ll_test}
+        'll_test': ll_test,
+        'all_models': all_models if n_restarts > 1 else None,
+        'all_lps': all_lps if n_restarts > 1 else None}
 
     return model_results
 
@@ -375,6 +366,99 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
             datas_diff = [np.vstack([np.zeros((1, D)), np.diff(data, axis=0)]) for data in datas]
             km.fit(np.vstack(datas_diff)[zs == moving_state])
             zs[zs == moving_state] = km.labels_ + 1
+
+        # split
+        zs = np.split(zs, np.cumsum(Ts)[:-1])
+
+    elif init_type == 'ar-clust':
+
+        def sse(x, y):
+            return np.sum(np.square(x - y))
+
+        # code from Josh Glaser
+        t_win = 5
+        t_gap = 5
+
+        from sklearn.linear_model import Ridge
+        from sklearn.cluster import SpectralClustering  # , AgglomerativeClustering
+        num_trials = len(datas)
+        segs = []  # Elements of segs contain triplets of 1) trial, 2) time point of beginning of segment, 3) time point of end of segment
+
+        # Get all segments based on predefined t_win and t_gap
+        for tr in range(num_trials):
+            T = Ts[tr]
+            n_steps = int((T - t_win) / t_gap) + 1
+            for k in range(n_steps):
+                segs.append([tr, k * t_gap, k * t_gap + t_win])
+
+        # Fit a regression (solve for the dynamics matrix) within each segment
+        num_segs = len(segs)
+        sse_mat = np.zeros([num_segs, num_segs])
+        for j, seg in enumerate(segs):
+            [tr, t_st, t_end] = seg
+            X = datas[tr][t_st:t_end + 1, :]
+            rr = Ridge(alpha=1, fit_intercept=True)
+            rr.fit(X[:-1], X[1:] - X[:-1])
+
+            # Then see how well the dynamics from segment J works at making predictions on segment
+            # K (determined via sum squared error of predictions)
+            for k, seg2 in enumerate(segs):
+                [tr, t_st, t_end] = seg2
+                X = datas[tr][t_st:t_end + 1, :]
+                sse_mat[j, k] = sse(X[1:] - X[:-1], rr.predict(X[:-1]))
+
+        # Make "sse_mat" into a proper, symmetric distance matrix for clustering
+        tmp = sse_mat - np.diag(sse_mat)
+        dist_mat = tmp + tmp.T
+
+        # Cluster!
+        clustering = SpectralClustering(n_clusters=self.K, affinity='precomputed').fit(
+            1 / (1 + dist_mat / t_win))
+        # clustering = AgglomerativeClustering(n_clusters=K,affinity='precomputed',linkage='average').fit(dist_mat/t_win)
+
+        # Now take the clustered segments, and use them to determine the cluster of the individual
+        # time points
+        # In the scenario where the segments are nonoverlapping, then we can simply assign the time
+        # point cluster as its segment cluster
+        # In the scenario where the segments are overlapping, we will let a time point's cluster be
+        # the cluster to which the majority of its segments belonged
+        # Below zs_init is the assigned discrete states of each time point for a trial. zs_init2
+        # tracks the clusters of each time point across all the segments it's part of
+
+        zs = []
+        for tr in range(num_trials):
+            xhat = datas[tr]
+            T = xhat.shape[0]
+            n_steps = int((T - t_win) / t_gap) + 1
+            t_st = 0
+            zs_init = np.zeros(T)
+            zs_init2 = np.zeros([T, K])  # For each time point, tracks how many segments it's
+            # part of belong to each cluster
+            for k in range(n_steps):
+                t_end = t_st + t_win
+                t_idx = np.arange(t_st, t_end)
+                if t_gap == t_win:
+                    zs_init[t_idx] = clustering.labels_[k]
+                else:
+                    zs_init2[t_idx, clustering.labels_[k]] += 1
+                t_st = t_st + t_gap
+            if t_gap != t_win:
+                max_els = zs_init2.max(axis=1)
+                for t in range(T):
+                    if np.sum(zs_init2[t] == max_els[t]) == 1:
+                        # if there's a single best cluster, assign it
+                        zs_init[t] = np.where(zs_init2[t] == max_els[t])[0]
+                    else:
+                        # multiple best clusters
+                        if zs_init[t - 1] in np.where(zs_init2[t] == max_els[t])[0]:
+                            # use best cluster from previous time point if it's in the running
+                            zs_init[t] = zs_init[t - 1]
+                        else:
+                            # just use first element
+                            zs_init[t] = np.where(zs_init2[t] == max_els[t])[0][0]
+
+        zs.append(np.hstack([0, zs_init[:-1]])) # I think this offset is correct rather than just
+        # using zs_init, but it should be double checked.
 
         # split
         zs = np.split(zs, np.cumsum(Ts)[:-1])
