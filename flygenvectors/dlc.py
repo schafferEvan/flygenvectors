@@ -4,39 +4,6 @@ import numpy as np
 import copy
 
 
-def split_runs(indxs, dtypes, dtype_lens):
-    """
-
-    Args:
-        indxs (list):
-        dtypes (list of strs):
-        dtype_lens (list of ints):
-
-    Returns:
-        dict
-    """
-
-    # first sort, then split according to ratio
-    i_sorted = np.argsort([len(i) for i in indxs])
-
-    indxs_split = {dtype: [] for dtype in dtypes}
-    dtype_indx = 0
-    dtype_curr = dtypes[dtype_indx]
-    counter = 0
-    for indx in reversed(i_sorted):
-        if counter == dtype_lens[dtype_indx]:
-            # move to next dtype
-            dtype_indx = (dtype_indx + 1) % len(dtypes)
-            while dtype_lens[dtype_indx] == 0:
-                dtype_indx = (dtype_indx + 1) % len(dtypes)
-            dtype_curr = dtypes[dtype_indx]
-            counter = 0
-        indxs_split[dtype_curr].append(indxs[indx])
-        counter += 1
-
-    return indxs_split
-
-
 class Labels(object):
 
     def __init__(self, expt_id, verbose=True, algo='dgp'):
@@ -72,8 +39,16 @@ class Labels(object):
     def load_from_csv(self, filename=None):
         from numpy import genfromtxt
         if filename is None:
-            filename = glob.glob(
-                os.path.join(self.base_data_dir, self.expt_id, '*DeepCut*.csv'))[0]
+            if self.algo == 'dlc':
+                filename = glob.glob(
+                    os.path.join(self.base_data_dir, self.expt_id, '*DeepCut*.csv'))[0]
+            elif self.algo == 'dgp':
+                filename = os.path.join(
+                    self.base_data_dir, 'behavior', 'labels',
+                    'resnet-50_ws=%1.1e_wt=%1.1e' % (0, 0),
+                    self.expt_id + '_labeled.csv')
+            else:
+                raise NotImplementedError
         if self.verbose:
             print('loading labels from %s...' % filename, end='')
         dlc = genfromtxt(filename, delimiter=',', dtype=None, encoding=None)
@@ -143,6 +118,31 @@ class Labels(object):
         if self.verbose:
             print('done')
             print('total time points: %i' % self.labels['x'].shape[0])
+
+    def load_from_h5(self, filename=None):
+        """Load from h5 output by DGP."""
+        import h5py
+
+        if filename is None:
+            filename = os.path.join(
+                self.base_data_dir, 'behavior', 'labels',
+                'resnet-50_ws=%1.1e_wt=%1.1e' % (0, 0),
+                self.expt_id + '_labeled.h5')
+
+        if self.verbose:
+            print('loading labels from %s...' % filename, end='')
+
+        with h5py.File(filename, 'r') as f:
+            t = f['df_with_missing']['table'][()]
+        l = np.concatenate([t[i][1][None, :] for i in range(len(t))])
+
+        self.labels['x'] = l[:, 0::3]
+        self.labels['y'] = l[:, 1::3]
+        self.labels['l'] = l[:, 2::3]
+
+        if self.verbose:
+            print('done')
+            print('total time points: %i' % l.shape[0])
 
     def preprocess(self, preproc_dict):
         self.preproc = copy.deepcopy(preproc_dict)
@@ -264,6 +264,39 @@ class Labels(object):
         return np.concatenate([self.labels['x'], self.labels['y']], axis=1)
 
 
+def split_runs(indxs, dtypes, dtype_lens):
+    """
+
+    Args:
+        indxs (list):
+        dtypes (list of strs):
+        dtype_lens (list of ints):
+
+    Returns:
+        dict
+    """
+
+    # first sort, then split according to ratio
+    i_sorted = np.argsort([len(i) for i in indxs])
+
+    indxs_split = {dtype: [] for dtype in dtypes}
+    dtype_indx = 0
+    dtype_curr = dtypes[dtype_indx]
+    counter = 0
+    for indx in reversed(i_sorted):
+        if counter == dtype_lens[dtype_indx]:
+            # move to next dtype
+            dtype_indx = (dtype_indx + 1) % len(dtypes)
+            while dtype_lens[dtype_indx] == 0:
+                dtype_indx = (dtype_indx + 1) % len(dtypes)
+            dtype_curr = dtypes[dtype_indx]
+            counter = 0
+        indxs_split[dtype_curr].append(indxs[indx])
+        counter += 1
+
+    return indxs_split
+
+
 def preprocess_and_split_data(
         expt_ids, preprocess_list, max_trial_len=1000, algo='dgp', load_from='pkl',
         dtypes=['train', 'test', 'val'], dtype_lens=[8, 1, 1]):
@@ -277,11 +310,13 @@ def preprocess_and_split_data(
     for n in range(len(label_obj)):
 
         if load_from == 'csv':
-            label_obj[n].load_from_csv()  # original dlc labels
+            label_obj[n].load_from_csv()  # original dlc labels OR up-to-date dgp labels
         elif load_from == 'mat':
             label_obj[n].load_from_mat()  # cosyne dgp labels
         elif load_from == 'pkl':
-            label_obj[n].load_from_pkl()  # up-to-date dgp labels
+            label_obj[n].load_from_pkl()  # summer 2020 dgp labels
+        elif load_from == 'h5':
+            label_obj[n].load_from_h5()  # up-to-date dgp labels
         else:
             raise NotImplementedError('"%s" is not a valid label file format')
 
