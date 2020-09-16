@@ -1516,12 +1516,14 @@ def apply_alpha_to_color_data(color_data, model_fit, cmap, color_lims, params_fo
     alpha_tmp = (alpha_tmp-alpha_tmp.min())/(alpha_tmp.max()-alpha_tmp.min())
     if params_for_alpha[1]>0:
         # positive param gives greater than
-        alpha_tmp[alpha_tmp>params_for_alpha[1]]=1
-        alpha_tmp[alpha_tmp<params_for_alpha[1]]=0
+        pos_idx = alpha_tmp>params_for_alpha[1]
+        alpha_tmp[pos_idx]=1
+        alpha_tmp[np.logical_not(pos_idx)]=0
     else:
         # negative param gives less than
-        alpha_tmp[alpha_tmp<-params_for_alpha[1]]=1
-        alpha_tmp[alpha_tmp>-params_for_alpha[1]]=0
+        pos_idx = alpha_tmp<-params_for_alpha[1]
+        alpha_tmp[pos_idx]=1
+        alpha_tmp[np.logical_not(pos_idx)]=0
     color_data_full[:,-1] = alpha_tmp
     return color_data_full
 
