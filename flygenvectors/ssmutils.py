@@ -207,6 +207,54 @@ def fit_model(
     return model_results
 
 
+def fit_with_random_restarts(
+        K, D, obs, lags, datas, tags=None, num_restarts=5, num_iters=100, method="em",
+        tolerance=1e-4, save_path=None, init_type='kmeans', **kwargs):
+    all_models = []
+    all_lps = []
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+    # Fit the model with a few random restarts
+    for r in range(num_restarts):
+        print("Restart ", r)
+        np.random.seed(r)
+        # build model file
+        model_kwargs = {
+            'transitions': 'ar',
+            'observations': obs,
+            'observation_kwargs': {'lags': lags},
+        }
+        model_name = get_model_name(K, model_kwargs)
+        save_file = os.path.join(save_path, model_name + '_init-%i.pkl' % r)
+        if os.path.exists(save_file):
+            print('loading results from %s' % save_file)
+            with open(save_file, 'rb') as f:
+                results = pickle.load(f)
+            model = results['model']
+            lps = results['lps']
+        else:
+            model = HMM(K, D, observations=obs, observation_kwargs=dict(lags=lags))
+            init_model(init_type, model, datas)
+            lps = model.fit(
+                datas, tags=tags, method=method, tolerance=tolerance,
+                num_iters=num_iters,  # em
+                num_epochs=num_iters,  # stochastic em
+                initialize=False,
+                **kwargs)
+            results = {'model': model, 'lps': lps}
+            with open(save_file, 'wb') as f:
+                pickle.dump(results, f)
+        all_models.append(model)
+        all_lps.append(lps)
+    if isinstance(lps, tuple):
+        best_model_idx = np.argmax([lps[0][-1] for lps in all_lps])
+    else:
+        best_model_idx = np.argmax([lps[-1] for lps in all_lps])
+    best_model = all_models[best_model_idx]
+    best_lps = all_lps[best_model_idx]
+    return best_model, best_lps, all_models, all_lps
+
+
 def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
     """Initialize ARHMM model according to one of several schemes.
 
@@ -971,3 +1019,18 @@ def export_session_info_to_csv(session_dir, ids_list):
         session_writer.writeheader()
         for ids in ids_list:
             session_writer.writerow(ids)
+
+
+def get_all_labeled_expts(labels_dir):
+    labels_files = sorted(os.listdir(labels_dir))
+    expt_names = []
+    for labels_file in labels_files:
+        if labels_file[-1] == '5':
+            continue
+        csv_file = os.path.join(labels_dir, labels_file)
+        expt_names.append(get_expt_name_from_csv(csv_file))
+    return expt_names
+
+
+def get_expt_name_from_csv(csv_file):
+    return '_'.join(csv_file.split('/')[-1].split('_')[:-1])
