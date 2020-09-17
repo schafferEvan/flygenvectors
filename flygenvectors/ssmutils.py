@@ -200,7 +200,7 @@ def fit_model(
 
 def fit_with_random_restarts(
         K, D, obs, lags, datas, tags=None, num_restarts=5, num_iters=100, method="em",
-        tolerance=1e-4, save_path=None, init_type='kmeans', **kwargs):
+        tolerance=1e-4, save_path=None, init_type='kmeans', dist_mat=None, **kwargs):
     all_models = []
     all_lps = []
     if not os.path.exists(save_path):
@@ -225,7 +225,7 @@ def fit_with_random_restarts(
             lps = results['lps']
         else:
             model = HMM(K, D, observations=obs, observation_kwargs=dict(lags=lags))
-            init_model(init_type, model, datas)
+            init_model(init_type, model, datas, dist_mat=dist_mat)
             lps = model.fit(
                 datas, tags=tags, method=method, tolerance=tolerance,
                 num_iters=num_iters,  # em
@@ -246,7 +246,7 @@ def fit_with_random_restarts(
     return best_model, best_lps, all_models, all_lps
 
 
-def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
+def init_model(init_type, model, datas, inputs=None, masks=None, tags=None, dist_mat=None):
     """Initialize ARHMM model according to one of several schemes.
 
     The different schemes correspond to different ways of assigning discrete states to the data
@@ -314,6 +314,25 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
 
         zs = [np.random.choice(K, size=T - lags) for T in Ts]
 
+    elif init_type == 'umap-kmeans':
+
+        import umap
+        u = umap.UMAP()
+        xs = u.fit_transform(np.vstack(datas))
+        km = KMeans(K)
+        km.fit(xs)
+        zs = np.split(km.labels_, np.cumsum(Ts)[:-1])
+
+    elif init_type == 'umap-kmeans-diff':
+
+        import umap
+        u = umap.UMAP()
+        datas_diff = [np.vstack([np.zeros((1, D)), np.diff(data, axis=0)]) for data in datas]
+        xs = u.fit_transform(np.vstack(datas_diff))
+        km = KMeans(K)
+        km.fit(xs)
+        zs = np.split(km.labels_, np.cumsum(Ts)[:-1])
+
     elif init_type == 'kmeans':
 
         km = KMeans(K)
@@ -372,49 +391,19 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
 
     elif init_type == 'ar-clust':
 
-        def sse(x, y):
-            return np.sum(np.square(x - y))
+        from sklearn.cluster import SpectralClustering  # , AgglomerativeClustering
 
         # code from Josh Glaser
         t_win = 5
         t_gap = 5
-
-        from sklearn.linear_model import Ridge
-        from sklearn.cluster import SpectralClustering  # , AgglomerativeClustering
         num_trials = len(datas)
-        segs = []  # Elements of segs contain triplets of 1) trial, 2) time point of beginning of segment, 3) time point of end of segment
 
-        # Get all segments based on predefined t_win and t_gap
-        for tr in range(num_trials):
-            T = Ts[tr]
-            n_steps = int((T - t_win) / t_gap) + 1
-            for k in range(n_steps):
-                segs.append([tr, k * t_gap, k * t_gap + t_win])
-
-        # Fit a regression (solve for the dynamics matrix) within each segment
-        num_segs = len(segs)
-        sse_mat = np.zeros([num_segs, num_segs])
-        for j, seg in enumerate(segs):
-            [tr, t_st, t_end] = seg
-            X = datas[tr][t_st:t_end + 1, :]
-            rr = Ridge(alpha=1, fit_intercept=True)
-            rr.fit(X[:-1], X[1:] - X[:-1])
-
-            # Then see how well the dynamics from segment J works at making predictions on segment
-            # K (determined via sum squared error of predictions)
-            for k, seg2 in enumerate(segs):
-                [tr, t_st, t_end] = seg2
-                X = datas[tr][t_st:t_end + 1, :]
-                sse_mat[j, k] = sse(X[1:] - X[:-1], rr.predict(X[:-1]))
-
-        # Make "sse_mat" into a proper, symmetric distance matrix for clustering
-        tmp = sse_mat - np.diag(sse_mat)
-        dist_mat = tmp + tmp.T
+        if dist_mat is None:
+            dist_mat = compute_dist_mat(datas, t_win, t_gap)
 
         # Cluster!
-        clustering = SpectralClustering(n_clusters=self.K, affinity='precomputed').fit(
+        clustering = SpectralClustering(n_clusters=K, affinity='precomputed').fit(
             1 / (1 + dist_mat / t_win))
-        # clustering = AgglomerativeClustering(n_clusters=K,affinity='precomputed',linkage='average').fit(dist_mat/t_win)
 
         # Now take the clustered segments, and use them to determine the cluster of the individual
         # time points
@@ -457,8 +446,10 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
                             # just use first element
                             zs_init[t] = np.where(zs_init2[t] == max_els[t])[0][0]
 
-        zs.append(np.hstack([0, zs_init[:-1]])) # I think this offset is correct rather than just
-        # using zs_init, but it should be double checked.
+            # I think this offset is correct rather than just using zs_init, but it should be
+            # double checked.
+            zs.append(np.concatenate([[0], zs_init[:-1]]))
+        zs = np.concatenate(zs, axis=0)
 
         # split
         zs = np.split(zs, np.cumsum(Ts)[:-1])
@@ -612,6 +603,52 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None):
             model.observations.m_step(expectations, datas, inputs, masks, tags)
 
     return None
+
+
+def compute_dist_mat(datas, t_win, t_gap):
+
+    def sse(x, y):
+        return np.sum(np.square(x - y))
+
+    from sklearn.linear_model import Ridge
+
+    Ts = [data.shape[0] for data in datas]
+    num_trials = len(datas)
+
+    # Elements of segs contain triplets of
+    # 1) trial
+    # 2) time point of beginning of segment
+    # 3) time point of end of segment
+    segs = []
+
+    # Get all segments based on predefined t_win and t_gap
+    for tr in range(num_trials):
+        T = Ts[tr]
+        n_steps = int((T - t_win) / t_gap) + 1
+        for k in range(n_steps):
+            segs.append([tr, k * t_gap, k * t_gap + t_win])
+
+    # Fit a regression (solve for the dynamics matrix) within each segment
+    num_segs = len(segs)
+    sse_mat = np.zeros([num_segs, num_segs])
+    for j, seg in enumerate(segs):
+        [tr, t_st, t_end] = seg
+        X = datas[tr][t_st:t_end + 1, :]
+        rr = Ridge(alpha=1, fit_intercept=True)
+        rr.fit(X[:-1], X[1:] - X[:-1])
+
+        # Then see how well the dynamics from segment J works at making predictions on
+        # segment K (determined via sum squared error of predictions)
+        for k, seg2 in enumerate(segs):
+            [tr, t_st, t_end] = seg2
+            X = datas[tr][t_st:t_end + 1, :]
+            sse_mat[j, k] = sse(X[1:] - X[:-1], rr.predict(X[:-1]))
+
+    # Make "sse_mat" into a proper, symmetric distance matrix for clustering
+    tmp = sse_mat - np.diag(sse_mat)
+    dist_mat = tmp + tmp.T
+
+    return dist_mat
 
 
 # -------------------------------------------------------------------------------------------------
