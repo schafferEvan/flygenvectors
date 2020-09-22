@@ -384,6 +384,45 @@ def binarize_timeseries(data_in):
     return beh
     # data_dict['ball'] = data_dict['ball'].flatten()
 
+
+def get_dFF_ica(data_dict):
+    # given dual color neural data (dynamic green + static red), uses ICA to remove presumed motion artifacts from green channel
+    from sklearn.decomposition import FastICA
+    dFF_ica = np.zeros(data_dict['dYY'].shape)
+    ica = FastICA(n_components=2, max_iter=5000, fun='cube') #,whiten=False, )
+
+    for i in range(data_dict['dYY'].shape[0]):
+        print(i,end=' ')
+        data = np.array([ data_dict['dYY'][i,:], data_dict['dRR'][i,:] ]) #[self.YsmoothData[i,:],self.RsmoothData[i,:]]
+        m = data.mean(axis=1)
+        m = m[:,np.newaxis]
+        v = data.var(axis=1)
+        s = np.diag(np.reciprocal(np.sqrt(v)))
+        X = s@(data - m)
+        ic = ica.fit_transform(data.T).T  # Reconstruct signals
+        
+        mm = ic.mean(axis=1)
+        mm = mm[:,np.newaxis]
+        ss = ic.std(axis=1)
+        ss = np.diag(np.reciprocal(ss))
+        Xic = ss@(ic - mm)
+        cc = (Xic@X.T)/X.shape[1] #
+
+        sigcom_prop = np.argmax(np.abs(cc[:,0])) # signal component is the one more correlated with green channel (ignoring sign)
+        if np.abs(cc[sigcom_prop,0])>np.abs(cc[sigcom_prop,1]):
+            sigcom = sigcom_prop # if IC more corr w/ green is more correlated with green than red, keep choice
+        else:
+            sigcom = int(not sigcom_prop) #if IC more corr w/ green is more correlated with red than green, flip choice
+        if (cc[sigcom,0]<0): 
+            I = -ic[sigcom,:] #np.matmul(-s_[sigcom,:],1/s[sigcom,sigcom]) + m[sigcom]
+            icflipped = 1
+        else:
+            I = ic[sigcom,:] #np.matmul(s_[sigcom,:],1/s[sigcom,sigcom]) + m[sigcom]
+
+        dFF_ica[i,:] = I*np.sqrt(v[0])/I.std() + m[0]
+    return dFF_ica
+
+
 def get_dlc_motion_energy(data_dict):
     dlc = data_dict['dlc']
     dlc_energy = np.zeros((dlc.shape[0]-1,8))
