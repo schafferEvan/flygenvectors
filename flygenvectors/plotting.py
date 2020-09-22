@@ -1503,10 +1503,16 @@ def generate_color_data_from_model_fit(model_fit, plot_field, plot_field_idx, pv
 
 def apply_alpha_to_color_data(color_data, model_fit, cmap, color_lims, params_for_alpha):
     # use a second model parameter to control alpha in color_data
+    # this is also used to generate a binary mask from params_for_alpha (e.g. for downsampled images),
+    # in which case color_data and cmap can be None
+    if color_data is None: color_data = np.zeros(len(model_fit))
     color_data[color_data>color_lims[1]] = color_lims[1]
     color_data -= color_lims[0]
-    color_data /= color_data.max()
-    color_data_full = cmap(color_data)
+    if color_data.max()!=0: color_data /= color_data.max()
+    if cmap is not None:
+        color_data_full = cmap(color_data)
+    else:
+        color_data_full = np.zeros((len(color_data),4))
     alpha_tmp = np.zeros(len(color_data))
     for i in range(len(color_data)):
         if model_fit[i]['success']:
@@ -1524,7 +1530,10 @@ def apply_alpha_to_color_data(color_data, model_fit, cmap, color_lims, params_fo
         pos_idx = alpha_tmp<-params_for_alpha[1]
         alpha_tmp[pos_idx]=1
         alpha_tmp[np.logical_not(pos_idx)]=0
-    color_data_full[:,-1] = alpha_tmp
+    if cmap is None:
+        color_data_full = alpha_tmp       # return just alpha
+    else:
+        color_data_full[:,-1] = alpha_tmp # return full colormap
     return color_data_full
 
 
