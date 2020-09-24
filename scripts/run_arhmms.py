@@ -33,6 +33,9 @@ def run_main(args):
     datas_val, tags_val, _ = shuffle_data(label_obj, dtype='val')
     datas_test, tags_test, _ = shuffle_data(label_obj, dtype='test')
 
+    datas = datas_val + datas_test
+    tags = np.concatenate([tags_val, tags_test])
+
     D = data_tr[0].shape[1]
 
     # -------------------------------------
@@ -73,16 +76,10 @@ def run_main(args):
         obs = 'ar'  # 'ar' | 'hierarchical_ar'
         transitions = 'stationary'  # 'stationary' | 'hierarchical_stationary'
 
-        for it in init_types:
-            expt_dir = ssmutils.get_expt_dir(dirs['results'], expt_ids)
-            save_path = os.path.join(
-                dirs['results'], expt_dir, 'multi-session_%s-init_%s' % (it, method))
-            if not os.path.exists(save_path):
-                os.makedirs(save_path)
-            ssmutils.fit_with_random_restarts(
-                K, D, obs, lags, datas_tr, tags=tuple(tags_tr), transitions=transitions,
-                num_restarts=num_restarts, num_iters=num_iters,
-                method=method, save_path=save_path, init_type=it)
+        ssmutils.fit_em(
+            expt_ids=expt_ids, K=K, D=D, datas_tr=datas_tr, tags_tr=tags_tr, datas_val=datas,
+            tags_val=tags, init_types=init_types, lags=lags, obs=obs, transitions=transitions,
+            num_restarts=num_restarts, num_iters=num_iters, method=method)
 
     if args.fit_harhmm_bem:
 
@@ -95,17 +92,10 @@ def run_main(args):
         transitions = 'hierarchcial_stationary'  # 'stationary' | 'hierarchical_stationary'
         cond_var_A = args.cond_var_A
 
-        for it in init_types:
-            expt_dir = ssmutils.get_expt_dir(dirs['results'], expt_ids)
-            save_path = os.path.join(
-                dirs['results'], expt_dir, 'multi-session_%s-init_bem_condA=%1.1e' % (
-                    it, cond_var_A))
-            if not os.path.exists(save_path):
-                os.makedirs(save_path)
-            ssmutils.fit_with_random_restarts(
-                K, D, obs, lags, datas_tr, tags=tuple(tags_tr), transitions=transitions,
-                num_restarts=num_restarts, num_iters=num_iters,
-                method=method, save_path=save_path, init_type=it)
+        ssmutils.fit_em(
+            expt_ids=expt_ids, K=K, D=D, datas_tr=datas_tr, tags_tr=tags_tr, datas_val=datas,
+            tags_val=tags, init_types=init_types, lags=lags, obs=obs, transitions=transitions,
+            num_restarts=num_restarts, num_iters=num_iters, method=method, cond_var_A=cond_var_A)
 
     if args.fit_harhmm_sem:
 
@@ -119,23 +109,16 @@ def run_main(args):
         cond_var_A = args.cond_var_A
         rates = [float(r) for r in args.sem_lrs.split(';')]
 
-        for it in init_types:
-            for rate in rates:
-                print('---------------------------')
-                print('forgetting rate = %f' % rate)
-                print('---------------------------')
-                expt_dir = ssmutils.get_expt_dir(dirs['results'], expt_ids)
-                save_path = os.path.join(
-                    dirs['results'], expt_dir,
-                    'multi-session_%s-init_sem_rate=%1.2f_condA=%1.1e' % (it, rate, cond_var_A))
-                if not os.path.exists(save_path):
-                    os.makedirs(save_path)
-                ssmutils.fit_with_random_restarts(
-                    K, D, obs, lags, datas_tr, tags=tuple(tags_tr), transitions=transitions,
-                    num_restarts=num_restarts, num_iters=num_iters,
-                    method=method,
-                    stochastic_mstep_kwargs=dict(forgetting_rate=rate),
-                    save_path=save_path, init_type=it, cond_var_A=cond_var_A)
+        for rate in rates:
+            print('---------------------------')
+            print('forgetting rate = %f' % rate)
+            print('---------------------------')
+
+            ssmutils.fit_em(
+                expt_ids=expt_ids, K=K, D=D, datas_tr=datas_tr, tags_tr=tags_tr, datas_val=datas,
+                tags_val=tags, init_types=init_types, lags=lags, obs=obs, transitions=transitions,
+                num_restarts=num_restarts, num_iters=num_iters, method=method,
+                cond_var_A=cond_var_A, rate=rate)
 
 
 if __name__ == '__main__':
