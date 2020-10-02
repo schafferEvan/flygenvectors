@@ -199,8 +199,9 @@ def fit_model(
 
 
 def fit_with_random_restarts(
-        K, D, obs, lags, datas, tags=None, num_restarts=5, num_iters=100, method="em",
-        tolerance=1e-4, save_path=None, init_type='kmeans', dist_mat=None, **kwargs):
+        K, D, obs, lags, datas, transitions='stationary', tags=None, num_restarts=5, num_iters=100,
+        method='em', tolerance=1e-4, save_path=None, init_type='kmeans', dist_mat=None,
+        cond_var_A=1e-3, cond_var_V=1e-3, cond_var_b=1e-1, **kwargs):
     all_models = []
     all_lps = []
     if not os.path.exists(save_path):
@@ -211,12 +212,13 @@ def fit_with_random_restarts(
         np.random.seed(r)
         # build model file
         model_kwargs = {
-            'transitions': 'ar',
+            'transitions': 'ar' if transitions == 'stationary' else transitions,  # dumb bug
             'observations': obs,
             'observation_kwargs': {'lags': lags},
         }
         model_name = get_model_name(K, model_kwargs)
         save_file = os.path.join(save_path, model_name + '_init-%i.pkl' % r)
+        print(save_file)
         if os.path.exists(save_file):
             print('loading results from %s' % save_file)
             with open(save_file, 'rb') as f:
@@ -224,7 +226,16 @@ def fit_with_random_restarts(
             model = results['model']
             lps = results['lps']
         else:
-            model = HMM(K, D, observations=obs, observation_kwargs=dict(lags=lags))
+            observation_kwargs = dict(lags=lags, tags=np.unique(tags))
+            if obs.find('hierarchical') > -1:
+                observation_kwargs['cond_variance_A'] = cond_var_A
+                observation_kwargs['cond_variance_V'] = cond_var_V
+                observation_kwargs['cond_variance_b'] = cond_var_b
+                observation_kwargs['cond_dof_Sigma'] = 10
+            model = HMM(
+                K, D,
+                observations=obs, observation_kwargs=observation_kwargs,
+                transitions=transitions, transition_kwargs=dict(tags=np.unique(tags)))
             init_model(init_type, model, datas, dist_mat=dist_mat)
             lps = model.fit(
                 datas, tags=tags, method=method, tolerance=tolerance,
@@ -312,7 +323,7 @@ def init_model(init_type, model, datas, inputs=None, masks=None, tags=None, dist
     # --------------------------
     if init_type == 'random':
 
-        zs = [np.random.choice(K, size=T - lags) for T in Ts]
+        zs = [np.random.choice(K, size=T) for T in Ts]
 
     elif init_type == 'umap-kmeans':
 
@@ -649,6 +660,102 @@ def compute_dist_mat(datas, t_win, t_gap):
     dist_mat = tmp + tmp.T
 
     return dist_mat
+
+
+def fit_em(
+        expt_ids, K, D, datas_tr, tags_tr, datas_val, tags_val, init_types, lags=1, obs='ar',
+        transitions='stationary', num_restarts=5, num_iters=100, method='em', cond_var_A=1e-3,
+        rate=0.8):
+
+    from flygenvectors.utils import get_dirs
+
+    hierarchical = obs.find('hierarchical') > -1
+
+    dirs = get_dirs()
+
+    models = {}
+    lps_tr = {}
+    lls_tr_tag = {}
+    lps_inner_tr = {}
+    lps_inner_tr_all = {}
+
+    lls_val_tag = {}
+
+    models_all = {}
+    lps_tr_all = {}
+    lls_tr_tag_all = {}
+
+    for it in init_types:
+
+        expt_dir = get_expt_dir(dirs['results'], expt_ids)
+        if hierarchical and method == 'em':
+            save_path = os.path.join(
+                dirs['results'], expt_dir, 'multi-session_%s-init_bem_condA=%1.1e' % (
+                    it, cond_var_A))
+        elif hierarchical and method == 'stochastic_em_conj':
+            save_path = os.path.join(
+                dirs['results'], expt_dir, 'multi-session_%s-init_sem_rate=%1.2f_condA=%1.1e' % (
+                    it, rate, cond_var_A))
+        else:
+            save_path = os.path.join(
+                dirs['results'], expt_dir, 'multi-session_%s-init_%s' % (it, method))
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+
+        models[it], tmp_best, models_all[it], tmp_all = fit_with_random_restarts(
+            K, D, obs, lags, datas_tr, tags=tuple(tags_tr), transitions=transitions,
+            num_restarts=num_restarts, num_iters=num_iters,
+            method='em', save_path=save_path, init_type=it, cond_var_A=cond_var_A,
+            stochastic_mstep_kwargs=dict(forgetting_rate=rate))
+
+        lps_tr[it] = tmp_best[0]
+        lps_tr_all[it] = [t[0] for t in tmp_all]
+
+        if method == 'stochastic_em_conj':
+            lps_inner_tr[it] = tmp_best[1]
+            lps_inner_tr_all[it] = [t[1] for t in tmp_all]
+            lls_tr_tag[it] = tmp_best[2]
+            lls_tr_tag_all[it] = [t[2] for t in tmp_all]
+        else:
+            lls_tr_tag[it] = tmp_best[1]
+            lls_tr_tag_all[it] = [t[1] for t in tmp_all]
+
+        lls_val_tag[it] = get_ll_by_tag(models[it], datas_val, tags_val)
+
+    return {
+        'models': models,
+        'lps_tr': lps_tr,
+        'lls_tr_tag': lls_tr_tag,
+        'lps_inner_tr': lps_inner_tr,
+        'lps_inner_tr_all': lps_inner_tr_all,
+        'lls_val_tag': lls_val_tag,
+        'models_all': models_all,
+        'lps_tr_all': lps_tr_all,
+        'lls_tr_tag_all': lls_tr_tag_all
+    }
+
+
+def get_ll_by_tag(model, datas, tags, inputs=None, masks=None):
+
+    unique_tags = np.unique(tags)
+    lls = {t: [] for t in unique_tags}
+
+    for tag in unique_tags:
+
+        tdatas = [d for d, t in zip(datas, tags) if t == tag]
+        ttags = [t for t in tags if t == tag]
+        if inputs is not None:
+            tinpts = [i for i, t in zip(inputs, tags) if t == tag]
+        else:
+            tinpts = None
+        if masks is not None:
+            tmasks = [m for m, t in zip(masks, tags) if t == tag]
+        else:
+            tmasks = None
+
+        lls[tag] = [model.log_likelihood(data, tags=tag) for data, tag in zip(tdatas, ttags)]
+
+    return lls
 
 
 # -------------------------------------------------------------------------------------------------

@@ -23,7 +23,7 @@ def plot_validation_likelihoods(all_results, T_val=1, dict_key='ll_val'):
     return fig
 
 
-def plot_dynamics_matrices(model, deridge=False):
+def plot_dynamics_matrices(model, deridge=False, tag=None):
     K = model.K
     n_lags = model.observations.lags
     if n_lags == 1:
@@ -47,11 +47,18 @@ def plot_dynamics_matrices(model, deridge=False):
     n_rows = int(np.ceil(K / n_cols))
     fig = plt.figure(figsize=(4 * n_cols, 4 * n_rows * fac))
 
-    mats = np.copy(model.observations.As)
+    if str(model.observations.__class__).find('hierarchical') > -1:
+        if tag is None:
+            mats = np.copy(model.observations.global_ar_model.As)
+        else:
+            mats = np.copy(model.observations.get_As(tag))
+    else:
+        mats = np.copy(model.observations.As)
     if deridge:
         for k in range(K):
-            for d in range(model.D):
-                mats[k, d, d] = np.nan
+            for l in range(model.observations.lags):
+                for d in range(model.D):
+                    mats[k, d, model.D*l + d] = np.nan
         clim = np.nanmax(np.abs(mats))
     else:
         clim = np.max(np.abs(mats))
@@ -71,10 +78,17 @@ def plot_dynamics_matrices(model, deridge=False):
     return fig
 
 
-def plot_biases(model):
+def plot_biases(model, tag=None):
     fig = plt.figure(figsize=(6, 4))
 
-    mats = np.copy(model.observations.bs.T)
+    if str(model.observations.__class__).find('hierarchical') > -1:
+        if tag is None:
+            mats = np.copy(model.observations.global_ar_model.bs.T)
+        else:
+            mats = np.copy(model.observations.get_bs(tag).T)
+    else:
+        mats = np.copy(model.observations.bs.T)
+
     clim = np.max(np.abs(mats))
     im = plt.imshow(mats, cmap='RdBu_r', clim=[-clim, clim], aspect='auto')
     plt.xlabel('State')
@@ -87,8 +101,16 @@ def plot_biases(model):
     return fig
 
 
-def plot_state_transition_matrix(model, deridge=False):
-    trans = np.copy(model.transitions.transition_matrix)
+def plot_state_transition_matrix(model, deridge=False, tag=None):
+
+    if str(model.transitions.__class__).find('hierarchical') > -1:
+        if tag is None:
+            raise NotImplementedError
+        else:
+            trans = np.copy(model.transitions.get_transition_matrix(tag))
+    else:
+        trans = np.copy(model.transitions.transition_matrix)
+
     if deridge:
         n_states = trans.shape[0]
         for i in range(n_states):
@@ -104,14 +126,21 @@ def plot_state_transition_matrix(model, deridge=False):
     return fig
 
 
-def plot_covariance_matrices(model):
+def plot_covariance_matrices(model, tag=None):
     K = model.K
     n_cols = 3
     n_rows = int(np.ceil(K / n_cols))
 
     fig = plt.figure(figsize=(4 * n_cols, 4 * n_rows))
 
-    mats = np.copy(model.observations.Sigmas)
+    if str(model.observations.__class__).find('hierarchical') > -1:
+        if tag is None:
+            mats = np.copy(model.observations.global_ar_model.Sigmas)
+        else:
+            mats = np.copy(model.observations.get_Sigmas(tag))
+    else:
+        mats = np.copy(model.observations.Sigmas)
+
     clim = np.quantile(np.abs(mats), 0.95)
 
     for k in range(K):
