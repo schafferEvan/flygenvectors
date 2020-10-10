@@ -159,8 +159,7 @@ def load_video(expt_id, base_data_dir=None):
     if base_data_dir is None:
         base_data_dir = get_dirs()['data']
 
-    file_path = glob.glob(
-        os.path.join(base_data_dir, expt_id, '*crop.mp4'))[0]
+    file_path = os.path.join(base_data_dir, 'behavior', 'videos_cropped', '%s.avi' % expt_id)
 
     # read file
     cap = cv2.VideoCapture(file_path)
