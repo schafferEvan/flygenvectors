@@ -2047,14 +2047,21 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding
     scanRate = data_dict['scanRate']
     dFF = data_dict['dFF'] #trim_dynamic_range(data_dict['dFF'], 0.01, 0.95)
 
-    f = get_model_fit_as_dict(model_fit)
-    if type(plot_param) is list:
-        param = f[plot_param[0]][:,plot_param[1]]
-        ttl = plot_param[0]+'_'+str(plot_param[1])+' Ex:'+str(n_ex)
+    if model_fit is not None:
+        f = get_model_fit_as_dict(model_fit)
+        if type(plot_param) is list:
+            param = f[plot_param[0]][:,plot_param[1]]
+            ttl = plot_param[0]+'_'+str(plot_param[1])+' Ex:'+str(n_ex)
+        else:
+            param = f[plot_param]
+            ttl = plot_param+' Ex:'+str(n_ex)
+        s = np.argsort(param)[::-1]
     else:
-        param = f[plot_param]
-        ttl = plot_param+' Ex:'+str(n_ex)
-    s = np.argsort(param)[::-1]
+        # if model_fit is None, plot_param can be simple list of indices
+        s = plot_param
+        ttl = ' Ex:'+str(plot_param)
+        if n_ex is None: n_ex = len(plot_param)
+    
 
     # pdb.set_trace()
     if isinstance(n_ex, list):
