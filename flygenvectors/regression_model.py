@@ -17,6 +17,7 @@ class reg_obj:
         self.data_dict = {}
         self.exp_id = None
         self.activity=activity # valid values: {'dFF', 'rate'}, determines what trace is used for fit
+        self.kern_type = 'double_exp' # formerly 'gauss'
         self.params = {'split_behav':True,
                     'run_full_sweep':True,
                     'sigLimSec':60,
@@ -174,8 +175,16 @@ class reg_obj:
         # convolve behavior with chosen kernel, either piecewise or all together
         ts = ts_full[L:-L]-ts_full[L:-L].mean()
         ts /= abs(ts).max()
-        kern = np.exp(-0.5*((t_exp-params['mu'])/params['tau'])**2)
-        # kern = (1/np.sqrt(tau))*np.exp(-t_exp/tau)
+
+        if self.kern_type == 'double_exp':
+            kern = np.zeros(len(t_exp))
+            p = t_exp>=params['mu']
+            n = t_exp<params['mu']
+            kern[p] = np.exp(-(t_exp[p]-params['mu'])/params['tau'])
+            kern[n] = np.exp((t_exp[n]-params['mu'])/params['tau'])
+        elif self.kern_type == 'gauss':
+            kern = np.exp(-0.5*((t_exp-params['mu'])/params['tau'])**2)
+
         kern /= kern.sum()
         if params['split_behav']:
             ball = np.zeros((NT,len(data_dict['behavior'])))
@@ -395,7 +404,7 @@ class reg_obj:
                 stat['tau'] = stat['beta_0']
                 stat['phi'] = stat['beta_0'] 
                 if 'drink_hunger' in list(stat.keys()): stat['tau_feed'] = stat['drink_hunger']    
-                
+
                 self.model_fit[n]['r_sq'] = r_sq #1-SS_res.sum()/SS_tot.sum()
                 self.model_fit[n]['stat'] = stat
                 self.model_fit[n]['cc'] = cc
@@ -468,7 +477,7 @@ class reg_obj:
             else:
                 d = {'success':False}
             d['activity'] = self.activity
-            d['kern'] = 'gauss'
+            d['kern'] = self.kern_type #'gauss'
             self.model_fit.append(d)
             # else:
             #     self.model_fit[n]['tau'] = tau_star[n]
@@ -805,7 +814,7 @@ class reg_obj:
             d['phi'] = 0
             d['success'] = True
             d['activity'] = 'dFF'
-            d['kern'] = 'gauss'
+            d['kern'] = self.kern_type #'gauss'
             self.model_fit.append(d)    
         R0, dFF, _ = self.get_null_subtracted_raster(just_null_model=True)
         dRR0 = dFF-R0
