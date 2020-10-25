@@ -1340,8 +1340,8 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
     from matplotlib.colors import ListedColormap
 
     point_size = 2
-    dims_in_um = data_dict['template_dims_in_um']
-    template_dims = data_dict['template_dims']
+    dims_in_um = data_dict['dims_in_um']
+    # template_dims = data_dict['template_dims']
     dims = data_dict['dims']
     if(not cmap): cmap = make_hot_without_black()
     gry = cm.get_cmap('Greys', 15)
@@ -1406,8 +1406,10 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
     ax1.set_facecolor((0.0, 0.0, 0.0))
     ax1.set_xticks([])
     ax1.set_yticks([])
-    ax1.set_xlim(0,template_dims[2])
-    ax1.set_ylim(0,template_dims[0])
+    ax1.set_xlim(0,dims_in_um[2])
+    ax1.set_ylim(0,dims_in_um[0])
+    # ax1.set_xlim(0,template_dims[2])
+    # ax1.set_ylim(0,template_dims[0])
     ax1.invert_yaxis()
 
     if(len(not_sig)):
@@ -1418,15 +1420,18 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
     ax2.set_facecolor((0.0, 0.0, 0.0))
     ax2.set_xticks([])
     ax2.set_yticks([])
-    ax2.set_xlim(0,template_dims[1])
-    ax2.set_ylim(0,template_dims[0])
+    ax2.set_xlim(0,dims_in_um[1])
+    ax2.set_ylim(0,dims_in_um[0])
+    # ax2.set_xlim(0,template_dims[1])
+    # ax2.set_ylim(0,template_dims[0])
     ax2.invert_yaxis()
 
 
-    ypx_per_um = template_dims[1]/dims_in_um[1]
+    # ypx_per_um = template_dims[1]/dims_in_um[1]
     scaleBar_um = 50 #50 um
     bar_color = 'w'
-    ax2.plot( template_dims[1]*.97-(scaleBar_um*ypx_per_um,0), (template_dims[0]*.93, template_dims[0]*.93),bar_color)
+    # ax2.plot( template_dims[1]*.97-(scaleBar_um*ypx_per_um,0), (template_dims[0]*.93, template_dims[0]*.93),bar_color)
+    ax2.plot( dims_in_um[1]*.97-(scaleBar_um,0), (dims_in_um[0]*.93, dims_in_um[0]*.93),bar_color)
 
     if(len(not_sig)):
         ax3.scatter(data_dict['aligned_centroids'][not_sig,0],
@@ -1436,8 +1441,10 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
     ax3.set_facecolor((0.0, 0.0, 0.0))
     ax3.set_xticks([])
     ax3.set_yticks([])
-    ax3.set_xlim(0,template_dims[1])
-    ax3.set_ylim(0,template_dims[2])
+    ax3.set_xlim(0,dims_in_um[1])
+    ax3.set_ylim(0,dims_in_um[2])
+    # ax3.set_xlim(0,template_dims[1])
+    # ax3.set_ylim(0,template_dims[2])
     ax3.invert_yaxis()
 
 
