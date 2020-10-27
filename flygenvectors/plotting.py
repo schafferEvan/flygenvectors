@@ -1806,7 +1806,7 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
         dFF = trim_dynamic_range(data_dict['dFF'], 0.01, 0.95)
         cmin, cmax = (0,1)
     else:
-        dFF = data_dict['dFF']
+        dFF = data_dict['dFF_unnormalized']
         cmin, cmax = color_range
 
     tPl = data_dict['tPl']
