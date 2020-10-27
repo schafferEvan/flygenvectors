@@ -13,12 +13,13 @@ import pdb
 
 
 class reg_obj:
-    def __init__(self,activity='dFF'):
-        self.data_dict = {}
-        self.exp_id = None
+    def __init__(self, activity='dFF', exp_id=None, data_dict={}, fig_dirs={}, split_behav=False):
+        self.data_dict = data_dict
+        self.exp_id = exp_id
+        self.fig_dirs = fig_dirs
         self.activity=activity # valid values: {'dFF', 'rate'}, determines what trace is used for fit
         self.kern_type = 'double_exp' # formerly 'gauss'
-        self.params = {'split_behav':True,
+        self.params = {'split_behav':split_behav,
                     'run_full_sweep':True,
                     'sigLimSec':60,
                     'phaseLimSec': 60,
@@ -34,6 +35,7 @@ class reg_obj:
             'trial':np.array([]), 
             'drink_hunger':np.array([])
         }
+        self.options = {'make_motion_hist':False}
         self.regressors_array = np.array([])
         self.regressors_array_inv = np.array([])
         self.cell_id = 0
@@ -702,64 +704,67 @@ class reg_obj:
         return dFF_fit, dFF, sl
 
 
-    def get_smooth_behavior(self, split_behav=False):
+    def get_smooth_behavior(self):
         from skimage.restoration import denoise_tv_chambolle
+
+        split_behav=self.params['split_behav']
+        self.data_dict['behavior'] = self.data_dict['ball'].flatten().copy()
 
         # filter behavior with TV denoising. requires customized settings for seome datasets
         # pdb.set_trace()
-        if not self.expt_id: 
+        if not self.exp_id: 
             print('***** warning: Missing exp_id *******')
 
         tv_params = [.01,.9,.05] #np.array([.01,.9,.05])
-        if self.expt_id=='2018_08_24_fly3_run1':
+        if self.exp_id=='2018_08_24_fly3_run1':
             tv_params[0] = 0.2
             tv_params[2] = 0.01
-        elif self.expt_id=='2018_08_24_fly2_run2':
+        elif self.exp_id=='2018_08_24_fly2_run2':
             tv_params[2]=0.01
-        elif self.expt_id=='2019_07_01_fly2':
+        elif self.exp_id=='2019_07_01_fly2':
             [] #ok
-        elif self.expt_id=='2019_10_14_fly3':
+        elif self.exp_id=='2019_10_14_fly3':
             tv_params[0]=0.05
             tv_params[2]=0.01
-        elif self.expt_id=='2019_06_28_fly2':
+        elif self.exp_id=='2019_06_28_fly2':
             tv_params[0]=0.1
-        elif self.expt_id=='2019_06_30_fly1':
+        elif self.exp_id=='2019_06_30_fly1':
             [] #ok
-        elif self.expt_id=='2019_10_14_fly2':
+        elif self.exp_id=='2019_10_14_fly2':
             tv_params[0]=0.1
-        elif self.expt_id=='2019_10_14_fly4':
+        elif self.exp_id=='2019_10_14_fly4':
             tv_params[0]=0.05
-        elif self.expt_id=='2019_10_18_fly3':
+        elif self.exp_id=='2019_10_18_fly3':
             tv_params[0]=0.05
-        elif self.expt_id=='2019_10_21_fly1':
+        elif self.exp_id=='2019_10_21_fly1':
             [] #ok
-        elif self.expt_id=='2019_10_10_fly3':
+        elif self.exp_id=='2019_10_10_fly3':
             tv_params[0]=0.05
-        elif self.expt_id=='2019_10_02_fly2':
+        elif self.exp_id=='2019_10_02_fly2':
             tv_params[0]=0.1
-        elif self.expt_id=='2019_08_14_fly1':
+        elif self.exp_id=='2019_08_14_fly1':
             [] #ok
-        elif self.expt_id=='2019_04_18_fly2':
+        elif self.exp_id=='2019_04_18_fly2':
             tv_params[0]=[.01, 0.12, 0.01]
-        elif self.expt_id=='2019_04_22_fly1':
+        elif self.exp_id=='2019_04_22_fly1':
             tv_params[0]=[.01, 0.2, 0.01, 0.01]
-        elif self.expt_id=='2019_04_22_fly3':
+        elif self.exp_id=='2019_04_22_fly3':
             [] #ok
-        elif self.expt_id=='2019_04_24_fly3':
+        elif self.exp_id=='2019_04_24_fly3':
             [] #ok
-        elif self.expt_id=='2019_04_24_fly1':
+        elif self.exp_id=='2019_04_24_fly1':
             [] #ok
-        elif self.expt_id=='2019_04_25_fly3':
+        elif self.exp_id=='2019_04_25_fly3':
             tv_params[2]=[.05, .01, .01]
-        elif self.expt_id=='2019_05_07_fly1':
+        elif self.exp_id=='2019_05_07_fly1':
             tv_params[2]=[.05, .01, .01]
-        elif self.expt_id=='2019_03_12_fly4':
+        elif self.exp_id=='2019_03_12_fly4':
             tv_params[0]=0.15
             tv_params[2]=0.01
-        elif self.expt_id=='2019_02_19_fly1':
+        elif self.exp_id=='2019_02_19_fly1':
             tv_params[0]=0.2
             tv_params[2]=0.01
-        elif self.expt_id=='2019_02_26_fly1_2':
+        elif self.exp_id=='2019_02_26_fly1_2':
             tv_params[0]=0.2
             tv_params[2]=0.01
         else:
@@ -797,11 +802,17 @@ class reg_obj:
             beh[beh>h]=h
             beh -= l
             self.data_dict['behavior'] = denoise_tv_chambolle(beh, weight=tv_params[2])
+        # manual cleanup (compressing scale)
+        if self.exp_id == '2018_08_24_fly3_run1':
+            self.data_dict['behavior'][self.data_dict['behavior']>.0032] = .0032
+        elif self.exp_id == '2018_08_24_fly2_run2':
+            self.data_dict['behavior'][self.data_dict['behavior']>.006] = .006
+        elif self.exp_id == '2019_07_01_fly2':
+            self.data_dict['behavior'][self.data_dict['behavior']>.022] = .022
 
 
     def estimate_motion_artifacts(self, inv_cv_thresh=1.0, max_dRR_thresh=0.3, make_hist=False):
-        self.inv_cv_thresh = inv_cv_thresh
-        self.max_dRR_thresh = max_dRR_thresh
+        self.motion = {'inv_cv_thresh':inv_cv_thresh, 'max_dRR_thresh':max_dRR_thresh}
         self.get_regressors(just_null_model=True)
         self.data_dict['dFF'] = self.data_dict['dRR'].copy()
         self.model_fit = []
@@ -820,11 +831,15 @@ class reg_obj:
         dRR0 = dFF-R0
         v=dRR0.var(axis=1)
         m=R0.mean(axis=1)
-        self.mag = dRR0.max(axis=1)-dRR0.min(axis=1)
-        self.motion_cv_inv = v/m**2
-        self.motion_cv_inv[np.isnan(self.motion_cv_inv)] = np.inf
+        self.motion['mag'] = dRR0.max(axis=1)-dRR0.min(axis=1)
+        self.motion['motion_cv_inv'] = v/m**2
+        self.motion['motion_cv_inv'][np.isnan(self.motion['motion_cv_inv'])] = np.inf
+        self.motion['cvisgood'] = self.motion['motion_cv_inv']<self.motion['inv_cv_thresh']
+        self.motion['rmagisgood'] = self.motion['mag']<self.motion['max_dRR_thresh']
+        self.motion['isgood'] = np.logical_and(self.motion['cvisgood'], self.motion['rmagisgood'])
+
         if make_hist:
-            cv = self.motion_cv_inv.copy()
+            cv = self.motion['motion_cv_inv'].copy()
             plt.figure(figsize=(7,3))
             cv[cv>2*inv_cv_thresh]=2*inv_cv_thresh
             plt.hist(cv,50)
@@ -835,6 +850,32 @@ class reg_obj:
             plt.ylabel('count')
             plt.tight_layout()
         return dRR0, R0
+
+
+    def preprocess(self, do_ICA=False):
+        self.get_smooth_behavior()
+        motion_obj = copy.deepcopy(self) # i'm not proud of this
+        motion_obj.estimate_motion_artifacts(make_hist=self.options['make_motion_hist'])
+        self.motion = motion_obj.motion
+        if self.options['make_motion_hist']:
+            plt.savefig(self.fig_dirs['fig_folder'] + self.exp_id +'_motion_artifacts.pdf',transparent=False, bbox_inches='tight')
+        isgood = self.motion['isgood']
+        self.data_dict['dFF'] = self.data_dict['dFF'][isgood,:]
+        self.data_dict['dYY'] = self.data_dict['dYY'][isgood,:]
+        self.data_dict['dRR'] = self.data_dict['dRR'][isgood,:]
+        self.data_dict['aligned_centroids'] = self.data_dict['aligned_centroids'][isgood,:]
+        self.data_dict['A'] = self.data_dict['A'][:,isgood]
+        if do_ICA: 
+            import data as dataUtils
+            self.data_dict['dFF'] = dataUtils.get_dFF_ica(self.data_dict)
+        self.data_dict['behavior'] = self.data_dict['behavior'].copy()
+        self.data_dict['dt'] = self.data_dict['time'][1]-self.data_dict['time'][0]
+        self.data_dict['tPl'] = self.data_dict['time'][0]+np.linspace(0,self.data_dict['dt']*len(self.data_dict['time']),len(self.data_dict['time']))
+        self.data_dict['dFF_unnormalized'] = self.data_dict['dFF'].copy()
+        self.data_dict['dFF'], self.data_dict['q0'], self.data_dict['q1'] = self.normalize_rows(self.data_dict['dFF'].copy())
+        # self.data_dict['dFF_unnormalized'] = self.unnormalize_rows(self.data_dict['dFF'],self.data_dict['q0'],self.data_dict['q1'])
+        return self.data_dict
+
 
 
 
