@@ -8,6 +8,7 @@ from scipy.optimize import minimize
 from scipy import stats
 import matplotlib.pyplot as plt
 import copy
+import data as dataUtils
 import pdb
 
 
@@ -605,7 +606,27 @@ class reg_obj:
 
                             # pdb.set_trace()
 
-    def normalize_rows(self,input_mat,quantiles=(.01,.99),fix_nans=True): 
+    
+    def normalize_rows_euc(self,input_mat,fix_nans=True): 
+        output_mat = np.zeros(input_mat.shape)
+        mu = np.zeros(input_mat.shape[0])
+        sig = np.zeros(input_mat.shape[0])
+        for i in range(input_mat.shape[0]):
+            mu[i] = input_mat[i,:].mean()
+            sig[i] = input_mat[i,:].std()*np.sqrt(input_mat.shape[1])
+            output_mat[i,:] = (input_mat[i,:]-mu[i])/sig[i]
+            if fix_nans:
+                output_mat[i,:][np.isnan(output_mat[i,:])]=0
+        return output_mat, mu, sig
+
+
+    def unnormalize_rows_euc(self,input_mat,mu,sig): 
+        output_mat = np.zeros(input_mat.shape)
+        for i in range(input_mat.shape[0]):
+            output_mat[i,:] = input_mat[i,:]*sig[i] + mu[i] #(input_mat[i,:]-mu[i])/sig[i]
+
+
+    def normalize_rows_mag(self,input_mat,quantiles=(.01,.99),fix_nans=True): 
         output_mat = np.zeros(input_mat.shape)
         q0 = np.zeros(input_mat.shape[0])
         q1 = np.zeros(input_mat.shape[0])
@@ -623,7 +644,7 @@ class reg_obj:
         return output_mat, q0, q1
 
 
-    def unnormalize_rows(self,input_mat,q0,q1): 
+    def unnormalize_rows_mag(self,input_mat,q0,q1): 
         # then integrate into data loading in _hunger notebook
         # then integrate into use of residual raster to plot reinflated residuals
         # then set everything to run overnight
@@ -852,6 +873,29 @@ class reg_obj:
         return dRR0, R0
 
 
+    def get_train_test_data(self, trial_len=100, trials_tr=10, trials_val=2, trials_test=0, trials_gap=0):
+        """
+        split into train/test trials
+        trial_len: length of pseudo-trials
+        """
+        data_neural = self.data_dict['dFF'].T        
+        n_trials = np.floor(data_neural.shape[0] / trial_len)
+        indxs = dataUtils.split_trials(
+            n_trials, trials_tr=trials_tr, trials_val=trials_val, trials_test=trials_test, trials_gap=trials_gap)
+        data = {}
+        for dtype in ['train', 'test', 'val']:
+            data_segs = []
+            for indx in indxs[dtype]:
+                data_segs.append(data_neural[(indx*trial_len):(indx*trial_len + trial_len)])
+            data[dtype] = data_segs
+        # for PCA/regression
+        data['train_all'] = np.concatenate(data['train'], axis=0)
+        data['val_all'] = np.concatenate(data['val'], axis=0)
+        self.data_dict['train_all'] = data['train_all']
+        self.data_dict['val_all'] = data['val_all']
+
+
+
     def preprocess(self, do_ICA=False):
         self.get_smooth_behavior()
         motion_obj = copy.deepcopy(self) # i'm not proud of this
@@ -866,14 +910,15 @@ class reg_obj:
         self.data_dict['aligned_centroids'] = self.data_dict['aligned_centroids'][isgood,:]
         self.data_dict['A'] = self.data_dict['A'][:,isgood]
         if do_ICA: 
-            import data as dataUtils
             self.data_dict['dFF'] = dataUtils.get_dFF_ica(self.data_dict)
         self.data_dict['behavior'] = self.data_dict['behavior'].copy()
         self.data_dict['dt'] = self.data_dict['time'][1]-self.data_dict['time'][0]
         self.data_dict['tPl'] = self.data_dict['time'][0]+np.linspace(0,self.data_dict['dt']*len(self.data_dict['time']),len(self.data_dict['time']))
         self.data_dict['dFF_unnormalized'] = self.data_dict['dFF'].copy()
-        self.data_dict['dFF'], self.data_dict['q0'], self.data_dict['q1'] = self.normalize_rows(self.data_dict['dFF'].copy())
+        self.data_dict['dFF_mag_norm'], self.data_dict['q0'], self.data_dict['q1'] = self.normalize_rows_mag(self.data_dict['dFF_unnormalized'])
+        self.data_dict['dFF'], self.data_dict['mu'], self.data_dict['sig'] = self.normalize_rows_euc(self.data_dict['dFF_unnormalized'])
         # self.data_dict['dFF_unnormalized'] = self.unnormalize_rows(self.data_dict['dFF'],self.data_dict['q0'],self.data_dict['q1'])
+        self.get_train_test_data()
         return self.data_dict
 
 
