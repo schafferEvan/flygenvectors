@@ -911,7 +911,7 @@ class reg_obj:
         self.data_dict['A'] = self.data_dict['A'][:,isgood]
         if do_ICA: 
             self.data_dict['dFF'] = dataUtils.get_dFF_ica(self.data_dict)
-        self.data_dict['behavior'] = self.data_dict['behavior'].copy()
+        # self.data_dict['behavior'] = self.data_dict['behavior'].copy()
         self.data_dict['dt'] = self.data_dict['time'][1]-self.data_dict['time'][0]
         self.data_dict['tPl'] = self.data_dict['time'][0]+np.linspace(0,self.data_dict['dt']*len(self.data_dict['time']),len(self.data_dict['time']))
         self.data_dict['dFF_unnormalized'] = self.data_dict['dFF'].copy()
