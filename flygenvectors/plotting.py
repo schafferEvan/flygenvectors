@@ -915,8 +915,9 @@ def unroll_model_fit_stats(model_fit):
 
 def show_param_scatter(model_fit, data_dict, param_name, pval=.01):
     f = get_model_fit_as_dict(model_fit)
+    rsq_dict = get_model_fit_as_dict(f['r_sq'])
     param = f[param_name]
-    rsq = f['tot_r_sq']
+    rsq = rsq_dict['tot']
     stat = np.zeros(len(param))
     for i in range(len(param)):
         stat[i] = f['stat'][i][param_name][0][1]
@@ -963,8 +964,8 @@ def show_param_scatter(model_fit, data_dict, param_name, pval=.01):
     ymin = 0
     ymax = 1
 
-    ax_scatter.scatter(param_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=0.3)
-    ax_scatter.scatter(param_sig,rsq_sig,c='tab:blue',marker='.',alpha=0.3) #'#1f77b4'
+    # ax_scatter.scatter(param_notsig,rsq_notsig,c='tab:gray',marker='o',alpha=0.3)
+    ax_scatter.scatter(param_sig,rsq_sig,c='tab:gray',marker='.',alpha=0.3,linewidths=0.75,edgecolors='k') #'#1f77b4'
     # ax_scatter.scatter(tau_sig[tau_is_neg_sig],rsq_sig[tau_is_neg_sig],c='tab:red',marker='.',alpha=0.3)
     # ax_scatter.set_xscale('log')
     ax_scatter.set_xlim((xmin,xmax))
@@ -984,9 +985,10 @@ def show_param_scatter(model_fit, data_dict, param_name, pval=.01):
 
 def show_tau_scatter(model_fit, pval=.01):
     f = get_model_fit_as_dict(model_fit)
+    rsq_dict = get_model_fit_as_dict(f['r_sq'])
+    rsq = rsq_dict['tot']
     tau = abs(f['tau'])
     tau_is_pos = (f['tau']>=0)
-    rsq = f['r_sq']
     # rsq_null = f['rsq_null']
     stat = np.zeros(len(tau))
     for i in range(len(tau)):
@@ -1035,9 +1037,9 @@ def show_tau_scatter(model_fit, pval=.01):
     ymin = 0
     ymax = 1
 
-    ax_scatter.scatter(tau_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=0.3)
-    ax_scatter.scatter(tau_sig[tau_is_pos_sig],rsq_sig[tau_is_pos_sig],c='tab:blue',marker='.',alpha=0.3) #'#1f77b4'
-    ax_scatter.scatter(tau_sig[tau_is_neg_sig],rsq_sig[tau_is_neg_sig],c='tab:red',marker='.',alpha=0.3)
+    # ax_scatter.scatter(tau_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=0.3)
+    ax_scatter.scatter(tau_sig[tau_is_pos_sig],rsq_sig[tau_is_pos_sig],c='tab:gray',marker='.',alpha=0.3,linewidths=0.75,edgecolors='k') #'#1f77b4'
+    # ax_scatter.scatter(tau_sig[tau_is_neg_sig],rsq_sig[tau_is_neg_sig],c='tab:red',marker='.',alpha=0.3)
     ax_scatter.set_xscale('log')
     ax_scatter.set_xlim((xmin,xmax))
     ax_scatter.set_xticks((1,3,10,30))
@@ -1164,8 +1166,8 @@ def make_colorBar_for_colorCoded_cellMap_points(tau_loc_list, tau_label_list, da
     from matplotlib.colors import ListedColormap
 
     point_size = 2
-    dims_in_um = data_dict['template_dims_in_um']
-    template_dims = data_dict['template_dims']
+    dims_in_um = data_dict['dims_in_um'] #data_dict['template_dims_in_um']
+    template_dims = data_dict['dims'] #data_dict['template_dims']
     dims = data_dict['dims']
     if(not cmap): 
         cmap = make_hot_without_black()
@@ -1217,8 +1219,8 @@ def make_colorBar_for_colorCoded_cellMap_points(tau_loc_list, tau_label_list, da
     ax2.set_facecolor((0.0, 0.0, 0.0))
     ax2.set_xticks([])
     ax2.set_yticks([])
-    ax2.set_xlim(0,template_dims[1])
-    ax2.set_ylim(0,template_dims[0])
+    ax2.set_xlim(0,dims_in_um[1])
+    ax2.set_ylim(0,dims_in_um[0])
     ax2.invert_yaxis()
 
 
@@ -2151,12 +2153,15 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding
 
 
 
-def make_hot_without_black(clrs=100, low_bnd=0.15):
+def make_hot_without_black(clrs=100, low_bnd=0.15, show_map=False):
     # old low_bnd=0.1
     from matplotlib import cm
     from matplotlib.colors import ListedColormap
     hot = cm.get_cmap('hot', clrs)
     newcmp = ListedColormap(hot(np.linspace(low_bnd, .9, clrs)))
+    if show_map:
+        display_cmap(newcmp)
+        plt.show()
     return newcmp
 
 def cold_to_hot_cmap(show_map=False):
@@ -2169,10 +2174,13 @@ def cold_to_hot_cmap(show_map=False):
     return my_cmap
 
 
-def display_cmap(my_cmap):
+def display_cmap(my_cmap, mx=100, tks=[0,50,100], tk_labels=['zero','fiddy','100']):
     plt.figure(figsize=(5,0.25))
-    plt.imshow(np.linspace(0, 100, 256)[None, :], interpolation='nearest', cmap=my_cmap, aspect='auto')
-    plt.axis('off')
+    sprange = 100
+    plt.imshow(np.linspace(0, mx, sprange)[None, :], interpolation='nearest', cmap=my_cmap, aspect='auto')
+    plt.xticks(ticks=(np.array(tks)/mx)*sprange, labels=tk_labels)
+    plt.yticks([])
+    # plt.axis('off')
     # plt.show()
 
 
