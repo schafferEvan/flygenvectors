@@ -107,7 +107,7 @@ class flyg_clust_obj:
             cIds = [i for i,j in enumerate(self.cluster.labels_) if j==k]    
             self.mvn_obj.get_img(idx=cIds)
             self.mvn_obj.get_folded_cdf()
-            clust_symmetry[k] = self.mvn_obj.folded_cdf
+            self.clust_symmetry[k] = self.mvn_obj.folded_cdf
             l = len(cIds)
             self.clust_symmetry_pval[k] = (self.null_symmetry[l,:]<self.clust_symmetry[k]).sum()/self.n_samples
             
@@ -126,6 +126,16 @@ class flyg_clust_obj:
                 self.n_clust_members[l] = [k]
             else:
                 self.n_clust_members[l].append(k)
+
+
+    def make_clust_colors(self):
+        # keep only clusters that are significant and size=2
+        self.agg_clusters = self.cluster.labels_.copy()
+        for i in range(len(self.clust_is_sig)):
+            if not self.clust_is_sig[i]:
+                self.agg_clusters[self.agg_clusters==i] = -1
+            if i not in self.n_clust_members[2]:
+                self.agg_clusters[self.agg_clusters==i] = -1
                 
 
 class mvn_obj:
