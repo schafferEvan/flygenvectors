@@ -51,12 +51,14 @@ def get_subdirs(path):
     return s
 
 
-def get_fig_dirs(exp_id):
-    d = get_dirs()
+def get_fig_dirs(exp_id, d=None):
+    if d is None:
+        d = get_dirs()
     pkl_dir = d['data']+exp_id+'/models/'
     fig_folder = d['results']+exp_id+'/'
     clustfig_folder = fig_folder+'clusters/'
     regfig_folder = fig_folder+'regmodel/'
+    pcfig_folder = fig_folder+'reg_pcs/'
     if not os.path.exists(fig_folder):
         os.mkdir(fig_folder)
     if not os.path.exists(clustfig_folder):
@@ -65,7 +67,10 @@ def get_fig_dirs(exp_id):
         os.mkdir(regfig_folder)
     if not os.path.exists(pkl_dir):
         os.mkdir(pkl_dir)
-    return {'pkl_dir':pkl_dir, 'fig_folder':fig_folder, 'clustfig_folder':clustfig_folder, 'regfig_folder':regfig_folder}
+    if not os.path.exists(pcfig_folder):
+        os.mkdir(pcfig_folder)
+    return {'pkl_dir':pkl_dir, 'fig_folder':fig_folder, 'clustfig_folder':clustfig_folder, 
+            'regfig_folder':regfig_folder, 'pcfig_folder':pcfig_folder}
 
 
 
