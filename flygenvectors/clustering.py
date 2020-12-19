@@ -64,6 +64,7 @@ class flyg_clust_obj:
         A = counts.max() #np.argmax(counts)
         self.null_dist = np.zeros((A+1,n_samples))
         self.null_symmetry = np.zeros((A+1,n_samples))
+        self.null_dist_score = np.zeros((A+1,n_samples))
         self.n_samples=n_samples
 
         print('Max Clust size is '+str(A))
@@ -84,6 +85,11 @@ class flyg_clust_obj:
                 self.mvn_obj.get_img(idx=self.mvn_obj.order[:i])
                 self.mvn_obj.get_folded_cdf()
                 self.null_symmetry[i,j] = self.mvn_obj.folded_cdf
+
+                # distance score of randomly defined clusters
+                self.mvn_obj.get_folded_cdf_totprod(idx=self.mvn_obj.order[:i])
+                self.null_dist_score[i,j] = self.mvn_obj.folded_product_image.sum()
+                
 
 
     def cross_validate_clusters(self, clust_p_thresh=0.05):
@@ -115,6 +121,18 @@ class flyg_clust_obj:
             self.mvn_obj.is_clust_on_both_sides(cIds)
             self.clust_on_both_sides[k] = self.mvn_obj.is_on_both_sides
 
+
+    def get_clust_dist_score(self):
+        # similar to get_clust_symmetry, but evaluates spatial organization independent of hemisphere
+        self.clust_dist_score = np.zeros(self.nClust) #np.zeros(n_sig_clust)
+        self.clust_dist_score_pval = np.zeros(self.nClust) #np.zeros(n_sig_clust)
+        for k in range(self.nClust):
+            cIds = [i for i,j in enumerate(self.cluster.labels_) if j==k]    
+            self.mvn_obj.get_folded_cdf_totprod(idx=cIds)
+            self.clust_dist_score[k] = self.mvn_obj.folded_product_image.sum()
+            l = len(cIds)
+            self.clust_dist_score_pval[k] = (self.null_dist_score[l,:]<self.clust_dist_score[k]).sum()/self.n_samples
+            
 
     def sort_clusters_by_n_members(self):
         self.n_clust_members = [None]*(np.bincount(self.cluster.labels_).max()+1)
@@ -149,11 +167,11 @@ class mvn_obj:
         for n in range(self.N):
             self.mvn_array.append( multivariate_normal(data_dict['aligned_centroids'][n,:], self.sig ) ) 
             
-        mx = data_dict['aligned_centroids'].max(axis=0)
+        self.mx = data_dict['aligned_centroids'].max(axis=0)
         self.median_fold_point = 190 #138 #127 # hardcoded median based on template
         #self.median_fold_point = np.median(data_dict['aligned_centroids'][:,0]) #mx[0]/2
         gp = self.grid_points
-        x, y, z = np.mgrid[0:mx[0]:(mx[0]/gp+1e-10), 0:mx[1]:(mx[1]/gp+1e-10), 0:mx[2]:(mx[2]/gp+1e-10)]
+        x, y, z = np.mgrid[0:self.mx[0]:(self.mx[0]/gp+1e-10), 0:self.mx[1]:(self.mx[1]/gp+1e-10), 0:self.mx[2]:(self.mx[2]/gp+1e-10)]
         self.pos = np.empty(x.shape + (3,))
         self.pos[:, :, :, 0] = x; self.pos[:, :, :, 1] = y; self.pos[:, :, :, 2] = z
 
@@ -167,11 +185,22 @@ class mvn_obj:
         # get pdf of gmm for indices=idx  
         self.grid_image = np.zeros((self.grid_points,self.grid_points,self.grid_points))
         for i in idx:
-            self.grid_image += self.mvn_array[i].pdf(self.pos)
+            self.grid_image += self.mvn_array[i].pdf(self.pos)*np.prod(self.mx/self.grid_points)
             
     def get_folded_cdf(self):
-        # estimate CDF of folded distribution  
+        # estimate CDF of folded distribution, taking the sum on both hemispheres and then the product across hemispheres (for symmetry score)
         L = self.grid_image[:self.mid_x,:,:]
         R = self.grid_image[self.mid_x:,:,:][::-1,:,:]
         self.folded_image = L*R
         self.folded_cdf = self.folded_image.sum()
+
+    def get_folded_cdf_totprod(self, idx):
+        self.folded_product_image = np.ones((self.mid_x,self.grid_points,self.grid_points))
+        for i in idx:
+            tmp_img = self.mvn_array[i].pdf(self.pos)*np.prod(self.mx/self.grid_points)
+            L = tmp_img[:self.mid_x,:,:]
+            R = tmp_img[self.mid_x:,:,:][::-1,:,:]
+            self.folded_product_image *= (L+R) 
+
+
+
