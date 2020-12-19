@@ -1327,7 +1327,7 @@ def show_PC_residual_raster(data_dict):
 
 
 
-def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pval=0.01, color_lims_scale=[-0.75,0.75]):
+def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pval=0.01, sort_by=[], color_lims_scale=[-0.75,0.75]):
     """
     Plot map of cells for one dataset, all MIPs, colorcoded by desired quantity
 
@@ -1352,15 +1352,19 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
     if type(plot_param) is list:
         plot_field = plot_param[0]
         plot_field_idx = plot_param[1]
-    else:
+    elif plot_param is not None:
         plot_field = plot_param
         plot_field_idx = np.nan
+    else:
+        plot_field = None
+        plot_field_idx = None
     if type(model_fit) is list:
-
         # generate color_data from model_fit
         color_data = np.zeros(len(model_fit))
         sig = [] # significance threshold
         for i in range(len(model_fit)):
+            if plot_field is None:
+                color_data = np.array(model_fit)
             if np.isnan(plot_field_idx):
                 color_data[i] = model_fit[i][plot_field]
                 sig.append( model_fit[i]['stat'][plot_field][0][1]<pval ) # 1-sided test that behavior model > null model
@@ -1386,6 +1390,17 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
                           color_lims_scale[1]*max(-min(color_data[sig]),max(color_data[sig]))]
     else:
         color_lims = [color_lims_scale[0]*min(color_data[sig]), color_lims_scale[1]*max(color_data[sig])]
+
+    # optional: reorder list for consistent occlusion. options: {'z', 'val', 'inv_val'}. If empty, default is order of ROI ID
+    if sort_by:
+        if sort_by=='z':
+            sort_val = data_dict['aligned_centroids'][sig,2]
+        elif sort_by=='val':
+            sort_val = color_data[sig]
+        elif sort_by=='inv_val':
+            sort_val = -color_data[sig]
+        sorted_order = np.argsort(sort_val)
+        sig = (np.array(sig)[sorted_order]).tolist()
 
     totScale = 1
     plt.figure(figsize=(8, 8*totScale))
