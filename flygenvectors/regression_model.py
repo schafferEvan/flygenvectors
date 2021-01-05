@@ -628,7 +628,11 @@ class reg_obj:
             self.phiList[:tmp_n] = -tmp[::-1]
             self.phiList = self.phiList.astype(int)
         else:
-            self.phiList = np.linspace(-self.params['L'],self.params['L'], num=2*phaseLimSec+1 ).astype(int)
+            # self.phiList = np.linspace(-self.params['L'],self.params['L'], num=2*phaseLimSec+1 ).astype(int)
+            tmp1 = (-np.logspace(1,np.log10(self.params['L']),num=10)[::-1]).tolist()
+            tmp3 = np.logspace(1,np.log10(self.params['L']),num=10).tolist()
+            tmp2 = [i for i in range(-8,10,2)]
+            self.phiList = np.array(tmp1+tmp2+tmp3).astype(int)
             self.tauList = np.logspace(-1,np.log10(sigLimSec),num=60)
         self.tauList_feed = np.logspace(-1,np.log10(sigLimSec),num=self.num_tau_feed_steps) #self.tauList.copy()
                 
