@@ -1577,9 +1577,10 @@ def show_colorCoded_cellMap_points_grid(data_dict_tot, model_fit_tot, plot_param
     from matplotlib.colors import ListedColormap
 
     point_size = 0.5
-    dims_in_um = data_dict_tot[0]['data_dict']['template_dims_in_um']
-    template_dims = data_dict_tot[0]['data_dict']['template_dims']
+    dims_in_um = data_dict_tot[0]['data_dict']['dims_in_um']
+    # template_dims = data_dict['template_dims']
     dims = data_dict_tot[0]['data_dict']['dims']
+
     if(not cmap): cmap = make_hot_without_black()
     gry = cm.get_cmap('Greys', 15)
     gry = ListedColormap(gry(np.linspace(.8, 1, 2)))
