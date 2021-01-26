@@ -69,12 +69,12 @@ def heuristic_segmentation_v1(labels):
     return states_new, state_mapping
 
 
-def heuristic_segmentation_v2(labels, ball_me):
+def heuristic_segmentation_v2(labels, ball_me, walk_thresh=0.2):
 
     from skimage.restoration import denoise_tv_chambolle
 
     D = labels.shape[1]
-    n_markers = D / 2
+    n_markers = int(D / 2)
 
     idxs = {
         'body': np.array([0, 1, 0 + n_markers, 1 + n_markers]).astype('int'),
@@ -84,16 +84,15 @@ def heuristic_segmentation_v2(labels, ball_me):
     idxs['legs'] = np.concatenate([idxs['back'], idxs['mid'], idxs['front']])
 
     # running - look at ball me
-    thresh = 0.10
     zs_run = np.zeros_like(ball_me)
     ball_me2 = ball_me - np.percentile(ball_me, 1)
-    zs_run[ball_me2 >= thresh] = 1
+    zs_run[ball_me2 >= walk_thresh] = 1
 
     # still - threshold data to get moving/non-moving
     me = np.concatenate([np.zeros((1, D)), np.square(np.diff(labels, axis=0))], axis=0)
 
     xs_me = np.mean(me, axis=1)
-    xs_me = denoise_tv_chambolle(xs_me, weight=0.1)
+    xs_me = denoise_tv_chambolle(xs_me, weight=0.05)
     xs_me -= np.min(xs_me)
     xs_me /= np.percentile(xs_me, 99)
     thresh = 0.02
@@ -104,7 +103,7 @@ def heuristic_segmentation_v2(labels, ball_me):
     # xs_fg = pca.fit_transform(me[:, idxs['front']])[:, 0]
     # xs_fg = me[:, idxs['front'][0]]
     xs_fg = np.mean(me[:, idxs['front']], axis=1)
-    xs_fg = denoise_tv_chambolle(xs_fg, weight=0.1)
+    xs_fg = denoise_tv_chambolle(xs_fg, weight=0.05)
     xs_fg -= np.min(xs_fg)
     xs_fg /= np.percentile(xs_fg, 99)
     thresh = 0.02
@@ -115,7 +114,7 @@ def heuristic_segmentation_v2(labels, ball_me):
     # back groom
     # xs_bg = pca.fit_transform(me[:, idxs['back']])[:, 0]
     xs_bg = np.mean(me[:, idxs['back']], axis=1)
-    xs_bg = denoise_tv_chambolle(xs_bg, weight=0.1)
+    xs_bg = denoise_tv_chambolle(xs_bg, weight=0.05)
     xs_bg -= np.min(xs_bg)
     xs_bg /= np.percentile(xs_bg, 99)
     thresh = 0.02
@@ -145,7 +144,7 @@ def heuristic_segmentation_v2(labels, ball_me):
     lps = []
     for i in range(5):
         models.append(HMM(K=5, D=1, observations='categorical', observation_kwargs=dict(C=5)))
-        lps.append(models[i].fit(states[:, None], num_iters=150))
+        lps.append(models[i].fit(states[:, None], num_iters=150, tolerance=1e-2))
     best_idx = np.argmax([lp[-1] for lp in lps])
     model = models[best_idx]
 

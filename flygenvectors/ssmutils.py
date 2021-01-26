@@ -947,8 +947,8 @@ def k_step_r2(
                     for k in range(pad, pad + k_max):
                         if t + 1 + k - pad < T:
                             x_pred[k, :] = model.observations.sample_x(
-                                zs[t + 1 + k - pad], x_pred[:k], input=inputs[t], tag=None,
-                                with_noise=obs_noise)
+                                zs[t + 1 + k - pad], x_pred[:k], input=inputs[t + 1 + k - pad],
+                                tag=None, with_noise=obs_noise)
                         else:
                             # beyond the end of the data sample; return zeros
                             pass
