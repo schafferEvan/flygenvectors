@@ -438,6 +438,54 @@ def get_dlc_motion_energy(data_dict):
     return dlc_energy
 
 
+def split_trials(
+        n_trials, rng_seed=0, trials_tr=5, trials_val=1, trials_test=1,
+        trials_gap=1):
+    """
+    Split trials into train/val/test blocks.
+    The data is split into blocks that have gap trials between tr/val/test:
+    train tr | gap tr | val tr | gap tr | test tr | gap tr
+    Args:
+        n_trials (int): number of trials to use in the split
+        rng_seed (int): numpy random seed for reproducibility
+        trials_tr (int): train trials per block
+        trials_val (int): validation trials per block
+        trials_test (int): test trials per block
+        trials_gap (int): gap trials between tr/val/test; there will be a total
+            of 3 * `trials_gap` gap trials per block
+    Returns:
+        (dict)
+    """
+
+    # same random seed for reproducibility
+    np.random.seed(rng_seed)
+
+    tr_per_block = \
+        trials_tr + trials_gap + trials_val + trials_gap + trials_test + trials_gap
+
+    n_blocks = int(np.floor(n_trials / tr_per_block))
+    leftover_trials = n_trials - tr_per_block * n_blocks
+    if leftover_trials > 0:
+        offset = np.random.randint(0, high=leftover_trials)
+    else:
+        offset = 0
+    indxs_block = np.random.permutation(n_blocks)
+
+    batch_indxs = {'train': [], 'test': [], 'val': []}
+    for block in indxs_block:
+        curr_tr = block * tr_per_block + offset
+        batch_indxs['train'].append(np.arange(curr_tr, curr_tr + trials_tr))
+        curr_tr += (trials_tr + trials_gap)
+        batch_indxs['val'].append(np.arange(curr_tr, curr_tr + trials_val))
+        curr_tr += (trials_val + trials_gap)
+        batch_indxs['test'].append(np.arange(curr_tr, curr_tr + trials_test))
+
+    for dtype in ['train', 'val', 'test']:
+        batch_indxs[dtype] = np.concatenate(batch_indxs[dtype], axis=0)
+
+    return batch_indxs
+
+
 class Logger(object):
     # for printing stdout to both screen and logfile
     def __init__(self, fname="logfile.log"):
