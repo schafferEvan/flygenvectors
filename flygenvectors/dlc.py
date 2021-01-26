@@ -299,24 +299,25 @@ def split_runs(indxs, dtypes, dtype_lens):
 
 def preprocess_and_split_data(
         expt_ids, preprocess_list, max_trial_len=1000, algo='dgp', load_from='pkl',
-        dtypes=['train', 'test', 'val'], dtype_lens=[8, 1, 1]):
+        dtypes=['train', 'test', 'val'], dtype_lens=[8, 1, 1], filenames=None):
     """Helper function to initialize label object."""
 
     if not isinstance(expt_ids, list):
         expt_ids = [expt_ids]
+        filenames = [filenames]
 
     label_obj = [Labels(expt_id, algo=algo) for expt_id in expt_ids]
 
     for n in range(len(label_obj)):
 
         if load_from == 'csv':
-            label_obj[n].load_from_csv()  # original dlc labels OR up-to-date dgp labels
+            label_obj[n].load_from_csv(filename=filenames[n])  # original dlc labels OR up-to-date dgp labels
         elif load_from == 'mat':
             label_obj[n].load_from_mat()  # cosyne dgp labels
         elif load_from == 'pkl':
             label_obj[n].load_from_pkl()  # summer 2020 dgp labels
         elif load_from == 'h5':
-            label_obj[n].load_from_h5()  # up-to-date dgp labels
+            label_obj[n].load_from_h5(filename=filenames[n])  # up-to-date dgp labels
         else:
             raise NotImplementedError('"%s" is not a valid label file format')
 
