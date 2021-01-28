@@ -440,79 +440,97 @@ def label_videos(
 
 def segment_labels(
         expt_ids, ball_me_dir, labels_dir, states_dir, state_ids=[], create_syllable_movies=False,
-        create_labeled_movies=False):
+        create_labeled_movies=False, walk_thresh=0.5, still_thresh=0.05, groom_thresh=0.02):
 
     for expt_id in expt_ids:
 
         out_file = os.path.join(states_dir, expt_id + '_beh-states-heuristic.pkl')
         if os.path.exists(out_file):
             print('%s\n%s already exists; skipping\n' % (expt_id, out_file))
-            continue
+            if create_syllable_movies or create_labeled_movies:
+                with open(out_file, 'rb') as f:
+                    tmp = pickle.load(f)
+                states = tmp['states']
+                state_mapping = tmp['state_labels']
+                n_t = states.shape[0]
+                print('loading behavioral video...', end='')
+                video = video_loader(expt_id)
+                print('done')
+        else:
 
-        # load data
-        labels_file = os.path.join(labels_dir, '%s_labeled.h5' % expt_id)
-        preprocess_list = {
-            'filter': {'type': 'savgol', 'window_size': 5, 'order': 2},
-            'unitize': {},  # scale labels in [0, 1]
-        }
-        dlc_obj = preprocess_and_split_data(
-            expt_id, preprocess_list, algo='dgp', load_from='h5', filenames=labels_file)
-        labels = dlc_obj[0].get_label_array()
+            # load data
+            labels_file = os.path.join(labels_dir, '%s_labeled.h5' % expt_id)
+            preprocess_list = {
+                'filter': {'type': 'savgol', 'window_size': 5, 'order': 2},
+                'unitize': {},  # scale labels in [0, 1]
+            }
+            dlc_obj = preprocess_and_split_data(
+                expt_id, preprocess_list, algo='dgp', load_from='h5', filenames=labels_file)
+            labels = dlc_obj[0].get_label_array()
 
-        print('loading behavioral video...', end='')
-        video = video_loader(expt_id)
-        print('done')
+            print('loading behavioral video...', end='')
+            video = video_loader(expt_id)
+            print('done')
 
-        print('loading ball motion energy...', end='')
-        ball_me = np.load(os.path.join(ball_me_dir, expt_id + '.npy'))
-        print('done')
+            print('loading ball motion energy...', end='')
+            ball_me = np.load(os.path.join(ball_me_dir, expt_id + '.npy'))
+            print('done')
 
-        n_t = np.min([video.shape[0], labels.shape[0]])  # sometimes index is off by 1
-        labels = labels[:n_t]
-        ball_me = ball_me[:n_t]
+            n_t = np.min([video.shape[0], labels.shape[0]])  # sometimes index is off by 1
+            labels = labels[:n_t]
+            ball_me = ball_me[:n_t]
 
-        # perform segmentation
-        states, state_mapping = heuristic_segmentation_v2(labels, ball_me, walk_thresh=0.5)
+            # perform segmentation
+            states, state_mapping = heuristic_segmentation_v2(
+                labels, ball_me, walk_thresh=walk_thresh, still_thresh=still_thresh,
+                groom_thresh=groom_thresh)
 
-        # save data
-        data = {'states': states, 'state_labels': state_mapping}
-        if not os.path.exists(os.path.dirname(out_file)):
-            os.makedirs(os.path.dirname(out_file))
-        with open(out_file, 'wb') as f:
-            print('saving states to %s' % out_file)
-            pickle.dump(data, f)
-            print('\n\n')
+            # save data
+            data = {'states': states, 'state_labels': state_mapping}
+            if not os.path.exists(os.path.dirname(out_file)):
+                os.makedirs(os.path.dirname(out_file))
+            with open(out_file, 'wb') as f:
+                print('saving states to %s' % out_file)
+                pickle.dump(data, f)
+                print('\n\n')
 
         # create syllable movie
         if create_syllable_movies:
             if len(state_ids) == 0:
                 state_ids = [None]
             for state_id in state_ids:
-                if state_id == 1:
+                if state_id == 0:
+                    syll_str = 'still'
+                elif state_id == 1:
                     syll_str = 'walk'
                 elif state_id == 2:
                     syll_str = 'front-groom'
                 elif state_id == 3:
                     syll_str = 'back-groom'
+                elif state_id == 4:
+                    syll_str = 'unidentified'
                 else:
                     syll_str = 'all'
                 save_file = os.path.join(
-                    states_dir, 'syllable-videos-heuristic-v2',
-                    '%s_%s_walk-thresh=0.5.mp4' % (expt_id, syll_str))
+                    states_dir, 'syllable-videos-heuristic-v2', '%s_%s.mp4' % (expt_id, syll_str))
+                if os.path.exists(save_file):
+                    print('%s\n%s already exists; skipping\n' % (expt_id, save_file))
+                    continue
                 plotting.make_syllable_movie(
                     save_file, [states], video, [np.arange(n_t)], single_state=state_id,
                     min_threshold=70, n_pre_frames=0, n_buffer=10, plot_n_frames=1000)
 
         # create labeled movie
         if create_labeled_movies:
-            l = 1000
-            idxs_chunk = [0, 7, 10]  # , 17, 49, 50, 61, 72, 73]
-            for idx_chunk in idxs_chunk:
-                save_file = os.path.join(
-                    states_dir, expt_id, str('labeled-video_%03i_wmarkers_v2.mp4' % idx_chunk))
-                beg = idx_chunk * l
-                idxs_ = np.arange(beg, beg + l)
-                plotting.make_labeled_movie_wmarkers(
-                    save_file, states, video, labels, idxs_, state_mapping)
+            pass
+            # l = 1000
+            # idxs_chunk = [0, 7, 10]  # , 17, 49, 50, 61, 72, 73]
+            # for idx_chunk in idxs_chunk:
+            #     save_file = os.path.join(
+            #         states_dir, expt_id, str('labeled-video_%03i_wmarkers_v2.mp4' % idx_chunk))
+            #     beg = idx_chunk * l
+            #     idxs_ = np.arange(beg, beg + l)
+            #     plotting.make_labeled_movie_wmarkers(
+            #         save_file, states, video, labels, idxs_, state_mapping)
 
         print('\n')
