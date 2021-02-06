@@ -898,6 +898,26 @@ def get_model_fit_as_dict(model_fit):
     return fit_dict
 
 
+def array_of_dicts_to_dict_of_arrays(a):
+    # takes 2D array of dicts and returns dict of 2D arrays
+    # similar to one-dimensional version above, "get_model_fit_as_dict"
+    reg_labels = list(a[0,0].keys())
+    d = {}
+    for label in reg_labels:
+        if type(a[0,0][label]) is list:
+            d[label] = np.zeros((a.shape[0], a.shape[1], len(a[0,0][label])))
+            for i in range(a.shape[0]):
+                for j in range(a.shape[1]):
+                    d[label][i,j,:] = a[i,j][label]
+            # d[label] = np.squeeze(d[label])
+        else:
+            d[label] = np.zeros(a.shape)
+            for i in range(a.shape[0]):
+                for j in range(a.shape[1]):
+                    d[label][i,j] = a[i,j][label]
+    return d
+
+
 def unroll_model_fit_stats(model_fit):
     # takes model_fit list and unrolls specified nested dicts
     import copy
@@ -986,14 +1006,14 @@ def show_param_scatter(model_fit, data_dict, param_name, pval=.01):
 def show_tau_scatter(model_fit, pval=.01):
     f = get_model_fit_as_dict(model_fit)
     rsq_dict = get_model_fit_as_dict(f['r_sq'])
-    rsq = rsq_dict['tot']
+    rsq = rsq_dict['tau'] #['tot']
     tau = abs(f['tau'])
     tau_is_pos = (f['tau']>=0)
     # rsq_null = f['rsq_null']
     stat = np.zeros(len(tau))
     for i in range(len(tau)):
         stat[i] = f['stat'][i]['tau'][0][1]
-    success = f['success']
+    success = True #f['success']
 
     pval_text = pval #0.01
     sig = (stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
@@ -1009,9 +1029,9 @@ def show_tau_scatter(model_fit, pval=.01):
     # print('sum of neg init is '+str(sum(np.logical_not(tau_is_pos))/len(tau_is_pos)))
     # print('sum of neg post is '+str( sum( np.logical_not(tau_is_pos)[success*sig] ) ))
 
-    print('median tau of significant cells = '+str(np.median(tau_sig)))
-    print('frac of significant cells w/ tau above 30s = '+str( np.sum(tau_sig>30)/len(tau_sig) ))
-    print('fraction of cells with p<'+str(pval)+' = '+str( (success*sig).sum()/len(success) ))
+    print('median tau of significant cells = '+str(np.nanmedian(tau_sig)))
+    print('frac of significant cells w/ tau above 20s = '+str( np.sum(tau_sig>20)/len(tau_sig) ))
+    print('fraction of cells with p<'+str(pval)+' = '+str( (success*sig).sum()/len(sig) ))
 
     plt.figure(figsize=(5, 5))
     left, width = 0.1, 0.65
