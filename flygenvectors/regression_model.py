@@ -2,105 +2,160 @@ import os
 import sys
 import glob
 import numpy as np
-from sklearn.decomposition import PCA
-from sklearn.linear_model import ElasticNet
+# from sklearn.decomposition import PCA
+# from sklearn.linear_model import ElasticNet
 from scipy.optimize import minimize
 from scipy import stats
 import matplotlib.pyplot as plt
 import copy
 import data as dataUtils
+import plotting
+import ssmplotting
 import pdb
 
 
 
 class reg_obj:
     def __init__(self, activity='dFF', exp_id=None, data_dict={}, fig_dirs={}, split_behav=False, use_beh_labels=None):
-        self.data_dict = data_dict
+        self.data_dict = copy.deepcopy(data_dict) #protect original dictionary
+        self.data_dict_orig = copy.deepcopy(self.data_dict)
+        self.data_dict_downsample = copy.deepcopy(self.data_dict)
         self.exp_id = exp_id
         self.fig_dirs = fig_dirs
-        self.activity=activity # valid values: {'dFF', 'rate'}, determines what trace is used for fit
+        self.activity = activity # valid values: {'dFF', 'rate'}, determines what trace is used for fit
         self.kern_type = 'double_exp' # formerly 'gauss'
-        self.params = {'split_behav':split_behav,
-                    'use_beh_labels':use_beh_labels,
-                    'run_full_sweep':True,
-                    'sigLimSec':60,
-                    'phaseLimSec': 60,
-                    'M':0,
-                    'L':0,
-                    'tau':0.1,
-                    'mu':0,
-                    'tau_feed':0.1,
-                    'tau_beh_lab':0.1
-                 }
+        self.params = {
+            'split_behav':split_behav,
+            'use_beh_labels':use_beh_labels,
+            'sigLimSec':60,
+            'M':0,
+            'L':0,
+            'tau':0.1,
+         }
         self.regressors_dict = {
-            'alpha_01':np.array([]), 
+            'alpha_0':np.array([]), 
             'beta_0':np.array([]), 
             'trial':np.array([]), 
             'drink_hunger':np.array([]),
             'beh_lbl':np.array([])
         }
+        self.is_downsampled = False
+        self.t_exp = []
+        self.coeff_label_list = ['alpha_0','beta_0','tau','phi','trial_coeffs']
         self.options = {'make_motion_hist':False}
-        self.regressors_array = np.array([])
-        self.regressors_array_inv = np.array([])
         self.cell_id = 0
-        self.phiList = []
-        self.tauList = []
-        self.phiList_beh_lab = []
-        self.phi = 0
-        self.p_dict = {} # temp
         self.model_fit = []
-        self.P_tot = []
-        self.obj_tot = []
-        self.baseline_regs_amp_val = 1000
-        self.elasticNet = False 
-        self.num_tau_feed_steps = 30
 
 
+    def get_model(self, fit_coeffs):
+        '''use parameters to generate fit''' 
+        d = self.coeff_list_to_dict(fit_coeffs)
+        self.get_linear_regressors(d)
+        time_regs = self.regressors_dict['alpha_0']
+        trial_regressors = self.regressors_dict['trial']
+        lin_piece = d['alpha_0']@time_regs + d['trial_coeffs']@trial_regressors
+        dFF_fit =  lin_piece + d['beta_0']*self.linear_regressors_dict['beta_0']
+        return dFF_fit
 
-    def fit_reg_linear(self, n, phi_idx, phi_idx_beh_lab=0, tseries_to_sub=None, D=None, Dinv=None, reg_labels=None):
-        '''
-        n=cell number
-        phi=offset
-        tseries_to_sub (optional): pre-subtract a timeseries. Useful for parameter sweeps
-        D (optional): provide regressor array. Otherwise defaults to reg array attribute of current object
-        Dinv (optional): provide regressor array. Otherwise defaults to inv reg array attribute of current object
-        reg_labels (optional): required if providing D, unneeded otherwise. Manually provide fields for dict output
-        '''
-        dFF_full = self.data_dict[self.activity][n,:]
-        L = self.params['L']
-        dFF = dFF_full[L:-L]
-        if tseries_to_sub is not None:
-            dFF -= tseries_to_sub
 
-        # for a given tau, fit for other parameters is linear, solved by pseudoinverse
-        if D is None:
-            D = self.regressors_array[phi_idx_beh_lab][phi_idx]
-        if Dinv is None:
-            Dinv = self.regressors_array_inv[phi_idx_beh_lab][phi_idx]
-        dFF = np.expand_dims(dFF, axis=0)
-        # coeffs = np.matmul( np.matmul(dFF,D.T), Dinv )
-        coeffs = np.squeeze( (dFF@D.T) @ Dinv )
-        dFF_fit = coeffs@D #np.matmul(coeffs,D)
+    def get_linear_regressors(self, d):
+        # apply all nonlinearities to self.regressors_dict, so that output regs are linear
+        # d is a dictionary of regression coefficients
+        kern = self.get_kern(d['phi'], d['tau']) #(1/np.sqrt(tau))*np.exp(-t_exp/tau)
+        ball = self.regressors_dict['beta_0']
+        self.linear_regressors_dict['beta_0'] = np.convolve(kern,ball,'same')
+    
+
+    def get_kern(self, phi, tau):
+        '''make kernel''' 
+        t_exp = self.t_exp
+        kern = np.zeros(len(t_exp))
+        p = t_exp>=phi
+        n = t_exp<phi
+        kern[p] = np.exp(-(t_exp[p]-phi)/tau)
+        kern[n] = np.exp((t_exp[n]-phi)/tau)
+        return kern
+
+
+    def get_objective_fn(self, fit_coeffs):
+        '''evaluate fit''' 
+        dFF = self.data_dict[self.activity][self.cell_id,:]
+        dFF_fit = self.get_model(fit_coeffs)
+        #obj = ((dFF[len(t_exp)-1:]-dFF_fit)**2).sum()
         obj = ((dFF-dFF_fit)**2).sum()
+        return obj
 
-        # split parameters 'coeffs' back into dictionary by labeled regressor
-        if reg_labels is None:
-            reg_labels = list(self.regressors_dict[phi_idx_beh_lab][phi_idx].keys())
+
+    def get_model_mle(self, downsample=True, shifted=None, initial_conds=[0,.0001,0,0.5,5,0]):
+        """
+        downsample: flag creates downsampled dict, or points to it if one is already made.
+        shifted: if not None, uses circshifted dict instead of original
+        time_cropping: if not None, crops in time (only current self.data_dict, which will be overwritten by downsample)
+        """
+        self.downsample_in_time()
+        # if time_cropping is not None:
+        #     self.data_dict['dFF'] = self.data_dict['dFF'][:,time_cropping[0]:time_cropping[1]]
+        #     self.data_dict['time'] = self.data_dict['time'][time_cropping[0]:time_cropping[1]]
+        #     self.data_dict['trialFlag'] = self.data_dict['trialFlag'][time_cropping[0]:time_cropping[1]]
+        #     self.data_dict['behavior'] = self.data_dict['behavior'][time_cropping[0]:time_cropping[1]]
+        # **********
+        # add call to method here that overwrites data_dict with only some timesteps.
+        # NEED call downsample() beforehand to reset the dict.
+        # **********
+
+        self.get_regressors(shifted=shifted)
+        bounds=[[None,None],[None,None],[None,None],[None,None],[1,59],[-59,59]]
+        for i in range(self.n_trials-1):
+            initial_conds.append(0)  
+            bounds.append([None,None])     
+
+        N = self.data_dict[self.activity].shape[0]
+        model_fit = [None]*N
+        for n in range(N):
+            if not np.mod(n,100): print(str(int(100*n/N))+'%', end=' ')
+            self.cell_id = n
+            res = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds)
+            model_fit[n] = self.coeff_list_to_dict(res['x'])
+        return model_fit
+        
+
+    def dict_to_flat_list(self, coeff_dict):
+        # regenerate coeff dict from list (inverse of below).
+        reg_labels = list(coeff_dict.keys())
+        coeff_list_nested = []
+        for j in range(len(reg_labels)):
+            coeff_list_nested.append( coeff_dict[ reg_labels[j] ] )
+        coeff_list = [val for sublist in coeff_list_nested for val in sublist]
+        return coeff_list
+
+
+    def coeff_list_to_dict(self, coeff_list):
+        # regenerate coeff list from dict (inverse of above)
         coeff_dict = {}
         cumulative_tot = 0
-        for j in range(len(reg_labels)):
-            n_this_reg = self.regressors_dict[phi_idx_beh_lab][phi_idx][ reg_labels[j] ].shape[0]
-            # pdb.set_trace()
-            coeff_dict[reg_labels[j]] = coeffs[ cumulative_tot+np.arange(n_this_reg) ]
-            cumulative_tot += n_this_reg
-        
-        return coeff_dict, obj
+        for idx in enumerate(self.coeff_label_list):
+            s = self.get_coeff_shape(idx[1])
+            coeff_dict[idx[1]] = coeff_list[ cumulative_tot:(cumulative_tot+s) ]
+            cumulative_tot += s
+        return coeff_dict
 
 
+    def get_coeff_shape(self, label):
+        if label=='alpha_0':
+            s = self.regressors_dict['alpha_0'].shape[0]
+        elif label=='beta_0':
+            if self.params['split_behav']:
+                s = self.regressors_dict['beta_0'].shape[0]
+            else:
+                s = 1
+        elif (label=='tau') or (label=='phi'):
+            s = 1
+        elif label=='trial_coeffs':
+            s = self.regressors_dict['trial'].shape[0]
+        return s
 
 
-
-    def get_regressors(self, phi_input=None, phi_beh_lab_input=None, amplify_baseline=False, just_null_model=False):
+    def get_regressors(self, just_null_model=False, shifted=None):
         '''build matrix of all regressors.  Stores output as a dictionary and as a concatenated array.
         Also pre-computes inverse of this array.
         params = {'split_behav':True,
@@ -114,451 +169,167 @@ class reg_obj:
         amplify_baseline: scale alpha and trial regs to spare them from elastic net penalty
         just_null_model: returns just alpha and trial regs''' 
         self.refresh_params()
-        data_dict = self.data_dict
+        data_dict = self.data_dict # evaluate on orig, even if fit was done on downsampled data
         params = self.params
         if just_null_model: params['split_behav'] = False
-        L = params['L']
-        time = data_dict['time']-data_dict['time'].mean() #data_dict['time'][0]
-        ts_full = time #np.squeeze(time)
-        t_exp = np.linspace(1,params['M'],params['M'])/data_dict['scanRate']
+        # L = params['L']
+        ts_full = data_dict['time']-data_dict['time'].mean() #data_dict['time'][0]
+        ts = ts_full-ts_full.mean()
+        ts /= abs(ts).max()
+        alpha_regs = np.concatenate( (np.ones((1,len(ts)))/len(ts), ts.T, ts.T**2) )
 
+        # t_exp = np.linspace(1,params['M'],params['M'])/data_dict['scanRate']
+        self.t_exp = np.linspace(-params['M']/2, params['M']/2, params['M'])/data_dict['scanRate']
 
         # define trial flag regressors
-        U = np.unique(data_dict['trialFlag'])
-        NT = len(U)
+        NT = self.n_trials
         # print(str(NT)+' trials')
-        trial_regressors = np.zeros((NT-1,-2*L+len(data_dict['trialFlag'])))
+        trial_regressors = np.zeros((NT-1,len(data_dict['trialFlag'])))
         # pdb.set_trace()
         for i in range(NT-1):
-            is_this_trial = data_dict['trialFlag']==U[i]
-            trial_regressors[i,:] = 1.0*np.squeeze(is_this_trial)[L:-L]
+            is_this_trial = data_dict['trialFlag']==self.U[i]
+            trial_regressors[i,:] = 1.0*np.squeeze(is_this_trial) #[L:-L]
             trial_regressors[i,:] -= trial_regressors[i,:].mean()
             trial_regressors[i,:] /= abs(trial_regressors[i,:]).max()
 
-        # convolve behavior with chosen kernel, either piecewise or all together
-        ts = ts_full[L:-L]-ts_full[L:-L].mean()
-        ts /= abs(ts).max()
-
-        if self.kern_type == 'double_exp':
-            kern = np.zeros(len(t_exp))
-            p = t_exp>=params['mu']
-            n = t_exp<params['mu']
-            kern[p] = np.exp(-(t_exp[p]-params['mu'])/params['tau'])
-            kern[n] = np.exp((t_exp[n]-params['mu'])/params['tau'])
-        elif self.kern_type == 'gauss':
-            kern = np.exp(-0.5*((t_exp-params['mu'])/params['tau'])**2)
-
-        kern /= kern.sum()
+        # motion energy from ball
         if params['split_behav']:
             ball = np.zeros((NT,len(data_dict['behavior'])))
-            x_c_full = np.zeros((NT,len(data_dict['behavior'])))
             for i in range(NT):
-                is_this_trial = np.squeeze(data_dict['trialFlag']==U[i])
+                is_this_trial = np.squeeze(data_dict['trialFlag']==self.U[i])
                 ball[i,is_this_trial] = data_dict['behavior'][is_this_trial]-data_dict['behavior'][is_this_trial].mean()
-                # x_c_full[i,:] = np.convolve(kern,ball[i,:],'same')                      # ******* fix 'same' and 'gauss/exp' option *******
-                x_c_full[i,is_this_trial] = np.convolve(kern,ball[i,:],'same')[is_this_trial] 
         elif just_null_model:
-            x_c_full = []
+            ball = []
         else:
-            ball = data_dict['behavior']-data_dict['behavior'].mean()
-            x_c_full = np.convolve(kern,ball,'same')                      # ******* fix 'same' and 'gauss/exp' option *******
-        
-        ## legacy version
-        # d1 = np.argmax(data_dict['drink'])
-        # hunger = np.zeros(data_dict['drink'].shape)
-        # hunger[d1:]=1
-        # hunger = np.squeeze(hunger)-hunger.mean()
-        # if abs(hunger).max()==0:
-        #     hunger = np.nan*np.ones(hunger.shape)
-        # else:
-        #     hunger /= abs(hunger).max()
-        d1 = np.argmax(data_dict['drink'])
-        feed_raw = np.squeeze(data_dict['drink'].astype(float))
-        feed_raw -= feed_raw.mean()
-        if abs(feed_raw).max()==0:
-            feed_raw = np.nan*np.ones(feed_raw.shape)
-        else:
-            feed_raw /= abs(feed_raw).max()
-        feed_kern = np.exp(-t_exp/params['tau_feed'])
-        feed_conv = np.convolve(feed_kern,feed_raw,'full')[:-len(feed_kern)+1]
-        feed_conv[:d1-1] = feed_conv[d1-1] #erase conv artifacts
-        feed_conv -= feed_conv.mean()
-        feed_conv /= feed_conv.max()
+            if shifted is None:
+                ball = data_dict['behavior']-data_dict['behavior'].mean()
+            else:
+                ball = data_dict['circshift_behav'][shifted] - data_dict['circshift_behav'][shifted].mean()
 
-        if self.params['use_beh_labels'] is not None:
-            # assumes self.params['use_beh_labels'] is a list of labels to use as regressors
-            beh_lab_raw = np.zeros( ( len(self.params['use_beh_labels']), len(data_dict['beh_labels']) ) )
-            for lab_idx in enumerate(self.params['use_beh_labels']):
-                beh_lab_raw[lab_idx[0],:] = data_dict['beh_labels'].T==lab_idx[1]
-            
-            if self.kern_type == 'double_exp':
-                beh_lab_kern = np.zeros(len(t_exp))
-                p = t_exp>=params['mu'] # this is not a mistake. mu corrects for conv displacement, unrelated to phi
-                n = t_exp<params['mu']
-                beh_lab_kern[p] = np.exp(-(t_exp[p]-params['mu'])/params['tau_beh_lab'])
-                beh_lab_kern[n] = np.exp((t_exp[n]-params['mu'])/params['tau_beh_lab'])
-            elif self.kern_type == 'gauss':
-                beh_lab_kern = np.exp(-0.5*((t_exp-params['mu'])/params['tau_beh_lab'])**2)
-            beh_lab_kern /= beh_lab_kern.sum()
-
-            beh_lab_conv = np.zeros( ( len(self.params['use_beh_labels']), len(data_dict['beh_labels']) ) )
-            for lab_idx in range(len(self.params['use_beh_labels'])):
-                beh_lab_conv[lab_idx,:] = np.convolve(beh_lab_kern,beh_lab_raw[lab_idx,:],'same') #'full')[:-len(beh_lab_kern)+1]
-                # beh_lab_conv[lab_idx,:] -= beh_lab_conv[lab_idx,:].mean()
-                # beh_lab_conv[lab_idx,:] /= beh_lab_conv[lab_idx,:].max()
-
-        # alpha_regs = np.concatenate( (np.ones((1,len(ts)))/len(ts), ts.T) )
-        alpha_regs = np.concatenate( (np.ones((1,len(ts)))/len(ts), ts.T, ts.T**2) )
-        # regs = np.concatenate( (alpha_regs, x_c, trial_regressors, np.array([drink[L:-L],hunger[L:-L]])), axis=0 )
-        
         if just_null_model:
-            phi_list_for_loop = [0]
-            self.phiList_beh_lab = [0]
-        elif phi_input is None:
-            phi_list_for_loop = self.phiList
-            if self.params['use_beh_labels'] is not None:
-                self.phiList_beh_lab = [0] #[10,200] #self.phiList.copy() #*************************
-            else:
-                self.phiList_beh_lab = [0]
+            self.regressors_dict = {
+                'alpha_0':alpha_regs, 
+                'trial':trial_regressors
+            }
         else:
-            phi_list_for_loop = [phi_input]
-            if phi_beh_lab_input is None:
-                print('phi beh lab is missing')
-            else:
-                self.phiList_beh_lab = [phi_beh_lab_input]
-        self.regressors_dict = len(self.phiList_beh_lab)*[[None]*len(phi_list_for_loop)]
-        self.regressors_array = len(self.phiList_beh_lab)*[[None]*len(phi_list_for_loop)]
-        self.regressors_array_inv = len(self.phiList_beh_lab)*[[None]*len(phi_list_for_loop)]
-
-        for k in range(len(self.phiList_beh_lab)):
-            if self.params['use_beh_labels'] is not None:
-                phi_beh_lab = self.phiList_beh_lab[k]
-                if(phi_beh_lab==L):
-                    beh_lab_conv_shift = beh_lab_conv[:,L+phi_beh_lab:]
-                else:
-                    beh_lab_conv_shift = beh_lab_conv[:,L+phi_beh_lab:-(L-phi_beh_lab)]
-                for lab_idx in range(len(self.params['use_beh_labels'])):
-                    beh_lab_conv_shift[lab_idx,:] -= beh_lab_conv_shift[lab_idx,:].mean()
-                    beh_lab_conv_shift[lab_idx,:] /= beh_lab_conv_shift[lab_idx,:].max()
-
-                # beh_lab_conv_shift /= abs(beh_lab_conv_shift).max()
-                # beh_lab_conv_shift = np.expand_dims(beh_lab_conv_shift, axis=0)
-
-            for j in range(len(phi_list_for_loop)):
-                phi = phi_list_for_loop[j]
-                if params['split_behav']:
-                    x_c = np.zeros((NT,-2*params['L']+len(data_dict['behavior'])))
-                    for i in range(NT):
-                        if(phi==L):
-                            x_c[i,:] = x_c_full[i,L+phi:]-x_c_full[i,L+phi:].mean()
-                        else:
-                            x_c[i,:] = x_c_full[i,L+phi:-(L-phi)]-x_c_full[i,L+phi:-(L-phi)].mean()
-                        x_c[i,:] /= abs(x_c[i,:]).max()
-                elif just_null_model:
-                    x_c = []
-                else:
-                    if(phi==L):
-                        x_c = x_c_full[L+phi:]-x_c_full[L+phi:].mean()
-                    else:
-                        x_c = x_c_full[L+phi:-(L-phi)]-x_c_full[L+phi:-(L-phi)].mean()
-                    x_c /= abs(x_c).max()
-                    x_c = np.expand_dims(x_c, axis=0)
-
-                # scale alpha and trial regs to spare them from elastic net penalty
-                if just_null_model:
-                    self.regressors_dict[k][j] = {
-                        'alpha_01':alpha_regs, 
-                        'trial':trial_regressors
-                    }
-                elif amplify_baseline:
-                    self.regressors_dict[k][j] = {
-                        'alpha_01':alpha_regs*self.baseline_regs_amp_val, 
-                        'trial':trial_regressors*self.baseline_regs_amp_val, 
-                        'beta_0':x_c 
-                    }
-                else:
-                    self.regressors_dict[k][j] = {
-                        'alpha_01':alpha_regs, 
-                        'trial':trial_regressors, 
-                        'beta_0':x_c 
-                    }
-                # if (np.isnan(drink).sum()==0) and (np.isnan(hunger).sum()==0) and not just_null_model:
-                #     self.regressors_dict[j]['drink_hunger'] = np.array([drink[L:-L],hunger[L:-L]])
-                if (np.isnan(feed_conv).sum()==0) and not just_null_model:
-                    self.regressors_dict[k][j]['drink_hunger'] = np.expand_dims(feed_conv[L:-L], axis=0) #np.array(feed_conv[L:-L])
-
-                if (self.params['use_beh_labels'] is not None) and not just_null_model:
-                    self.regressors_dict[k][j]['beh_lbl'] = beh_lab_conv_shift
-
-                # pdb.set_trace()
-                regressors_array, regressors_array_inv, self.tot_n_regressors = self.get_regressor_array(self.regressors_dict[k][j])
-                if (regressors_array.max()>self.baseline_regs_amp_val) or (regressors_array.min()<-self.baseline_regs_amp_val):
-                    print('WARNING: regressor not normalized')
-                self.regressors_array[k][j] = regressors_array 
-                self.regressors_array_inv[k][j] = regressors_array_inv
+            self.regressors_dict = {
+                'alpha_0':alpha_regs, 
+                'trial':trial_regressors, 
+                'beta_0':ball 
+            }
+        self.linear_regressors_dict = copy.deepcopy(self.regressors_dict)
 
 
-    def get_regressor_array(self, regs):
-        reg_labels = list(regs.keys())
-        regressors_array = np.concatenate( (regs[reg_labels[0]], regs[reg_labels[1]]), axis=0 )
-        for j in range(2,len(reg_labels)):
-            regressors_array = np.concatenate( (regressors_array, regs[reg_labels[j]]), axis=0 )
-        # regressors_array = np.concatenate( ( regs['alpha_01'], regs['beta_0'], regs['trial'], regs['drink_hunger'] ), axis=0 )
-        regressors_array_inv = np.linalg.inv( regressors_array@regressors_array.T )
-        tot_n_regressors = regressors_array.shape[0]
-        return regressors_array, regressors_array_inv, tot_n_regressors
+    def downsample_in_time(self, effective_stepsize=0.5):
+        """ downsample data_dict in time for more efficient model fitting
+        effective_stepsize: new volumetric rate in Hz
+        """
+        if self.is_downsampled:
+            # if downsampling already happened, just point to this version of the data
+            self.data_dict = copy.deepcopy(self.data_dict_downsample)
+        else:
+            # make downsampled dataset
+            self.is_downsampled = True
+            self.data_dict['scanRate'] = 1/effective_stepsize
+            sub_fac = np.round(effective_stepsize*self.data_dict_orig['scanRate']).astype(int)
+            L = np.round(self.data_dict_orig[self.activity].shape[1]/sub_fac).astype(int)
+            self.data_dict[self.activity] = np.zeros((self.data_dict_orig[self.activity].shape[0], L))
+            self.data_dict['time'] = np.zeros((L,1))
+            self.data_dict['behavior'] = np.zeros(L)
+            self.data_dict['trialFlag'] = np.zeros(L)
+            for j in range(L):
+                self.data_dict[self.activity][:, j] = self.data_dict_orig[self.activity][:,sub_fac*j:sub_fac*j+1].mean(axis=1)
+                self.data_dict['time'][j,0] = self.data_dict_orig['time'][sub_fac*j:sub_fac*j+1].mean() #sub_fac*j
+                self.data_dict['behavior'][j] = self.data_dict_orig['behavior'][sub_fac*j:sub_fac*j+1].mean()
+                self.data_dict['trialFlag'][j] = stats.mode(self.data_dict_orig['trialFlag'][sub_fac*j:sub_fac*j+1]).mode
+            self.data_dict_downsample = copy.deepcopy(self.data_dict)
 
         
-    def dict_to_flat_list(self, my_dict):
-        # regenerate concatenated coefficient array
-        reg_labels = list(my_dict.keys())
-        my_array_nested = []
-        for j in range(len(reg_labels)):
-            my_array_nested.append( my_dict[ reg_labels[j] ] )
-        my_array = [val for sublist in my_array_nested for val in sublist]
-        return my_array
 
-    def coeff_dict_from_keys(self, idx):
-        # regenerate coeff dict from model_fit and regressor dict
-        reg_labels = list(self.regressors_dict[0][0].keys())
-        reg_dict = {}
-        for j in range(len(reg_labels)):
-            reg_dict[reg_labels[j]] = self.model_fit[idx][reg_labels[j]]
-        return reg_dict
-
-
-    def evaluate_reg_model_extended(self):
-        #, n, coeff_dict, phi):
+    def evaluate_model(self, model_fit, reg_labels=['beta_0'], shifted=None):
         # regenerate fit from best parameters and evaluate model
+        # self.data_dict = self.data_dict_orig # don't do this
         self.refresh_params()
-        null_self = copy.deepcopy(self)
-        print('evaluating ')
-        # pdb.set_trace()
+        self.get_regressors(shifted=shifted)
+        
+
+        print('evaluating ', end='')
         for n in range(self.data_dict[self.activity].shape[0]):
-            if not np.mod(n,round(self.data_dict[self.activity].shape[0]/10)): print(n, end=' ')
+            if not np.mod(n,round(self.data_dict[self.activity].shape[0]/20)): print('.', end='')
             sys.stdout.flush()
-            if self.model_fit[n]['success']:
-                # pdb.set_trace()
-                L = self.params['L']
-                dFF_full = self.data_dict[self.activity][n,:]
-                dFF = dFF_full[L:-L]
-                dFF = np.expand_dims(dFF, axis=0)
+            # if self.model_fit[n]['success']:
+            dFF = self.data_dict[self.activity][n,:].copy()
+            coeff_list = self.dict_to_flat_list(model_fit[n])
+            dFF_fit = self.get_model(coeff_list)
+            coeff_dict = model_fit[n]
+            self.get_linear_regressors(coeff_dict)
 
-                # for a given tau, fit for other parameters is linear, solved by pseudoinverse
-                self.params['tau'] = self.model_fit[n]['tau']
-                self.params['tau_feed'] = self.model_fit[n]['tau_feed']
-                self.params['tau_beh_lab'] = self.model_fit[n]['tau_beh_lab']
-                
-                # phi_idx = np.argmin(abs(self.model_fit[n]['phi']-self.phiList))
-                if self.elasticNet:
-                    self.get_regressors(phi_input=self.model_fit[n]['phi'], phi_beh_lab_input=self.model_fit[n]['phi_beh_lab'], amplify_baseline=True)
-                else:
-                    self.get_regressors(phi_input=self.model_fit[n]['phi'], phi_beh_lab_input=self.model_fit[n]['phi_beh_lab'], amplify_baseline=False)
+            # get linpart to subtract from everything
+            coeffs_null = copy.deepcopy(model_fit[n])
+            for label in reg_labels:
+                for j in range(coeffs_null[label].shape[0]):
+                    coeffs_null[label][j] = 0
+            coeff_list = self.dict_to_flat_list(coeffs_null)
+            dFF_fit_linpart = self.get_model(coeff_list) 
+            dFF -= dFF_fit_linpart
+            dFF_fit -= dFF_fit_linpart
 
-                D = self.regressors_array[0][0] #array len()=1 here
-                
-                # regenerate concatenated coefficient array
-                coeff_dict = self.coeff_dict_from_keys(idx=n)
-                coeff_array = self.dict_to_flat_list(coeff_dict)
-                reg_labels = list(coeff_dict.keys())
-                
-                # pdb.set_trace()
-                dFF_fit = coeff_array@D
-                SS_res = ( (dFF-dFF_fit)**2 )
-                # res_var_tot = (dFF-dFF_fit).var()
-                SS_tot = ( (dFF-dFF.mean())**2 ) #( (dFF_without_linpart-dFF_without_linpart.mean())**2 )
-                r_sq_tot = 1-SS_res.sum()/SS_tot.sum()
-                
-                # for all parameter categories, for all parameters in this category, find fit without this parameter to compute p_val
-                stat = copy.deepcopy(coeff_dict)
-                r_sq = copy.deepcopy(coeff_dict)
-                cc = copy.deepcopy(coeff_dict)
-                r_sq['tot'] = r_sq_tot
-                for i in range(len(reg_labels)):
-                    stat_list = []
-                    r_sq_list = []
-                    cc_list = []
-                    for j in range(coeff_dict[reg_labels[i]].shape[0]):
-                        j_inc = [x for x in range(coeff_dict[reg_labels[i]].shape[0]) if x != j]
-                        reg_null = copy.deepcopy(self.regressors_dict[0][0])
-                        reg_null[reg_labels[i]] = reg_null[reg_labels[i]][j_inc,:]
-                        null_self.regressors_dict = [[reg_null]]
-                        
-                        # stats and r^2 are computed from *new* fit leaving out a regressor
-                        regressors_array, regressors_array_inv, _ = self.get_regressor_array(reg_null) # ****** this should be null_self, eliminate arguments
-                        null_self.regressors_array = [[regressors_array]]
-                        null_self.regressors_array_inv = [[regressors_array_inv]]
-                        p_n_dict, _ = null_self.fit_reg_linear(n=n, phi_idx=0) #phi_idx=0 because len(regs)=1
-                        p_n = self.dict_to_flat_list(p_n_dict)
-                        dFF_fit_null = np.squeeze(p_n@null_self.regressors_array[0][0])   
-                        SS_res_0 = ( (dFF-dFF_fit_null)**2 )
-                        # res_var_0 = (dFF-dFF_fit_null).var()
-                        stat_list.append( stats.wilcoxon(np.squeeze(SS_res_0),np.squeeze(SS_res)) )
-                        r_sq_list.append( (SS_res_0.sum()-SS_res.sum())/SS_res.sum() )  # var explained relative to residual, not total variance
-                        
-                        # cc is computed from *old* fit leaving out regressor
-                        coeff_dict_0 = copy.deepcopy(coeff_dict)
-                        coeff_dict_0[reg_labels[i]] = coeff_dict_0[reg_labels[i]][j_inc]
-                        coeff_0 = self.dict_to_flat_list(coeff_dict_0)
-                        dFF_fit_null_0 = np.squeeze(coeff_0@null_self.regressors_array[0][0]) 
-                        # pdb.set_trace()
+            SS_res = ( (dFF-dFF_fit)**2 )
+            SS_tot = ( (dFF-dFF.mean())**2 ) #( (dFF_without_linpart-dFF_without_linpart.mean())**2 )
+            r_sq_tot = 1-SS_res.sum()/SS_tot.sum()
+            
+            # for all parameter categories, for all parameters in this category, find fit without this parameter to compute p_val
+            stat = {}  
+            for label in reg_labels: stat[label] = None
+            r_sq = copy.deepcopy(stat)
+            cc = copy.deepcopy(stat)
+            r_sq['tot'] = r_sq_tot
+            for label in reg_labels:
+                stat_list = []
+                r_sq_list = []
+                cc_list = []
+                for j in range(coeff_dict[label].shape[0]):
+                    # j_inc = [x for x in range(coeff_dict[label].shape[0]) if x != j]
+                    coeffs_null = copy.deepcopy(model_fit[n])
+                    coeffs_null[label][j] = 0
+                    coeff_list = self.dict_to_flat_list(coeffs_null)
+                    dFF_fit_null = self.get_model(coeff_list) 
+                    dFF_fit_null -= dFF_fit_linpart
 
-                        norm_resid = dFF - dFF_fit_null_0 - (dFF-dFF_fit_null_0).mean()
-                        norm_reg = self.regressors_dict[0][0][reg_labels[i]][j,:].copy()
-                        norm_reg -= norm_reg.mean()
-                        cc_list.append( (norm_resid*norm_reg).mean()/(norm_resid.std()*norm_reg.std()) )
-                        if r_sq_list[-1]<0:
-                            print('shit')
-                            # pdb.set_trace()
-                    stat[reg_labels[i]] = stat_list
-                    r_sq[reg_labels[i]] = r_sq_list
-                    cc[reg_labels[i]] = cc_list
-                
-                stat['tau'] = stat['beta_0']
-                stat['phi'] = stat['beta_0'] 
-                if self.params['use_beh_labels'] is not None:
-                    stat['tau_beh_lab'] = stat['beh_lbl']
-                    stat['phi_beh_lab'] = stat['beh_lbl']
-                if 'drink_hunger' in list(stat.keys()): stat['tau_feed'] = stat['drink_hunger']    
-
-                self.model_fit[n]['r_sq'] = r_sq #1-SS_res.sum()/SS_tot.sum()
-                self.model_fit[n]['stat'] = stat
-                self.model_fit[n]['cc'] = cc
-            else:
-                self.model_fit[n]['r_sq'] = None
-                self.model_fit[n]['stat'] = None
-                self.model_fit[n]['cc'] = None
-
-
-
-    def fit_reg_model_MLE(self, elasticNetParams={'alpha':0.01,'l1_ratio':0.1}):
-        # find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
-        # this is an extension of ".taulist_shiftlist_gauss", with two additions:
-        #       (1) merges gauss/exp kernel methods with option for either
-        #       (2) allows for arbitrarily many special timeseries inputs. previously just time, now time, feeding, "binary hunger", etc
-        
-        self.refresh_params()
-        data_dict = self.data_dict
-        tauList = self.tauList.copy()
-        if data_dict['drink'].max()>0:
-            tauList_feed = self.tauList_feed.copy()
-        else:
-            tauList_feed = [0]
-        if self.params['use_beh_labels'] is not None:
-            tauList_beh_labels = self.tauList.copy()[:5]
-        else:
-            tauList_beh_labels = [0]
-
-        tau_star = np.zeros(data_dict[self.activity].shape[0])
-        tau_feed_star = np.zeros(data_dict[self.activity].shape[0])
-        phi_star = np.zeros(data_dict[self.activity].shape[0])
-        tau_beh_lab_star = np.zeros(data_dict[self.activity].shape[0])
-        phi_beh_lab_star = np.zeros(data_dict[self.activity].shape[0])
-        fn_min = np.inf*np.ones(data_dict[self.activity].shape[0])
-        
-        if self.elasticNet:
-            elasticNet_obj = ElasticNet(alpha=elasticNetParams['alpha'], l1_ratio=elasticNetParams['l1_ratio'], fit_intercept=True, warm_start=True)
-
-        # fit model -  for each value of tau and phi, check if pInv solution is better than previous
-        P = [None]*data_dict[self.activity].shape[0] # [] #np.zeros((data_dict['rate'].shape[0],tot_n_regressors))
-        for iii in range(len(tauList_beh_labels)):
-            self.params['tau_beh_lab'] = tauList_beh_labels[iii]
-            for ii in range(len(tauList_feed)):
-                self.params['tau_feed'] = tauList_feed[ii]
-                for i in range(len(tauList)):
-                    if not np.mod(i,2): print(i, end=' ')
-                    sys.stdout.flush()
-                    self.params['tau'] = tauList[i]
-                    if self.elasticNet:
-                        self.get_regressors(amplify_baseline=True)
+                    SS_res_0 = ( (dFF-dFF_fit_null)**2 )
+                    # res_var_0 = (dFF-dFF_fit_null).var()
+                    stat_list.append( stats.wilcoxon(np.squeeze(SS_res_0),np.squeeze(SS_res)) )
+                    r_sq_list.append( (SS_res_0.sum()-SS_res.sum())/SS_tot.sum() )
+                    
+                    # cc between a regressor and fit leaving out regressor
+                    norm_resid = dFF-dFF_fit_null - (dFF-dFF_fit_null).mean()
+                    if len( self.linear_regressors_dict[label].shape )==1:
+                        norm_reg = self.linear_regressors_dict[label].copy()
                     else:
-                        self.get_regressors(amplify_baseline=False)
-                    
-                    for jj in range(len(self.phiList_beh_lab)):
-                        for j in range(len(self.phiList)):
-                            if np.sum(np.isnan(self.regressors_array[jj][j]))>0: continue
-                            for n in range(data_dict[self.activity].shape[0]):
-                                if self.elasticNet:
-                                    p, obj = self.fit_reg_linear_elasticNet(n=n, phi_idx=j, phi_idx_beh_lab=jj, elasticNet_obj=elasticNet_obj)
-                                else:
-                                    # if not elasticNet, do OLS
-                                    p, obj = self.fit_reg_linear(n=n, phi_idx=j, phi_idx_beh_lab=jj)
-                                if (obj<fn_min[n]):
-                                    tau_star[n] = tauList[i]
-                                    tau_feed_star[n] = tauList_feed[ii]
-                                    phi_star[n] = self.phiList[j]
-                                    tau_beh_lab_star[n] = tauList_beh_labels[iii]
-                                    phi_beh_lab_star[n] = self.phiList_beh_lab[jj]
-                                    P[n] = p
-                                    fn_min[n] = obj
-                    
-        # collect output ********* redo with dictionary defined at outset to eliminate need for this ---------
-        self.model_fit = []
-        for n in range(data_dict[self.activity].shape[0]):
-            # if not self.model_fit:
-            if P[n] is not None:
-                d = copy.deepcopy(P[n])
-                d['tau'] = tau_star[n]
-                d['tau_feed'] = tau_feed_star[n]
-                d['phi'] = int(phi_star[n])
-                d['tau_beh_lab'] = tau_beh_lab_star[n]
-                d['phi_beh_lab'] = int(phi_beh_lab_star[n])
-                d['success'] = True #res['success']
-            else:
-                d = {'success':False}
-            d['activity'] = self.activity
-            d['kern'] = self.kern_type #'gauss'
-            self.model_fit.append(d)
-            # else:
-            #     self.model_fit[n]['tau'] = tau_star[n]
-            #     self.model_fit[n]['phi'] = int(phi_star[n])
-            #     self.model_fit[n]['success'] = True #res['success']
+                        norm_reg = self.linear_regressors_dict[label][j,:].copy()
+                    norm_reg -= norm_reg.mean()
+                    cc_list.append( (norm_resid*norm_reg).mean()/(norm_resid.std()*norm_reg.std()) )
+                    # if r_sq_list[-1]<0:
+                    #     print('shit', end=' ')
+                stat[label] = stat_list
+                r_sq[label] = r_sq_list
+                cc[label] = cc_list
+             
+            if self.params['use_beh_labels'] is not None:
+                stat['tau_beh_lab'] = stat['beh_lbl']
+                stat['phi_beh_lab'] = stat['beh_lbl']
+            if 'drink_hunger' in list(stat.keys()): stat['tau_feed'] = stat['drink_hunger']    
 
-
-
-
-    def fit_reg_linear_elasticNet(self, n, phi_idx, elasticNet_obj, tseries_to_sub=None, D=None, Dinv=None, reg_labels=None):
-        '''
-        n=cell number
-        phi=offset
-        tseries_to_sub (optional): pre-subtract a timeseries. Useful for parameter sweeps
-        D (optional): provide regressor array. Otherwise defaults to reg array attribute of current object
-        Dinv (optional): provide regressor array. Otherwise defaults to inv reg array attribute of current object
-        reg_labels (optional): required if providing D, unneeded otherwise. Manually provide fields for dict output
-        '''
-        dFF_full = self.data_dict[self.activity][n,:]
-        L = self.params['L']
-        dFF = dFF_full[L:-L]
-        if tseries_to_sub is not None:
-            dFF -= tseries_to_sub
-
-        # for a given tau, fit for other parameters is linear, solved by pseudoinverse
-        if D is None:
-            D = self.regressors_array[phi_idx]
-        
-        dFF = np.expand_dims(dFF, axis=0)
-        enf = elasticNet_obj.fit(D.T, dFF.T)
-        coeffs = enf.coef_
-        dFF_fit = elasticNet_obj.predict(D.T)
-        #coeffs = np.squeeze( (dFF@D.T) @ Dinv )
-        #dFF_fit = coeffs@D #np.matmul(coeffs,D)
-        obj = ((dFF-dFF_fit)**2).sum()
-
-        # split parameters 'coeffs' back into dictionary by labeled regressor
-        if reg_labels is None:
-            reg_labels = list(self.regressors_dict[phi_idx].keys())
-        coeff_dict = {}
-        cumulative_tot = 0
-        for j in range(len(reg_labels)):
-            n_this_reg = self.regressors_dict[phi_idx][ reg_labels[j] ].shape[0]
-            # pdb.set_trace()
-            coeff_dict[reg_labels[j]] = coeffs[ cumulative_tot+np.arange(n_this_reg) ]
-            cumulative_tot += n_this_reg
-        coeff_dict['alpha_01'][0] = elasticNet_obj.intercept_/D[0,0] # fixes compatibility with get_dFF_fit method in this library
-
-        
-        return coeff_dict, obj
-
+            r_sq['tau'] = r_sq['beta_0']
+            r_sq['phi'] = r_sq['beta_0']
+            stat['tau'] = stat['beta_0']
+            stat['phi'] = stat['beta_0']
+            cc['tau'] = cc['beta_0']
+            cc['phi'] = cc['beta_0']
+            model_fit[n]['r_sq'] = r_sq #1-SS_res.sum()/SS_tot.sum()
+            model_fit[n]['stat'] = stat
+            model_fit[n]['cc'] = cc
+        print(' Complete')
 
     
     def normalize_rows_euc(self,input_mat,fix_nans=True): 
@@ -613,49 +384,46 @@ class reg_obj:
     def refresh_params(self):
         data_dict = self.data_dict
         sigLimSec = self.params['sigLimSec'] #100
-        phaseLimSec = self.params['phaseLimSec'] #20
         sigLim = sigLimSec*data_dict['scanRate']
-        self.params['L'] = int(phaseLimSec*data_dict['scanRate'])
-        self.params['M'] = np.round(-sigLim*np.log(0.1)).astype(int)
-        self.params['mu'] = .5*self.params['M']/data_dict['scanRate']
-        if self.params['use_beh_labels'] is not None:
-            # when using beh labels, need to cut corners in compute time to compensate for additional regressors
-            tmp_n = 10            
-            self.tauList = np.logspace(-1,np.log10(sigLimSec),num=tmp_n) #num=60)
-            tmp = np.round(np.logspace(0,np.log10(self.params['L']),num=tmp_n)).astype(int)
-            self.phiList = np.zeros(2*tmp_n+1)
-            self.phiList[tmp_n+1:] = tmp
-            self.phiList[:tmp_n] = -tmp[::-1]
-            self.phiList = self.phiList.astype(int)
-        else:
-            # self.phiList = np.linspace(-self.params['L'],self.params['L'], num=2*phaseLimSec+1 ).astype(int)
-            tmp1 = (-np.logspace(1,np.log10(self.params['L']),num=10)[::-1]).tolist()
-            tmp3 = np.logspace(1,np.log10(self.params['L']),num=10).tolist()
-            tmp2 = [i for i in range(-8,10,2)]
-            self.phiList = np.array(tmp1+tmp2+tmp3).astype(int)
-            self.tauList = np.logspace(-1,np.log10(sigLimSec),num=60)
-        self.tauList_feed = np.logspace(-1,np.log10(sigLimSec),num=self.num_tau_feed_steps) #self.tauList.copy()
-                
+        self.params['M'] = np.round(-sigLim*np.log(0.1)).astype(int)      
+        self.U = np.unique(data_dict['trialFlag'])
+        self.n_trials = len(self.U)
 
-    def get_dFF_fit(self, n):
-        self.refresh_params()
-        dFF_full = self.data_dict[self.activity][n,:]
-        dFF = dFF_full[self.params['L']:-self.params['L']]
-        dFF = np.expand_dims(dFF, axis=0)
-        self.params['tau'] = self.model_fit[n]['tau']
-        self.params['tau_feed'] = self.model_fit[n]['tau_feed']
-        if 'tau_beh_lab' not in self.model_fit[n]:
-            self.model_fit[n]['tau_beh_lab'] = 0
-            self.model_fit[n]['phi_beh_lab'] = 0
-        self.params['tau_beh_lab'] = self.model_fit[n]['tau_beh_lab']
-        if self.elasticNet:
-            self.get_regressors(phi_input=self.model_fit[n]['phi'], phi_beh_lab_input=self.model_fit[n]['phi_beh_lab'], amplify_baseline=True)
-        else:
-            self.get_regressors(phi_input=self.model_fit[n]['phi'], phi_beh_lab_input=self.model_fit[n]['phi_beh_lab'], amplify_baseline=False)
-        coeff_dict = self.coeff_dict_from_keys(idx=n)
-        coeff_array = self.dict_to_flat_list(coeff_dict)
-        dFF_fit = coeff_array@self.regressors_array[0][0]
-        return dFF_fit, dFF
+
+    def get_model_sig_from_shifted_fit(self, param, param_idx=0, sig_th=0.05, update_model_fit=True):
+        # uses model_fit and model_fit_shifted to assess significance of fits
+        # output is number of standard deviations real fit is away from shifted fit
+        f = plotting.get_model_fit_as_dict(self.model_fit)
+        rsq = plotting.get_model_fit_as_dict(f['r_sq'])
+        # fs_ = []
+        # for i in range(len(self.model_fit_shifted)):
+        #     fs_.extend( plotting.get_model_fit_as_dict(self.model_fit_shifted[i]) )
+        # fs = plotting.get_model_fit_as_dict(fs_)
+        # rsq_shift = plotting.array_of_dicts_to_dict_of_arrays(fs['r_sq'])
+        tot_shift = plotting.array_of_dicts_to_dict_of_arrays(self.model_fit_shifted)
+        rsq_shift = plotting.array_of_dicts_to_dict_of_arrays(tot_shift['r_sq'])
+
+        p_vals = np.zeros(len(rsq[param]))
+        for n in range(len(rsq[param])):
+            p_vals[n] = 1 - (rsq[param][n]>rsq_shift[param][:,n,param_idx]).sum()/rsq_shift[param].shape[0]
+            # m=rsq_shift[param][:,n,param_idx].mean()
+            # s=rsq_shift[param][:,n,param_idx].std()
+            # std_devs[n] = (rsq[param][n]-m)/s
+        # is_sig = std_devs>sig_th
+        if update_model_fit:
+            for n in range(len(self.model_fit)):
+                self.model_fit[n]['stat'][param][param_idx] = [None, p_vals[n]]
+        return p_vals
+
+
+    def remove_transient_behaviors(self, states, frame_th=35):
+        state_copy = copy.deepcopy(states)
+        indexing_list = ssmplotting._get_state_runs(states=[states['states']])
+        b=0
+        for k in range(indexing_list[b].shape[0]):
+            if (indexing_list[b][k][2] - indexing_list[b][k][1]) < frame_th:
+                state_copy['states'][indexing_list[b][k][1]:indexing_list[b][k][2]] = 1
+        return state_copy
 
 
     def get_null_subtracted_raster(self, extra_regs_to_use=None, just_null_model=False):
@@ -684,7 +452,7 @@ class reg_obj:
                 reg_labels = list(coeff_dict.keys())
                 # make null dict by setting params of interest to 0
                 for j in range(len(reg_labels)):
-                    if (reg_labels[j]=='alpha_01') or (reg_labels[j]=='trial'): continue
+                    if (reg_labels[j]=='alpha_0') or (reg_labels[j]=='trial'): continue
                     if extra_regs_to_use is not None:
                         tmp_reg = np.zeros(coeff_dict[reg_labels[j]].shape)
                         for sublist in extra_regs_to_use:
@@ -714,10 +482,11 @@ class reg_obj:
 
         tv_params = [.01,.9,.05] #np.array([.01,.9,.05])
         if self.exp_id=='2018_08_24_fly3_run1':
-            tv_params[0] = 0.2
-            tv_params[2] = 0.01
+            tv_params[0] = 0.25
+            tv_params[2] = 0.0005
         elif self.exp_id=='2018_08_24_fly2_run2':
-            tv_params[2]=0.01
+            tv_params[0] = 0.025
+            tv_params[2]=0.0005
         elif self.exp_id=='2019_07_01_fly2':
             [] #ok
         elif self.exp_id=='2019_10_14_fly3':
@@ -849,7 +618,7 @@ class reg_obj:
         return dRR0, R0
 
 
-    def get_train_test_data(self, trial_len=100, trials_tr=10, trials_val=2, trials_test=0, trials_gap=0):
+    def get_train_test_data(self, trial_len=100, rng_seed=0, trials_tr=10, trials_val=2, trials_test=0, trials_gap=0):
         """
         split into train/test trials
         trial_len: length of pseudo-trials
@@ -857,19 +626,48 @@ class reg_obj:
         data_neural = self.data_dict['dFF'].T        
         n_trials = np.floor(data_neural.shape[0] / trial_len)
         indxs = dataUtils.split_trials(
-            n_trials, trials_tr=trials_tr, trials_val=trials_val, trials_test=trials_test, trials_gap=trials_gap)
+            n_trials, rng_seed=rng_seed, trials_tr=trials_tr, trials_val=trials_val, trials_test=trials_test, trials_gap=trials_gap)
         data = {}
         for dtype in ['train', 'test', 'val']:
             data_segs = []
             for indx in indxs[dtype]:
                 data_segs.append(data_neural[(indx*trial_len):(indx*trial_len + trial_len)])
             data[dtype] = data_segs
-        # for PCA/regression
         data['train_all'] = np.concatenate(data['train'], axis=0)
         data['val_all'] = np.concatenate(data['val'], axis=0)
         self.data_dict['train_all'] = data['train_all']
         self.data_dict['val_all'] = data['val_all']
 
+
+    # def get_train_test_indices(self, trial_len=100, rng_seeds=[0,100,1000], trials_tr=10, trials_val=2, trials_test=0, trials_gap=0):
+    #     """
+    #     split into train/test trials
+    #     trial_len: length of pseudo-trials
+    #     """
+    #     n_trials = np.floor( self.data_dict['time'] / trial_len)
+    #     self.data_dict['train_test_indices'] = []
+    #     for n in range(len(rng_seeds)):
+    #         indxs = dataUtils.split_trials(
+    #             n_trials, rng_seed=rng_seeds[n], trials_tr=trials_tr, trials_val=trials_val, trials_test=trials_test, trials_gap=trials_gap)
+    #         block_indices = {}
+    #         for dtype in ['train', 'test', 'val']:
+    #             data_segs = []
+    #             for indx in indxs[dtype]:
+    #                 data_segs.append( [(indx*trial_len):(indx*trial_len + trial_len)] )
+    #             block_indices[dtype] = data_segs
+    #         self.data_dict['train_test_indices'].append( block_indices )
+
+
+    def get_circshift_behav_data(self, abs_min_shift=0.33, rng_seed=0, n_perms=5):
+        np.random.seed(rng_seed)
+        self.data_dict['circshift_behav'] = [None]*n_perms
+        low_idx = int( abs_min_shift * len(self.data_dict['behavior']) )
+        high_idx = int( (1-abs_min_shift) * len(self.data_dict['behavior']) )
+        perms = np.random.randint(low=low_idx, high=high_idx, size=n_perms)
+        for n in range(n_perms):
+            self.data_dict['circshift_behav'][n] = np.roll(self.data_dict['behavior'], perms[n])
+        self.data_dict_orig['circshift_behav'] = copy.deepcopy( self.data_dict['circshift_behav'] )
+        self.data_dict_downsample['circshift_behav'] = copy.deepcopy( self.data_dict['circshift_behav'] )
 
 
     def preprocess(self, do_ICA=False):
@@ -898,129 +696,28 @@ class reg_obj:
         return self.data_dict
 
 
+    def get_model_mle_with_many_inits(self, shifted=None, tau_inits=[8,10,12,15,18,22,25,30,35,42,50]):
+        initial_conds=[0,.0001,0,0.5,5,0]
+        model_fit = self.get_model_mle(shifted=shifted, initial_conds=initial_conds.copy())
+        self.evaluate_model(model_fit=model_fit, shifted=shifted)
+        for i in enumerate(tau_inits):
+            initial_conds[-2] = i[1]
+            model_fit_new = self.get_model_mle(shifted=shifted, initial_conds=initial_conds.copy())
+            self.evaluate_model(model_fit=model_fit_new, shifted=shifted)
+            for n in range(len(model_fit)):
+                if model_fit[n]['r_sq']['tot'] < model_fit_new[n]['r_sq']['tot']:
+                    model_fit[n] = copy.deepcopy( model_fit_new[n] )
+        return model_fit
 
 
     def fit_and_eval_reg_model_extended(self):
-        self.fit_reg_model_MLE()
-        self.evaluate_reg_model_extended()
+        self.model_fit = self.get_model_mle_with_many_inits(shifted=None)
+
+        n_perms=10
+        self.get_circshift_behav_data(n_perms=n_perms)
+        self.model_fit_shifted = [None]*n_perms
+        for n in range(n_perms):
+            self.model_fit_shifted[n] = self.get_model_mle_with_many_inits(shifted=n)
 
 
 
-    # def fit_reg_linear_batch(self, phi, tseries_to_sub=None, D=None, Dinv=None, reg_labels=None):
-    #     '''
-    #     n=cell number
-    #     phi=offset
-    #     tseries_to_sub (optional): pre-subtract a timeseries. Useful for parameter sweeps
-    #     D (optional): provide regressor array. Otherwise defaults to reg array attribute of current object
-    #     Dinv (optional): provide regressor array. Otherwise defaults to inv reg array attribute of current object
-    #     reg_labels (optional): required if providing D, unneeded otherwise. Manually provide fields for dict output
-    #     '''
-    #     dFF_full = self.data_dict[self.activity]
-        
-    #     # dFF slides past beh with displacement phi
-    #     L = self.params['L']
-    #     if(phi==L):
-    #         dFF = dFF_full[:,L+phi:]
-    #     else:
-    #         dFF = dFF_full[:,L+phi:-(L-phi)]
-    #     if tseries_to_sub is not None:
-    #         dFF -= tseries_to_sub
-
-    #     # for a given tau, fit for other parameters is linear, solved by pseudoinverse
-    #     if D is None:
-    #         D = self.regressors_array
-    #     if Dinv is None:
-    #         Dinv = self.regressors_array_inv
-    #     # dFF = np.expand_dims(dFF, axis=0)
-    #     # # coeffs = np.matmul( np.matmul(dFF,D.T), Dinv )
-    #     coeffs = np.squeeze( (dFF@D.T) @ Dinv )
-    #     dFF_fit = coeffs@D #np.matmul(coeffs,D)
-    #     obj = ((dFF-dFF_fit)**2).sum(axis=1)
-
-    #     # split parameters 'coeffs' back into dictionary by labeled regressor
-    #     if reg_labels is None:
-    #         reg_labels = list(self.regressors_dict.keys())
-    #     coeff_dict = {}
-    #     cumulative_tot = 0
-    #     for j in range(len(reg_labels)):
-    #         n_this_reg = self.regressors_dict[ reg_labels[j] ].shape[0]
-    #         # pdb.set_trace()
-    #         coeff_dict[reg_labels[j]] = coeffs[:, cumulative_tot+np.arange(n_this_reg) ]
-    #         cumulative_tot += n_this_reg
-        
-    #     return coeff_dict, obj
-
-
-
-
-    # def fit_reg_model_full_likelihood(self):
-    #     # find optimal time constant PER NEURON with which to filter ball trace to maximize correlation
-    #     # this is an extension of ".taulist_shiftlist_gauss", with two additions:
-    #     #       (1) merges gauss/exp kernel methods with option for either
-    #     #       (2) allows for arbitrarily many special timeseries inputs. previously just time, now time, feeding, "binary hunger", etc
-        
-    #     self.refresh_params()
-    #     data_dict = self.data_dict
-    #     tauList = self.tauList
-    #     phiList = self.phiList
-    #     norm_coeff_list = np.linspace(-1,1,num=3) # ********** change this to 21
-        
-    #     tau_star = np.zeros(data_dict[self.activity].shape[0])
-    #     phi_star = np.zeros(data_dict[self.activity].shape[0])
-    #     fn_min = np.inf*np.ones(data_dict[self.activity].shape[0])
-        
-    #     # # check how many regressors are being used (** consider redoing without this **)
-    #     self.get_regressors() 
-    #     # initialize P (list of dicts)
-    #     P = [None]*data_dict[self.activity].shape[0] # [] #np.zeros((data_dict['rate'].shape[0],tot_n_regressors))
-    #     self.P_tot = {'alpha_01': np.zeros( ( data_dict[self.activity].shape[0],len(tauList),len(phiList),
-    #                         len(norm_coeff_list),len(norm_coeff_list),
-    #                         len(norm_coeff_list),len(norm_coeff_list),
-    #                         self.regressors_dict['alpha_01'].shape[0] ) ), 
-    #             'trial': np.zeros( ( data_dict[self.activity].shape[0],len(tauList),len(phiList),
-    #                         len(norm_coeff_list),len(norm_coeff_list),
-    #                         len(norm_coeff_list),len(norm_coeff_list),
-    #                         self.regressors_dict['trial'].shape[0] ) )}
-    #     self.obj_tot = np.zeros( ( data_dict[self.activity].shape[0],len(tauList),len(phiList),
-    #                         len(norm_coeff_list),len(norm_coeff_list),
-    #                         len(norm_coeff_list),len(norm_coeff_list) ) )
-        
-    #     for i in range(len(tauList)):
-    #         if not np.mod(i,2): print(i, end=' ')
-    #         self.params['tau'] = tauList[i]
-    #         self.get_regressors() 
-            
-    #         for j in range(len(phiList)):
-    #             # for n in range(data_dict['rate'].shape[0]):
-    #                 sweep_param_list = [['drink_hunger',0],['drink_hunger',1],['beta_0',0],['beta_0',1]]
-    #                 tot_sweep_params = 4
-    #                 reg_to_sub = np.zeros( (tot_sweep_params, len(self.regressors_array[0,:])) )
-    #                 sweep_regs = {
-    #                     'alpha_01':self.regressors_dict['alpha_01'], 
-    #                     'trial':self.regressors_dict['trial'], 
-    #                 } 
-    #                 sweep_regs_array, sweep_regs_array_inv, _ = self.get_regressor_array(sweep_regs)
-
-    #                 for k0 in range(len(norm_coeff_list)):
-    #                     reg_to_sub[0,:] = norm_coeff_list[k0]*self.regressors_dict[ sweep_param_list[0][0] ][sweep_param_list[0][1], :]
-    #                     for k1 in range(len(norm_coeff_list)):
-    #                         reg_to_sub[1,:] = norm_coeff_list[k1]*self.regressors_dict[ sweep_param_list[1][0] ][sweep_param_list[1][1], :]
-    #                         for k2 in range(len(norm_coeff_list)):
-    #                             reg_to_sub[2,:] = norm_coeff_list[k2]*self.regressors_dict[ sweep_param_list[2][0] ][sweep_param_list[2][1], :]
-    #                             for k3 in range(len(norm_coeff_list)):
-    #                                 if self.regressors_dict[ sweep_param_list[3][0] ].shape[0]>1:
-    #                                     # if this parameter exists (handles beta_0 case)
-    #                                     reg_to_sub[3,:] = norm_coeff_list[k3]*self.regressors_dict[ sweep_param_list[3][0] ][sweep_param_list[3][1], :]
-    #                                 else:
-    #                                     reg_to_sub[3,:] = 0
-
-                                    
-    #                                 p_tmp, obj_tmp = self.fit_reg_linear_batch(phi=phiList[j],
-    #                                                 tseries_to_sub=reg_to_sub.sum(axis=0), D=sweep_regs_array, 
-    #                                                 Dinv=sweep_regs_array_inv, reg_labels=['alpha_01','trial'])
-
-    #                                 self.P_tot['alpha_01'][:,i,j,k0,k1,k2,k3,:] = p_tmp['alpha_01']
-    #                                 self.P_tot['trial'][:,i,j,k0,k1,k2,k3,:] = p_tmp['trial']
-    #                                 self.obj_tot[:,i,j,k0,k1,k2,k3] = obj_tmp
-
-    #                         # pdb.set_trace()
