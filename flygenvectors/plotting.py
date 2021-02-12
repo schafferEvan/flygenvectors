@@ -455,7 +455,7 @@ def make_syllable_movie(
     im_kwargs = {'animated': True, 'vmin': 0, 'vmax': np.max(frames), 'cmap': 'gray'}
     txt_kwargs = {
         'fontsize': 16, 'color': [1, 1, 1], 'horizontalalignment': 'left',
-        'verticalalignment': 'top'}
+        'verticalalignment': 'top', 'fontname': 'monospace'}
     txt_offset_x = 5
     txt_offset_y = 5
 
@@ -480,7 +480,7 @@ def make_syllable_movie(
 
     if single_state is not None:
         K = 1
-        fig_width = 5
+        fig_width = 3
     else:
         fig_width = 10
     n_rows = int(np.floor(np.sqrt(K)))
@@ -520,9 +520,7 @@ def make_syllable_movie(
         if len(states_list[i_k]) == 0:
             continue
 
-        if single_state is not None:
-            state_txt = '%i' % i_k
-        elif K < 10:
+        if K < 10:
             state_txt = '%i' % i_k
         else:
             state_txt = '%02i' % i_k
@@ -565,6 +563,9 @@ def make_syllable_movie(
                     if i_frame >= plot_n_frames:
                         continue
 
+                    if single_state is not None:
+                        state_txt = 'frame %i' % (m_beg + i)
+
                     im = ax.imshow(movie_chunk[i], **im_kwargs)
                     ims[i_frame].append(im)
 
@@ -586,11 +587,11 @@ def make_syllable_movie(
                     # in case chunk is too long
                     if i_frame >= plot_n_frames:
                         continue
-                    im = ax.imshow(
-                        np.zeros((y_pix, x_pix)), **im_kwargs)
+                    im = ax.imshow(np.zeros((y_pix, x_pix)), **im_kwargs)
                     ims[i_frame].append(im)
-                    im = ax.text(txt_offset_x, txt_offset_y, state_txt, **txt_kwargs)
-                    ims[i_frame].append(im)
+                    if single_state is None:
+                        im = ax.text(txt_offset_x, txt_offset_y, state_txt, **txt_kwargs)
+                        ims[i_frame].append(im)
                     i_frame += 1
 
                 i_chunk += 1
