@@ -7,7 +7,7 @@ from flygenvectors.data import load_video as video_loader
 from flygenvectors.dlc import preprocess_and_split_data
 from flygenvectors.dlc import shuffle_data
 import flygenvectors.plotting as plotting
-from flygenvectors.segmentation import heuristic_segmentation_v2
+from flygenvectors.segmentation import heuristic_segmentation_v3
 
 
 # NOTES
@@ -35,206 +35,206 @@ database = {
         'scale': 1,
         'notes': 'off ball and flailing'
     },
-    # '2019_06_26_fly2': {
-    #     'include_behavior': True,
-    #     'include_neural': False,
-    #     'n_frames': 86714,
-    #     'max_frames': 45000,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 0.651,
-    #     'notes': ''
-    # },
-    # '2019_06_28_fly2': {
-    #     'include_behavior': True,
-    #     'include_neural': True,
-    #     'n_frames': 88212,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 0.694,
-    #     'notes': 'right forelimb glued to headplate'
-    # },
-    # '2019_06_30_fly1': {
-    #     'include_behavior': True,
-    #     'include_neural': False,
-    #     'n_frames': 279476,
-    #     'max_frames': 180000,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 0.736,
-    #     'notes': 'right forelimb glued to itself'
-    # },
-    # '2019_07_01_fly2': {
-    #     'include_behavior': True,
-    #     'include_neural': True,
-    #     'n_frames': 192980,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 0.661,
-    #     'notes': ''
-    # },
-    # '2019_08_06_fly1': {
-    #     'include_behavior': False,
-    #     'include_neural': False,
-    #     'n_frames': 46016,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': None,
-    #     'notes': ''
-    # },
-    # '2019_08_07_fly2': {
-    #     'include_behavior': True,
-    #     'include_neural': False,
-    #     'n_frames': 153314,
-    #     'max_frames': 50000,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 0.733,
-    #     'notes': ''
-    # },
-    # '2019_08_08_fly1': {
-    #     'include_behavior': True,
-    #     'include_neural': False,
-    #     'n_frames': 94960,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 0.620,
-    #     'notes': ''
-    # },
-    # '2019_08_08_fly1_1': {
-    #     'include_behavior': True,
-    #     'include_neural': False,
-    #     'n_frames': 109669,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 0.694,
-    #     'notes': 'lots of struggling'
-    # },
-    # '2019_08_13_fly3': {
-    #     'include_behavior': True,
-    #     'include_neural': False,
-    #     'n_frames': 241653,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 0.690,
-    #     'notes': 'lots of struggling'
-    # },
-    # '2019_08_14_fly1': {
-    #     'include_behavior': True,
-    #     'include_neural': True,
-    #     'n_frames': 124144,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 0.973,
-    #     'notes': ''
-    # },
-    # '2019_08_14_fly2': {
-    #     'include_behavior': False,
-    #     'include_neural': False,
-    #     'n_frames': 41478,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': None,
-    #     'notes': ''
-    # },
-    # '2019_08_14_fly3_2': {
-    #     'include_behavior': True,
-    #     'include_neural': False,
-    #     'n_frames': 30911,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 1,
-    #     'notes': 'new addition (2021-01)'
-    # },
-    # '2019_08_19_fly1_1': {
-    #     'include_behavior': True,
-    #     'include_neural': False,
-    #     'n_frames': 31708,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 1,
-    #     'notes': 'right forelimb caught in headplate glue at end'
-    # },
-    # '2019_08_20_fly2': {
-    #     'include_behavior': True,
-    #     'include_neural': False,
-    #     'n_frames': 65108,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 0.992,
-    #     'notes': ''
-    # },
-    # '2019_08_20_fly3': {
-    #     'include_behavior': True,
-    #     'include_neural': False,
-    #     'n_frames': 73055,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 1,
-    #     'notes': ''
-    # },
-    # '2019_10_10_fly3': {
-    #     'include_behavior': True,
-    #     'include_neural': True,
-    #     'n_frames': 141042,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 0.549,
-    #     'notes': 'bad video quality'
-    # },
-    # '2019_10_14_fly2': {
-    #     'include_behavior': True,
-    #     'include_neural': True,
-    #     'n_frames': 139925,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 0.606,
-    #     'notes': 'bad video quality'
-    # },
-    # '2019_10_14_fly3': {
-    #     'include_behavior': True,
-    #     'include_neural': True,
-    #     'n_frames': 140929,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 0.584,
-    #     'notes': 'bad video quality'
-    # },
-    # '2019_10_18_fly3': {
-    #     'include_behavior': True,
-    #     'include_neural': True,
-    #     'n_frames': 141226,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 0.518,
-    #     'notes': ''
-    # },
-    # '2019_10_21_fly1': {
-    #     'include_behavior': True,
-    #     'include_neural': True,
-    #     'n_frames': 142554,
-    #     'max_frames': None,
-    #     'x_off': 200,
-    #     'y_off': 20,
-    #     'scale': 0.580,
-    #     'notes': ''
-    # }
+    '2019_06_26_fly2': {
+        'include_behavior': True,
+        'include_neural': False,
+        'n_frames': 86714,
+        'max_frames': 45000,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 0.651,
+        'notes': ''
+    },
+    '2019_06_28_fly2': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 88212,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 0.694,
+        'notes': 'right forelimb glued to headplate'
+    },
+    '2019_06_30_fly1': {
+        'include_behavior': True,
+        'include_neural': False,
+        'n_frames': 279476,
+        'max_frames': 180000,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 0.736,
+        'notes': 'right forelimb glued to itself'
+    },
+    '2019_07_01_fly2': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 192980,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 0.661,
+        'notes': ''
+    },
+    '2019_08_06_fly1': {
+        'include_behavior': False,
+        'include_neural': False,
+        'n_frames': 46016,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': None,
+        'notes': ''
+    },
+    '2019_08_07_fly2': {
+        'include_behavior': True,
+        'include_neural': False,
+        'n_frames': 153314,
+        'max_frames': 50000,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 0.733,
+        'notes': ''
+    },
+    '2019_08_08_fly1': {
+        'include_behavior': True,
+        'include_neural': False,
+        'n_frames': 94960,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 0.620,
+        'notes': ''
+    },
+    '2019_08_08_fly1_1': {
+        'include_behavior': True,
+        'include_neural': False,
+        'n_frames': 109669,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 0.694,
+        'notes': 'lots of struggling'
+    },
+    '2019_08_13_fly3': {
+        'include_behavior': True,
+        'include_neural': False,
+        'n_frames': 241653,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 0.690,
+        'notes': 'lots of struggling'
+    },
+    '2019_08_14_fly1': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 124144,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 0.973,
+        'notes': ''
+    },
+    '2019_08_14_fly2': {
+        'include_behavior': False,
+        'include_neural': False,
+        'n_frames': 41478,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': None,
+        'notes': ''
+    },
+    '2019_08_14_fly3_2': {
+        'include_behavior': True,
+        'include_neural': False,
+        'n_frames': 30911,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 1,
+        'notes': 'new addition (2021-01)'
+    },
+    '2019_08_19_fly1_1': {
+        'include_behavior': True,
+        'include_neural': False,
+        'n_frames': 31708,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 1,
+        'notes': 'right forelimb caught in headplate glue at end'
+    },
+    '2019_08_20_fly2': {
+        'include_behavior': True,
+        'include_neural': False,
+        'n_frames': 65108,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 0.992,
+        'notes': ''
+    },
+    '2019_08_20_fly3': {
+        'include_behavior': True,
+        'include_neural': False,
+        'n_frames': 73055,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 1,
+        'notes': ''
+    },
+    '2019_10_10_fly3': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 141042,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 0.549,
+        'notes': 'bad video quality'
+    },
+    '2019_10_14_fly2': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 139925,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 0.606,
+        'notes': 'bad video quality'
+    },
+    '2019_10_14_fly3': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 140929,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 0.584,
+        'notes': 'bad video quality'
+    },
+    '2019_10_18_fly3': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 141226,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 0.518,
+        'notes': ''
+    },
+    '2019_10_21_fly1': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 142554,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 20,
+        'scale': 0.580,
+        'notes': ''
+    }
 }
 
 
@@ -495,7 +495,7 @@ def segment_labels(
             ball_me = ball_me[:n_t]
 
             # perform segmentation
-            states, state_mapping = heuristic_segmentation_v2(
+            states, state_mapping = heuristic_segmentation_v3(
                 labels, ball_me, walk_thresh=walk_thresh, still_thresh=still_thresh,
                 groom_thresh=groom_thresh)
 
@@ -513,20 +513,12 @@ def segment_labels(
             if len(state_ids) == 0:
                 state_ids = [None]
             for state_id in state_ids:
-                if state_id == 0:
-                    syll_str = 'still'
-                elif state_id == 1:
-                    syll_str = 'walk'
-                elif state_id == 2:
-                    syll_str = 'front-groom'
-                elif state_id == 3:
-                    syll_str = 'back-groom'
-                elif state_id == 4:
-                    syll_str = 'unidentified'
+                if state_id is not None:
+                    syll_str = state_mapping[state_id]
                 else:
                     syll_str = 'all'
                 save_file = os.path.join(
-                    states_dir, 'syllable-videos-heuristic-v2', '%s_%s.mp4' % (expt_id, syll_str))
+                    states_dir, 'syllable-videos', '%s_%s.mp4' % (expt_id, syll_str))
                 if os.path.exists(save_file):
                     print('%s\n%s already exists; skipping\n' % (expt_id, save_file))
                     continue
