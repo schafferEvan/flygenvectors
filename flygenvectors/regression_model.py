@@ -9,6 +9,8 @@ from scipy import stats
 import matplotlib.pyplot as plt
 import copy
 import data as dataUtils
+import plotting
+import ssmplotting
 import pdb
 
 
@@ -85,7 +87,22 @@ class reg_obj:
 
 
     def get_model_mle(self, downsample=True, shifted=None, initial_conds=[0,.0001,0,0.5,5,0]):
+        """
+        downsample: flag creates downsampled dict, or points to it if one is already made.
+        shifted: if not None, uses circshifted dict instead of original
+        time_cropping: if not None, crops in time (only current self.data_dict, which will be overwritten by downsample)
+        """
         self.downsample_in_time()
+        # if time_cropping is not None:
+        #     self.data_dict['dFF'] = self.data_dict['dFF'][:,time_cropping[0]:time_cropping[1]]
+        #     self.data_dict['time'] = self.data_dict['time'][time_cropping[0]:time_cropping[1]]
+        #     self.data_dict['trialFlag'] = self.data_dict['trialFlag'][time_cropping[0]:time_cropping[1]]
+        #     self.data_dict['behavior'] = self.data_dict['behavior'][time_cropping[0]:time_cropping[1]]
+        # **********
+        # add call to method here that overwrites data_dict with only some timesteps.
+        # NEED call downsample() beforehand to reset the dict.
+        # **********
+
         self.get_regressors(shifted=shifted)
         bounds=[[None,None],[None,None],[None,None],[None,None],[1,59],[-59,59]]
         for i in range(self.n_trials-1):
@@ -241,7 +258,7 @@ class reg_obj:
             if not np.mod(n,round(self.data_dict[self.activity].shape[0]/20)): print('.', end='')
             sys.stdout.flush()
             # if self.model_fit[n]['success']:
-            dFF = self.data_dict[self.activity][n,:]
+            dFF = self.data_dict[self.activity][n,:].copy()
             coeff_list = self.dict_to_flat_list(model_fit[n])
             dFF_fit = self.get_model(coeff_list)
             coeff_dict = model_fit[n]
@@ -373,6 +390,42 @@ class reg_obj:
         self.n_trials = len(self.U)
 
 
+    def get_model_sig_from_shifted_fit(self, param, param_idx=0, sig_th=0.05, update_model_fit=True):
+        # uses model_fit and model_fit_shifted to assess significance of fits
+        # output is number of standard deviations real fit is away from shifted fit
+        f = plotting.get_model_fit_as_dict(self.model_fit)
+        rsq = plotting.get_model_fit_as_dict(f['r_sq'])
+        # fs_ = []
+        # for i in range(len(self.model_fit_shifted)):
+        #     fs_.extend( plotting.get_model_fit_as_dict(self.model_fit_shifted[i]) )
+        # fs = plotting.get_model_fit_as_dict(fs_)
+        # rsq_shift = plotting.array_of_dicts_to_dict_of_arrays(fs['r_sq'])
+        tot_shift = plotting.array_of_dicts_to_dict_of_arrays(self.model_fit_shifted)
+        rsq_shift = plotting.array_of_dicts_to_dict_of_arrays(tot_shift['r_sq'])
+
+        p_vals = np.zeros(len(rsq[param]))
+        for n in range(len(rsq[param])):
+            p_vals[n] = 1 - (rsq[param][n]>rsq_shift[param][:,n,param_idx]).sum()/rsq_shift[param].shape[0]
+            # m=rsq_shift[param][:,n,param_idx].mean()
+            # s=rsq_shift[param][:,n,param_idx].std()
+            # std_devs[n] = (rsq[param][n]-m)/s
+        # is_sig = std_devs>sig_th
+        if update_model_fit:
+            for n in range(len(self.model_fit)):
+                self.model_fit[n]['stat'][param][param_idx] = [None, p_vals[n]]
+        return p_vals
+
+
+    def remove_transient_behaviors(self, states, frame_th=35):
+        state_copy = copy.deepcopy(states)
+        indexing_list = ssmplotting._get_state_runs(states=[states['states']])
+        b=0
+        for k in range(indexing_list[b].shape[0]):
+            if (indexing_list[b][k][2] - indexing_list[b][k][1]) < frame_th:
+                state_copy['states'][indexing_list[b][k][1]:indexing_list[b][k][2]] = 1
+        return state_copy
+
+
     def get_null_subtracted_raster(self, extra_regs_to_use=None, just_null_model=False):
         """ default is to return fit with just alpha and trial regs. 
         Using extra_regs, option to return fit with any additional regs: [ ['partial_reg', idx], ['full_reg'] ] 
@@ -429,10 +482,11 @@ class reg_obj:
 
         tv_params = [.01,.9,.05] #np.array([.01,.9,.05])
         if self.exp_id=='2018_08_24_fly3_run1':
-            tv_params[0] = 0.2
-            tv_params[2] = 0.01
+            tv_params[0] = 0.25
+            tv_params[2] = 0.0005
         elif self.exp_id=='2018_08_24_fly2_run2':
-            tv_params[2]=0.01
+            tv_params[0] = 0.025
+            tv_params[2]=0.0005
         elif self.exp_id=='2019_07_01_fly2':
             [] #ok
         elif self.exp_id=='2019_10_14_fly3':
@@ -642,7 +696,7 @@ class reg_obj:
         return self.data_dict
 
 
-    def get_model_mle_with_many_inits(self, shifted=None, tau_inits=[8,12,18,25,35,50]):
+    def get_model_mle_with_many_inits(self, shifted=None, tau_inits=[8,10,12,15,18,22,25,30,35,42,50]):
         initial_conds=[0,.0001,0,0.5,5,0]
         model_fit = self.get_model_mle(shifted=shifted, initial_conds=initial_conds.copy())
         self.evaluate_model(model_fit=model_fit, shifted=shifted)
@@ -659,7 +713,7 @@ class reg_obj:
     def fit_and_eval_reg_model_extended(self):
         self.model_fit = self.get_model_mle_with_many_inits(shifted=None)
 
-        n_perms=5
+        n_perms=10
         self.get_circshift_behav_data(n_perms=n_perms)
         self.model_fit_shifted = [None]*n_perms
         for n in range(n_perms):
