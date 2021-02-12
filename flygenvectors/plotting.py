@@ -901,21 +901,47 @@ def get_model_fit_as_dict(model_fit):
 def array_of_dicts_to_dict_of_arrays(a):
     # takes 2D array of dicts and returns dict of 2D arrays
     # similar to one-dimensional version above, "get_model_fit_as_dict"
-    reg_labels = list(a[0,0].keys())
+    reg_labels = list(a[0][0].keys())
     d = {}
     for label in reg_labels:
-        if type(a[0,0][label]) is list:
-            d[label] = np.zeros((a.shape[0], a.shape[1], len(a[0,0][label])))
-            for i in range(a.shape[0]):
-                for j in range(a.shape[1]):
-                    d[label][i,j,:] = a[i,j][label]
-            # d[label] = np.squeeze(d[label])
+        if isinstance(a[0][0][label],dict):
+            d[label] = []
+            for i in range(len(a)):
+                d[label].append([None]*len(a[0]))
+            for i in range(len(a)):
+                for j in range(len(a[0])):
+                    d[label][i][j] = a[i][j][label]
         else:
-            d[label] = np.zeros(a.shape)
-            for i in range(a.shape[0]):
-                for j in range(a.shape[1]):
-                    d[label][i,j] = a[i,j][label]
+            if isinstance(a[0][0][label],np.float64):
+                d[label] = np.zeros( (len(a), len(a[0]) ) )
+                for i in range(len(a)):
+                    for j in range(len(a[0])):
+                        d[label][i,j] = a[i][j][label]
+            else:
+                d[label] = np.zeros( (len(a), len(a[0]), len(a[0][0][label])) )
+                for i in range(len(a)):
+                    for j in range(len(a[0])):
+                        d[label][i,j,:] = a[i][j][label]
     return d
+
+# def array_of_dicts_to_dict_of_arrays(a):
+#     # takes 2D array of dicts and returns dict of 2D arrays
+#     # similar to one-dimensional version above, "get_model_fit_as_dict"
+#     reg_labels = list(a[0,0].keys())
+#     d = {}
+#     for label in reg_labels:
+#         if type(a[0,0][label]) is list:
+#             d[label] = np.zeros((a.shape[0], a.shape[1], len(a[0,0][label])))
+#             for i in range(a.shape[0]):
+#                 for j in range(a.shape[1]):
+#                     d[label][i,j,:] = a[i,j][label]
+#             # d[label] = np.squeeze(d[label])
+#         else:
+#             d[label] = np.zeros(a.shape)
+#             for i in range(a.shape[0]):
+#                 for j in range(a.shape[1]):
+#                     d[label][i,j] = a[i,j][label]
+#     return d
 
 
 def unroll_model_fit_stats(model_fit):
@@ -1056,9 +1082,10 @@ def show_tau_scatter(model_fit, pval=.01):
     xmax = 60 #1000/scanRate #6000
     ymin = 0
     ymax = 1
+    s = 100
 
-    # ax_scatter.scatter(tau_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=0.3)
-    ax_scatter.scatter(tau_sig[tau_is_pos_sig],rsq_sig[tau_is_pos_sig],c='tab:gray',marker='.',alpha=0.3,linewidths=0.75,edgecolors='k') #'#1f77b4'
+    ax_scatter.scatter(tau_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=0.15, linewidths=0.75, edgecolors='k', s=s)
+    ax_scatter.scatter(tau_sig[tau_is_pos_sig],rsq_sig[tau_is_pos_sig],c='#01386a',marker='.',alpha=0.4,linewidths=0.75,edgecolors='#01386a', s=s) #'#1f77b4'
     # ax_scatter.scatter(tau_sig[tau_is_neg_sig],rsq_sig[tau_is_neg_sig],c='tab:red',marker='.',alpha=0.3)
     ax_scatter.set_xscale('log')
     ax_scatter.set_xlim((xmin,xmax))
@@ -1072,9 +1099,11 @@ def show_tau_scatter(model_fit, pval=.01):
     ybinwidth = 0.05 #0.025
     ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
     xbins = np.logspace(np.log10(xmin), np.log10(xmax),num=len(ybins), base=10) #np.exp(1))
-    ax_histx.hist(tau, bins=xbins,log=True,color='#929591')
+    ax_histx.hist(tau_notsig, bins=xbins,log=True,color='tab:gray') #'#929591')
+    ax_histx.hist(tau_sig, bins=xbins,log=True,color='#01386a',alpha=.7) #'#929591')
     ax_histx.set_xlim((xmin,xmax))
-    ax_histy.hist(rsq, bins=ybins, orientation='horizontal',color='#929591')
+    ax_histy.hist(rsq_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
+    ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color='#01386a',alpha=.7) #''#929591')
     ax_histy.set_ylim((ymin,ymax))
 
 
@@ -1347,7 +1376,7 @@ def show_PC_residual_raster(data_dict):
 
 
 
-def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pval=0.01, sort_by=[], color_lims_scale=[-0.75,0.75]):
+def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pval=0.01, sort_by=[], color_lims_scale=[-0.75,0.75], color_lims=None):
     """
     Plot map of cells for one dataset, all MIPs, colorcoded by desired quantity
 
@@ -1356,6 +1385,7 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
         model_fit (list): list of dictionaries for one dataset
         plot_param (string or list): if string, param to use for color code. If list, pair of param to use (str) and index (int)
         color_lims_scale (list): bounds for min and max.  If _scale[0]<0, enforces symmetry of colormap
+        color_lims: if None, created by color_lims_scale and data range
     """
     from matplotlib import colors
     import matplotlib.cm as cm
@@ -1405,11 +1435,12 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
         # sig = np.array([i for i in range(len(model_fit))]) #np.ones(len(model_fit))
         not_sig = np.array([]) #np.zeros(len(model_fit))
     
-    if color_lims_scale[0]<0:
-        color_lims = [abs(color_lims_scale[0])*min(min(color_data[sig]),-max(color_data[sig])),
-                          color_lims_scale[1]*max(-min(color_data[sig]),max(color_data[sig]))]
-    else:
-        color_lims = [color_lims_scale[0]*min(color_data[sig]), color_lims_scale[1]*max(color_data[sig])]
+    if color_lims is None:
+        if color_lims_scale[0]<0:
+            color_lims = [abs(color_lims_scale[0])*min(min(color_data[sig]),-max(color_data[sig])),
+                              color_lims_scale[1]*max(-min(color_data[sig]),max(color_data[sig]))]
+        else:
+            color_lims = [color_lims_scale[0]*min(color_data[sig]), color_lims_scale[1]*max(color_data[sig])]
 
     # optional: reorder list for consistent occlusion. options: {'z', 'val', 'inv_val'}. If empty, default is order of ROI ID
     if sort_by:
