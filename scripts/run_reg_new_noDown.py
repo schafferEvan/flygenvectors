@@ -18,7 +18,7 @@ from sklearn.mixture import GaussianMixture
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.linear_model import Ridge, LinearRegression
 from sklearn.metrics import r2_score
-from skimage.restoration import denoise_tv_chambolle
+#from skimage.restoration import denoise_tv_chambolle
 
 import matplotlib.pyplot as plt
 from matplotlib import axes, gridspec, colors
@@ -30,7 +30,7 @@ from matplotlib.colors import ListedColormap
 import data as dataUtils
 import regression_model as model
 import plotting
-import flygenvectors.ssmutils as utils
+import flygenvectors.ssmutils_moto as utils
 import flygenvectors.utils as futils
 
 
@@ -99,7 +99,7 @@ for expt_id in exp_list:
         ro = model.reg_obj(activity=activity, 
                             data_dict=copy.deepcopy(dict_crop),
                             exp_id=expt_id)
-        self.is_downsampled = True
+        ro.is_downsampled = True
         ro.fit_and_eval_reg_model_extended()
         pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_2p0.pkl', "wb" ) )
         pickle.dump( ro.model_fit_shifted, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_shifted_'+part+'_2p0.pkl', "wb" ) )

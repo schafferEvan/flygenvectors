@@ -9,8 +9,8 @@
 expID=0
 module load anaconda/3-5.3.1
 source activate flygenvectors
-python run_regression_model_moto.py $expID
-
+#python run_regression_model_moto.py $expID
+python run_reg_new_noDown.py
 
 
 
