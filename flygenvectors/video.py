@@ -7,7 +7,7 @@ from flygenvectors.data import load_video as video_loader
 from flygenvectors.dlc import preprocess_and_split_data
 from flygenvectors.dlc import shuffle_data
 import flygenvectors.plotting as plotting
-from flygenvectors.segmentation import heuristic_segmentation_v2
+from flygenvectors.segmentation import heuristic_segmentation_v3
 
 
 # NOTES
@@ -23,6 +23,18 @@ from flygenvectors.segmentation import heuristic_segmentation_v2
 #   99.9th percentile was chosen as the new white value (normalized to be in [0, 1])
 
 database = {
+    '2019_04_18_fly2_2': {
+        'include_behavior': False,
+        'include_neural': False,
+        'n_frames': np.nan,
+        'max_frames': None,
+        'x_off': 80,
+        'y_off': 50,
+        'x_pix': 320,
+        'y_pix': 240,
+        'scale': 1,
+        'notes': 'off ball and flailing'
+    },
     '2019_06_26_fly2': {
         'include_behavior': True,
         'include_neural': False,
@@ -290,7 +302,9 @@ def crop_and_equalize(database, in_dir, out_dir, y_pix, x_pix, equalize=True, qu
 
         # spatial crop
         filter_str = str(
-            'crop=%i:%i:%i:%i' % (x_pix, y_pix, sess_data['x_off'], sess_data['y_off']))
+            'crop=%i:%i:%i:%i' % (
+                sess_data.get('x_pix', x_pix), sess_data.get('y_pix', y_pix),
+                sess_data['x_off'], sess_data['y_off']))
 
         # equalization
         if equalize and sess_data['scale'] < 1:
@@ -481,7 +495,7 @@ def segment_labels(
             ball_me = ball_me[:n_t]
 
             # perform segmentation
-            states, state_mapping = heuristic_segmentation_v2(
+            states, state_mapping = heuristic_segmentation_v3(
                 labels, ball_me, walk_thresh=walk_thresh, still_thresh=still_thresh,
                 groom_thresh=groom_thresh)
 
@@ -499,20 +513,12 @@ def segment_labels(
             if len(state_ids) == 0:
                 state_ids = [None]
             for state_id in state_ids:
-                if state_id == 0:
-                    syll_str = 'still'
-                elif state_id == 1:
-                    syll_str = 'walk'
-                elif state_id == 2:
-                    syll_str = 'front-groom'
-                elif state_id == 3:
-                    syll_str = 'back-groom'
-                elif state_id == 4:
-                    syll_str = 'unidentified'
+                if state_id is not None:
+                    syll_str = state_mapping[state_id]
                 else:
                     syll_str = 'all'
                 save_file = os.path.join(
-                    states_dir, 'syllable-videos-heuristic-v2', '%s_%s.mp4' % (expt_id, syll_str))
+                    states_dir, 'syllable-videos', '%s_%s.mp4' % (expt_id, syll_str))
                 if os.path.exists(save_file):
                     print('%s\n%s already exists; skipping\n' % (expt_id, save_file))
                     continue
