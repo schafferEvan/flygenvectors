@@ -259,7 +259,7 @@ class reg_obj:
         return run_diff_smooth
 
 
-    def downsample_in_time(self, effective_stepsize=0.25):
+    def downsample_in_time(self, effective_stepsize=0.5):
         """ downsample data_dict in time for more efficient model fitting
         effective_stepsize: new volumetric rate in Hz
         """
@@ -529,7 +529,7 @@ class reg_obj:
             tv_params[0] = 0.025
             tv_params[2]=0.0005
         elif self.exp_id=='2019_07_01_fly2':
-            [] #ok
+            tv_params[2] = 0.2
         elif self.exp_id=='2019_10_14_fly3':
             tv_params[0]=0.05
             tv_params[2]=0.01

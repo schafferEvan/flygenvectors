@@ -259,7 +259,7 @@ class reg_obj:
         return run_diff_smooth
 
 
-    def downsample_in_time(self, effective_stepsize=0.25):
+    def downsample_in_time(self, effective_stepsize=0.5):
         """ downsample data_dict in time for more efficient model fitting
         effective_stepsize: new volumetric rate in Hz
         """
@@ -269,21 +269,22 @@ class reg_obj:
         else:
             # make downsampled dataset
             self.is_downsampled = True
-            self.data_dict['scanRate'] = 1/effective_stepsize
-            sub_fac = np.round(effective_stepsize*self.data_dict_orig['scanRate']).astype(int)
-            L = np.round(self.data_dict_orig[self.activity].shape[1]/sub_fac).astype(int)
-            self.data_dict[self.activity] = np.zeros((self.data_dict_orig[self.activity].shape[0], L))
-            self.data_dict['time'] = np.zeros((L,1))
-            self.data_dict['behavior'] = np.zeros(L)
-            self.data_dict['trialFlag'] = np.zeros(L)
-            self.data_dict['beh_labels'] = np.zeros((L,1))
-            for j in range(L):
-                self.data_dict[self.activity][:, j] = self.data_dict_orig[self.activity][:,sub_fac*j:sub_fac*j+1].mean(axis=1)
-                self.data_dict['time'][j,0] = self.data_dict_orig['time'][sub_fac*j:sub_fac*j+1].mean() #sub_fac*j
-                self.data_dict['behavior'][j] = self.data_dict_orig['behavior'][sub_fac*j:sub_fac*j+1].mean()
-                self.data_dict['beh_labels'][j,0] = stats.mode(self.data_dict_orig['beh_labels'][sub_fac*j:sub_fac*j+1, :]).mode
-                self.data_dict['trialFlag'][j] = stats.mode(self.data_dict_orig['trialFlag'][sub_fac*j:sub_fac*j+1]).mode
-            self.data_dict_downsample = copy.deepcopy(self.data_dict)
+            self.data_dict = copy.deepcopy(self.data_dict_downsample)
+            # self.data_dict['scanRate'] = 1/effective_stepsize
+            # sub_fac = np.round(effective_stepsize*self.data_dict_orig['scanRate']).astype(int)
+            # L = np.round(self.data_dict_orig[self.activity].shape[1]/sub_fac).astype(int)
+            # self.data_dict[self.activity] = np.zeros((self.data_dict_orig[self.activity].shape[0], L))
+            # self.data_dict['time'] = np.zeros((L,1))
+            # self.data_dict['behavior'] = np.zeros(L)
+            # self.data_dict['trialFlag'] = np.zeros(L)
+            # self.data_dict['beh_labels'] = np.zeros((L,1))
+            # for j in range(L):
+            #     self.data_dict[self.activity][:, j] = self.data_dict_orig[self.activity][:,sub_fac*j:sub_fac*j+1].mean(axis=1)
+            #     self.data_dict['time'][j,0] = self.data_dict_orig['time'][sub_fac*j:sub_fac*j+1].mean() #sub_fac*j
+            #     self.data_dict['behavior'][j] = self.data_dict_orig['behavior'][sub_fac*j:sub_fac*j+1].mean()
+            #     self.data_dict['beh_labels'][j,0] = stats.mode(self.data_dict_orig['beh_labels'][sub_fac*j:sub_fac*j+1, :]).mode
+            #     self.data_dict['trialFlag'][j] = stats.mode(self.data_dict_orig['trialFlag'][sub_fac*j:sub_fac*j+1]).mode
+            # self.data_dict_downsample = copy.deepcopy(self.data_dict)
 
         
 

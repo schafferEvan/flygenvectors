@@ -71,7 +71,8 @@ for expt_id in exp_list:
         data_dict['behavior'] = ro.data_dict['behavior']
 
     # crop time (crude bootstrapping)
-    for part in ['beg', 'mid', 'end']:
+    # for part in ['beg', 'mid', 'end']:
+    for part in ['end']:
         dict_crop = copy.deepcopy(data_dict)
         l = len(data_dict['behavior'])
         b = round(.15*l)
@@ -98,9 +99,10 @@ for expt_id in exp_list:
         ro = model.reg_obj(activity=activity, 
                             data_dict=copy.deepcopy(dict_crop),
                             exp_id=expt_id)
+        self.is_downsampled = True
         ro.fit_and_eval_reg_model_extended()
-        pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_1p0.pkl', "wb" ) )
-        pickle.dump( ro.model_fit_shifted, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_shifted_'+part+'_1p0.pkl', "wb" ) )
+        pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_2p0.pkl', "wb" ) )
+        pickle.dump( ro.model_fit_shifted, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_shifted_'+part+'_2p0.pkl', "wb" ) )
 
 
     
