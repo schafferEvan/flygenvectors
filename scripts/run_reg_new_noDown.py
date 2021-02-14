@@ -61,7 +61,7 @@ i = int(sys.argv[1]) # DATASET TO LOAD
 part_i = int(sys.argv[2])
 n_perms = int(sys.argv[3]) # DATASET TO LOAD
 # for expt_id in exp_list:
-expt_id = exp_list[i][0] + '_' + exp_list[i][1]
+expt_id = exp_list[i] #[0] + '_' + exp_list[i][1]
 print(expt_id)
 
 dirs = futils.get_dirs()
