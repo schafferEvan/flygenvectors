@@ -248,7 +248,7 @@ class reg_obj:
         # smoothing
         sig = sig_raw*self.data_dict['scanRate']
         b_lim = 40*self.data_dict['scanRate']
-        t_exp = np.linspace(-b_lim, b_lim, 2*b_lim+1)
+        t_exp = np.linspace(-b_lim, b_lim, 2*int(b_lim)+1)
         kern = ((t_exp[1]-t_exp[0])/(sig*np.sqrt(2*np.pi)))*np.exp(-0.5*(t_exp/sig)**2)
         # run_diff_smooth = np.convolve(kern,run_diff,'same')        
         run_diff_pos_smooth = np.convolve(kern,run_diff_pos,'same')
