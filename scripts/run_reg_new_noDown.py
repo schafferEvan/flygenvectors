@@ -58,10 +58,11 @@ exp_list = ['2019_07_01_fly2',
             '2018_08_24_fly2_run2'] 
 
 i = int(sys.argv[1]) # DATASET TO LOAD
-part = sys.argv[2]
+part_i = int(sys.argv[2])
 n_perms = int(sys.argv[3]) # DATASET TO LOAD
 # for expt_id in exp_list:
 expt_id = exp_list[i][0] + '_' + exp_list[i][1]
+print(expt_id)
 
 dirs = futils.get_dirs()
 fig_dirs = futils.get_fig_dirs(expt_id)
@@ -76,6 +77,14 @@ if (expt_id=='2018_08_24_fly3_run1') or (expt_id=='2018_08_24_fly2_run2'):
     data_dict['behavior'] = ro.data_dict['behavior']
 
 # crop time (crude bootstrapping)
+if part_i==0:
+    part='beg'
+elif part_i==1:
+    part='mid'
+elif part_i==2:
+    part='end'
+else:
+    print(part)
 # for part in ['beg', 'mid', 'end']:
 # for part in ['end']:
 dict_crop = copy.deepcopy(data_dict)

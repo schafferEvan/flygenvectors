@@ -7,7 +7,7 @@
 #SBATCH --mem-per-cpu=8gb
 
 expID=0
-part='beg' #['beg', 'mid', 'end']
+part=0 #['beg', 'mid', 'end']
 n_perms=2
 module load anaconda/3-5.3.1
 source activate flygenvectors
