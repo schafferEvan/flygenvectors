@@ -63,12 +63,12 @@ for expt_id in exp_list:
     data_dict = pickle.load( open( fig_dirs['pkl_dir'] + expt_id +'_dict.pkl', "rb" ) )
 
     # rerun smooth_behavior (this is a hack)
-    if (expt_id=='2018_08_24_fly3_run1') or (expt_id=='2018_08_24_fly2_run2'):
-        ro = model.reg_obj(activity=activity, 
-                            data_dict=copy.deepcopy(data_dict),
-                            exp_id=expt_id)
-        ro.get_smooth_behavior()
-        data_dict['behavior'] = ro.data_dict['behavior']
+    # if (expt_id=='2018_08_24_fly3_run1') or (expt_id=='2018_08_24_fly2_run2'):
+    #     ro = model.reg_obj(activity=activity, 
+    #                         data_dict=copy.deepcopy(data_dict),
+    #                         exp_id=expt_id)
+    #     ro.get_smooth_behavior()
+    #     data_dict['behavior'] = ro.data_dict['behavior']
 
     # crop time (crude bootstrapping)
     for part in ['beg', 'mid', 'end']:
@@ -98,7 +98,7 @@ for expt_id in exp_list:
         ro = model.reg_obj(activity=activity, 
                             data_dict=copy.deepcopy(dict_crop),
                             exp_id=expt_id)
-        ro.fit_and_eval_reg_model_extended()
+        ro.fit_and_eval_reg_model_extended(n_perms=10)
         pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_1p0.pkl', "wb" ) )
         pickle.dump( ro.model_fit_shifted, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_shifted_'+part+'_1p0.pkl', "wb" ) )
 
