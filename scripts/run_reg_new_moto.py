@@ -68,8 +68,9 @@ dirs = futils.get_dirs()
 fig_dirs = futils.get_fig_dirs(expt_id)
 data_dict = pickle.load( open( fig_dirs['pkl_dir'] + expt_id +'_dict.pkl', "rb" ) )
 
-# rerun smooth_behavior (this is a hack)
-#if (expt_id=='2018_08_24_fly3_run1') or (expt_id=='2018_08_24_fly2_run2'):
+if (expt_id=='2018_08_24_fly3_run1') or (expt_id=='2018_08_24_fly2_run2'):
+     data_dict['beh_labels'] = np.expand_dims( data_dict['behavior'], axis=1).copy()
+     data_dict['beh_labels'] = 1*(data_dict['beh_labels']>.0005)
 #    ro = model.reg_obj(activity=activity, 
 #                        data_dict=copy.deepcopy(data_dict),
 #                        exp_id=expt_id)
@@ -88,30 +89,30 @@ else:
 # for part in ['beg', 'mid', 'end']:
 # for part in ['end']:
 dict_crop = copy.deepcopy(data_dict)
-l = len(data_dict['behavior'])
-b = round(.05*l)
-if part=='beg':
-    print('using beginning')
-    dict_crop['dFF'] = dict_crop['dFF'][:,:-2*b]
-    dict_crop['time'] = dict_crop['time'][:-2*b]
-    dict_crop['trialFlag'] = dict_crop['trialFlag'][:-2*b]
-    dict_crop['behavior'] = dict_crop['behavior'][:-2*b]
-    dict_crop['beh_labels'] = dict_crop['beh_labels'][:-2*b]
-if part=='mid':
-    print('using middle')
-    dict_crop['dFF'] = dict_crop['dFF'][:,b:-b]
-    dict_crop['time'] = dict_crop['time'][b:-b]
-    dict_crop['trialFlag'] = dict_crop['trialFlag'][b:-b]
-    dict_crop['behavior'] = dict_crop['behavior'][b:-b]
-    dict_crop['beh_labels'] = dict_crop['beh_labels'][b:-b]
-if part=='end':
-    print('using end')
-    dict_crop['dFF'] = dict_crop['dFF'][:,2*b:]
-    dict_crop['time'] = dict_crop['time'][2*b:]
-    dict_crop['trialFlag'] = dict_crop['trialFlag'][2*b:]
-    dict_crop['behavior'] = dict_crop['behavior'][2*b:]
-    dict_crop['beh_labels'] = dict_crop['beh_labels'][2*b:]
-
+#l = len(data_dict['behavior'])
+#b = round(.05*l)
+#if part=='beg':
+#    print('using beginning')
+#    dict_crop['dFF'] = dict_crop['dFF'][:,:-2*b]
+#    dict_crop['time'] = dict_crop['time'][:-2*b]
+#    dict_crop['trialFlag'] = dict_crop['trialFlag'][:-2*b]
+#    dict_crop['behavior'] = dict_crop['behavior'][:-2*b]
+#    dict_crop['beh_labels'] = dict_crop['beh_labels'][:-2*b]
+#if part=='mid':
+#    print('using middle')
+#    dict_crop['dFF'] = dict_crop['dFF'][:,b:-b]
+#    dict_crop['time'] = dict_crop['time'][b:-b]
+#    dict_crop['trialFlag'] = dict_crop['trialFlag'][b:-b]
+#    dict_crop['behavior'] = dict_crop['behavior'][b:-b]
+#    dict_crop['beh_labels'] = dict_crop['beh_labels'][b:-b]
+#if part=='end':
+#    print('using end')
+#    dict_crop['dFF'] = dict_crop['dFF'][:,2*b:]
+#    dict_crop['time'] = dict_crop['time'][2*b:]
+#    dict_crop['trialFlag'] = dict_crop['trialFlag'][2*b:]
+#    dict_crop['behavior'] = dict_crop['behavior'][2*b:]
+#    dict_crop['beh_labels'] = dict_crop['beh_labels'][2*b:]
+part='whole'
 
 ro = model.reg_obj(activity=activity, 
                     data_dict=copy.deepcopy(dict_crop),
