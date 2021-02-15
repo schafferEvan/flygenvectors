@@ -524,10 +524,10 @@ class reg_obj:
         tv_params = [.01,.9,.05] #np.array([.01,.9,.05])
         if self.exp_id=='2018_08_24_fly3_run1':
             tv_params[0] = 0.25
-            tv_params[2] = 0.0005
+            tv_params[2] = 0.002
         elif self.exp_id=='2018_08_24_fly2_run2':
             tv_params[0] = 0.025
-            tv_params[2]=0.0005
+            tv_params[2]=0.002
         elif self.exp_id=='2019_07_01_fly2':
             [] #ok
         elif self.exp_id=='2019_10_14_fly3':
