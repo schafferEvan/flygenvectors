@@ -227,7 +227,7 @@ class reg_obj:
         self.linear_regressors_dict = copy.deepcopy(self.regressors_dict)
 
 
-    def get_beh_diff(self, sec_th=10, sig_raw=4):
+    def get_beh_diff(self, sec_th=10, sig_raw=8):
         frame_th = np.round(sec_th*self.data_dict['scanRate']).astype(int)
         
         # start with binary timeseries of behavioral state starts & stops (ignoring brief states)
