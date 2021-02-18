@@ -523,8 +523,8 @@ class reg_obj:
 
         tv_params = [.01,.9,.05] #np.array([.01,.9,.05])
         if self.exp_id=='2018_08_24_fly3_run1':
-            tv_params[0] = 0.25
-            tv_params[2] = 0.002
+            tv_params[0] = 0.2 #0.25
+            tv_params[2] = 0.0001 #0.002
         elif self.exp_id=='2018_08_24_fly2_run2':
             tv_params[0] = 0.025
             tv_params[2]=0.002
@@ -611,14 +611,12 @@ class reg_obj:
             self.data_dict['behavior'] = denoise_tv_chambolle(beh, weight=tv_params[2])
         # manual cleanup (compressing scale)
         if self.exp_id == '2018_08_24_fly3_run1':
-            self.data_dict['behavior'][self.data_dict['behavior']>.0032] = .0032
+            # self.data_dict['behavior'][self.data_dict['behavior']>.0032] = .0032
+            self.data_dict['behavior'][self.data_dict['behavior']>.005] = .005
         elif self.exp_id == '2018_08_24_fly2_run2':
             self.data_dict['behavior'][self.data_dict['behavior']>.006] = .006
         elif self.exp_id == '2019_07_01_fly2':
-            self.data_dict['behavior'][self.data_dict['behavior']>.022] = .022
-
-
-    def estimate_motion_artifacts(self, inv_cv_thresh=1.0, max_dRR_thresh=0.3, make_hist=False):
+            self.data_dict['behavior'][self.data_dict['behavior']>.022] = .022alse):
         self.motion = {'inv_cv_thresh':inv_cv_thresh, 'max_dRR_thresh':max_dRR_thresh}
         self.get_regressors(just_null_model=True)
         self.data_dict['dFF'] = self.data_dict['dRR'].copy()
