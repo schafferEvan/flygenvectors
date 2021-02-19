@@ -212,7 +212,19 @@ class reg_obj:
                 ball = data_dict['circshift_behav'][shifted] - data_dict['circshift_behav'][shifted].mean()
 
         # running state transitions
-        run_diff_smooth = self.get_beh_diff()
+        # start with binary timeseries of behavioral state starts & stops (ignoring brief states)
+        if (self.exp_id=='2018_08_24_fly3_run1') or (self.exp_id=='2018_08_24_fly2_run2'):
+            if shifted is None:
+                is_running = 1*(data_dict['behavior']>.0005)
+            else:
+                is_running = 1*(data_dict['circshift_behav'][shifted]>.0005)
+        else:
+            if shifted is None:
+                is_running = 1*(data_dict['beh_labels']==1)[:,0]
+            else:
+                is_running = 1*(data_dict['circshift_beh_labels'][shifted]==1)[:,0]
+
+        run_diff_smooth = self.get_beh_diff(is_running)
 
         if just_null_model:
             self.regressors_dict = {
@@ -229,14 +241,10 @@ class reg_obj:
         self.linear_regressors_dict = copy.deepcopy(self.regressors_dict)
 
 
-    def get_beh_diff(self, sec_th=10, sig_raw=8):
+    def get_beh_diff(self, is_running, sec_th=10, sig_raw=8):
         frame_th = np.round(sec_th*self.data_dict['scanRate']).astype(int)
         
         # start with binary timeseries of behavioral state starts & stops (ignoring brief states)
-        if (self.exp_id=='2018_08_24_fly3_run1') or (self.exp_id=='2018_08_24_fly2_run2'):
-            is_running = 1*(self.data_dict['behavior']>.0005)
-        else:
-            is_running = 1*(self.data_dict['beh_labels']==1)[:,0]
         rstates = {'states':is_running}
         states_out = self.remove_transient_behaviors(rstates, frame_th=frame_th)
 
@@ -706,13 +714,17 @@ class reg_obj:
     def get_circshift_behav_data(self, abs_min_shift=0.33, rng_seed=0, n_perms=5):
         np.random.seed(rng_seed)
         self.data_dict['circshift_behav'] = [None]*n_perms
+        self.data_dict['circshift_beh_labels'] = [None]*n_perms
         low_idx = int( abs_min_shift * len(self.data_dict['behavior']) )
         high_idx = int( (1-abs_min_shift) * len(self.data_dict['behavior']) )
         perms = np.random.randint(low=low_idx, high=high_idx, size=n_perms)
         for n in range(n_perms):
             self.data_dict['circshift_behav'][n] = np.roll(self.data_dict['behavior'], perms[n])
+            self.data_dict['circshift_beh_labels'][n] = np.roll(self.data_dict['beh_labels'], perms[n])
         self.data_dict_orig['circshift_behav'] = copy.deepcopy( self.data_dict['circshift_behav'] )
         self.data_dict_downsample['circshift_behav'] = copy.deepcopy( self.data_dict['circshift_behav'] )
+        self.data_dict_orig['circshift_beh_labels'] = copy.deepcopy( self.data_dict['circshift_beh_labels'] )
+        self.data_dict_downsample['circshift_beh_labels'] = copy.deepcopy( self.data_dict['circshift_beh_labels'] )
 
 
     def preprocess(self, do_ICA=False):
