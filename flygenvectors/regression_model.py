@@ -54,7 +54,8 @@ class reg_obj:
         time_regs = self.regressors_dict['alpha_0']
         trial_regressors = self.regressors_dict['trial']
         lin_piece = d['alpha_0']@time_regs + d['trial_coeffs']@trial_regressors
-        dFF_fit =  lin_piece + d['beta_0']*self.linear_regressors_dict['beta_0'] + d['gamma_0']@self.linear_regressors_dict['gamma_0']
+        A = np.array([[1,1],[0,1]])
+        dFF_fit =  lin_piece + d['beta_0']*self.linear_regressors_dict['beta_0'] + d['gamma_0']@A@self.linear_regressors_dict['gamma_0']
         return dFF_fit
 
 
@@ -105,7 +106,8 @@ class reg_obj:
         # **********
 
         self.get_regressors(shifted=shifted)
-        bounds=[[None,None],[None,None],[None,None],[None,None],[None,None],[None,None],[1,59],[-59,59]]
+        # bound for gamma_1 = +/-.05
+        bounds=[[None,None],[None,None],[None,None],[None,None],[None,None],[-.05,.05],[1,59],[-59,59]]
         for i in range(self.n_trials-1):
             initial_conds.append(0)  
             bounds.append([None,None])     
@@ -616,7 +618,10 @@ class reg_obj:
         elif self.exp_id == '2018_08_24_fly2_run2':
             self.data_dict['behavior'][self.data_dict['behavior']>.006] = .006
         elif self.exp_id == '2019_07_01_fly2':
-            self.data_dict['behavior'][self.data_dict['behavior']>.022] = .022alse):
+            self.data_dict['behavior'][self.data_dict['behavior']>.022] = .022
+
+
+    def estimate_motion_artifacts(self, inv_cv_thresh=1.0, max_dRR_thresh=0.3, make_hist=False):
         self.motion = {'inv_cv_thresh':inv_cv_thresh, 'max_dRR_thresh':max_dRR_thresh}
         self.get_regressors(just_null_model=True)
         self.data_dict['dFF'] = self.data_dict['dRR'].copy()
