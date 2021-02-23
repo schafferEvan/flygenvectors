@@ -960,21 +960,34 @@ def unroll_model_fit_stats(model_fit):
     return model_fit_un
 
 
-def show_param_scatter(model_fit, data_dict, param_name, pval=.01):
+def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None):
     f = get_model_fit_as_dict(model_fit)
     rsq_dict = get_model_fit_as_dict(f['r_sq'])
-    param = f[param_name]
-    rsq = rsq_dict['tot']
-    stat = np.zeros(len(param))
-    for i in range(len(param)):
-        stat[i] = f['stat'][i][param_name][0][1]
-    success = f['success']
+    if isinstance(param_input,str):
+        param_name = param_input
+        param_idx = None
+        param = f[param_name]
+        rsq = rsq_dict[param_name]
+        stat = np.zeros(len(param))
+        for i in range(len(param)):
+            stat[i] = f['stat'][i][param_name][0][1]
+    elif isinstance(param_input,list):
+        param_name = param_input[0]
+        param_idx = param_input[1]
+        param = f[param_name][:,param_idx]
+        rsq = rsq_dict[param_name][:,param_idx]
+        stat = np.zeros(len(param))
+        for i in range(len(param)):
+            stat[i] = f['stat'][i][param_name][param_idx][1]
+    success = True #f['success']
 
     if(param_name=='phi'): 
         param = param/data_dict['scanRate']
         label = 'Phase (s)'
     elif(param_name=='beta_0'): 
         label = r'$\beta_0$'
+    elif(param_name=='gamma_0'): 
+        label = r'$\gamma_0$'
     elif(param_name=='tau_feed'):
         label = r'$\tau_{feed}$'
     else:
@@ -982,10 +995,10 @@ def show_param_scatter(model_fit, data_dict, param_name, pval=.01):
 
     pval_text = pval #0.01
     sig = (stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
-    param_sig = param[success*sig]
-    param_notsig = param[np.logical_not(success*sig)]
-    rsq_sig = rsq[success*sig]
-    rsq_notsig = rsq[np.logical_not(success*sig)]
+    param_sig = param[sig] #param[success*sig]
+    param_notsig = param[np.logical_not(sig)] #param[np.logical_not(success*sig)]
+    rsq_sig = rsq[sig] #rsq[success*sig]
+    rsq_notsig = rsq[np.logical_not(sig)] #rsq[np.logical_not(success*sig)]
 
     plt.figure(figsize=(5, 5))
     left, width = 0.1, 0.65
@@ -1008,11 +1021,16 @@ def show_param_scatter(model_fit, data_dict, param_name, pval=.01):
 
     xmin = np.floor(param.min()) #4/scanRate
     xmax = np.ceil(param.max()) #30 #1000/scanRate #6000
-    ymin = 0
-    ymax = 1
+    if ylim is None:
+        ymin = 0
+        ymax = 1
+    else:
+        ymin = ylim[0]
+        ymax = ylim[1]
+    s = 100
 
-    # ax_scatter.scatter(param_notsig,rsq_notsig,c='tab:gray',marker='o',alpha=0.3)
-    ax_scatter.scatter(param_sig,rsq_sig,c='tab:gray',marker='.',alpha=0.3,linewidths=0.75,edgecolors='k') #'#1f77b4'
+    ax_scatter.scatter(param_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=0.15, linewidths=0.75, edgecolors='k', s=s)
+    ax_scatter.scatter(param_sig,rsq_sig,c='#01386a',marker='.',alpha=0.4,linewidths=0.75,edgecolors='#01386a', s=s) #'#1f77b4'
     # ax_scatter.scatter(tau_sig[tau_is_neg_sig],rsq_sig[tau_is_neg_sig],c='tab:red',marker='.',alpha=0.3)
     # ax_scatter.set_xscale('log')
     ax_scatter.set_xlim((xmin,xmax))
@@ -1021,12 +1039,14 @@ def show_param_scatter(model_fit, data_dict, param_name, pval=.01):
     ax_scatter.set_ylabel(r'$r^2$')
 
     xbinwidth = (xmax-xmin)/40
-    ybinwidth = 0.025
+    ybinwidth = 0.025*(ymax-ymin)
     ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
     xbins = np.arange(xmin, xmax+xbinwidth, xbinwidth) #np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
-    ax_histx.hist(param, bins=xbins,color='#929591') #log=True,
+    ax_histx.hist(param_notsig, bins=xbins,color='tab:gray') #'#929591')
+    ax_histx.hist(param_sig, bins=xbins,color='#01386a',alpha=.7) #'#929591')
     ax_histx.set_xlim((xmin,xmax))
-    ax_histy.hist(rsq, bins=ybins, orientation='horizontal',color='#929591')
+    ax_histy.hist(rsq_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
+    ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color='#01386a',alpha=.7) #''#929591')
     ax_histy.set_ylim((ymin,ymax))
 
 
@@ -1515,6 +1535,7 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
     # ax3.set_xlim(0,template_dims[1])
     # ax3.set_ylim(0,template_dims[2])
     ax3.invert_yaxis()
+    return color_lims
 
 
 def convert_plot_param_to_plot_field(plot_param, model_fit, data_dict):
@@ -2229,24 +2250,32 @@ def make_hot_without_black(clrs=100, low_bnd=0.15, show_map=False):
     newcmp = ListedColormap(hot(np.linspace(low_bnd, .9, clrs)))
     if show_map:
         display_cmap(newcmp)
-        plt.show()
+        # plt.show()
     return newcmp
 
-def cold_to_hot_cmap(show_map=False):
+def cold_to_hot_cmap(show_map=False, tks=None, tk_labels=None):
     from matplotlib.colors import LinearSegmentedColormap
     basic_cols=['#95d0fc', (.2,.2,.2), '#ff474c'] #   #03012d, #363737
     my_cmap=LinearSegmentedColormap.from_list('mycmap', basic_cols)
     if show_map:
-        display_cmap(my_cmap)
-        plt.show()
+        if tks is None:
+            display_cmap(my_cmap=my_cmap)
+        elif tk_labels is None:
+            display_cmap(my_cmap=my_cmap, tks=tks)
+        else:
+            display_cmap(my_cmap=my_cmap, tks=tks, tk_labels=tk_labels)
+        # plt.show()
     return my_cmap
 
 
-def display_cmap(my_cmap, mx=100, tks=[0,50,100], tk_labels=['zero','fiddy','100']):
+def display_cmap(my_cmap, mx=100, tks=[0,50,100], tk_labels=None):
     plt.figure(figsize=(5,0.25))
     sprange = 100
     plt.imshow(np.linspace(0, mx, sprange)[None, :], interpolation='nearest', cmap=my_cmap, aspect='auto')
-    plt.xticks(ticks=(np.array(tks)/mx)*sprange, labels=tk_labels)
+    if tk_labels is None:
+        plt.xticks(ticks=(np.array(tks)/mx)*sprange)
+    else:
+        plt.xticks(ticks=(np.array(tks)/mx)*sprange, labels=tk_labels)
     plt.yticks([])
     # plt.axis('off')
     # plt.show()
