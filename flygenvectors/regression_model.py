@@ -55,7 +55,10 @@ class reg_obj:
         trial_regressors = self.regressors_dict['trial']
         lin_piece = d['alpha_0']@time_regs + d['trial_coeffs']@trial_regressors
         A = np.array([[1,1],[0,1]])
-        dFF_fit =  lin_piece + d['beta_0']*self.linear_regressors_dict['beta_0'] + d['gamma_0']@A@self.linear_regressors_dict['gamma_0']
+        if self.params['split_behav']:
+            dFF_fit =  lin_piece + d['beta_0']@self.linear_regressors_dict['beta_0'] + d['gamma_0']@A@self.linear_regressors_dict['gamma_0']
+        else:
+            dFF_fit =  lin_piece + d['beta_0']*self.linear_regressors_dict['beta_0'] + d['gamma_0']@A@self.linear_regressors_dict['gamma_0']
         return dFF_fit
 
 
@@ -64,8 +67,14 @@ class reg_obj:
         # d is a dictionary of regression coefficients
         kern = self.get_kern(d['phi'], d['tau']) #(1/np.sqrt(tau))*np.exp(-t_exp/tau)
         ball = self.regressors_dict['beta_0']
-        self.linear_regressors_dict['beta_0'] = np.convolve(kern,ball,'same')
-        self.linear_regressors_dict['beta_0'] -= self.linear_regressors_dict['beta_0'].mean()
+        if self.params['split_behav']:
+            self.linear_regressors_dict['beta_0'] = np.zeros(ball.shape)
+            for i in range(ball.shape[0]):
+                self.linear_regressors_dict['beta_0'][i,:] = np.convolve(kern,ball[i,:],'same')
+                self.linear_regressors_dict['beta_0'][i,:] -= self.linear_regressors_dict['beta_0'][i,:].mean()
+        else:
+            self.linear_regressors_dict['beta_0'] = np.convolve(kern,ball,'same')
+            self.linear_regressors_dict['beta_0'] -= self.linear_regressors_dict['beta_0'].mean()
     
 
     def get_kern(self, phi, tau):
@@ -88,7 +97,7 @@ class reg_obj:
         return obj
 
 
-    def get_model_mle(self, downsample=True, shifted=None, initial_conds=[0,.0001,.0001,.0001,0,0.5,5,0]):
+    def get_model_mle(self, downsample=True, shifted=None, initial_conds=None):
         """
         downsample: flag creates downsampled dict, or points to it if one is already made.
         shifted: if not None, uses circshifted dict instead of original
@@ -104,10 +113,27 @@ class reg_obj:
         # add call to method here that overwrites data_dict with only some timesteps.
         # NEED call downsample() beforehand to reset the dict.
         # **********
+        if initial_conds is None:
+            if self.params['split_behav']:
+                initial_conds=[0,.0001,.0001]
+                U = np.unique(self.data_dict['trialFlag'])
+                for i in range(len(U)):
+                    initial_conds.append(.0001)
+                initial_conds.extend([0,0.5,5,0])
+            else:
+                initial_conds=[0,.0001,.0001,.0001,0,0.5,5,0]
 
         self.get_regressors(shifted=shifted)
-        # bound for gamma_1 = +/-.05
-        bounds=[[None,None],[None,None],[None,None],[None,None],[None,None],[-.05,.05],[1,59],[-59,59]]
+        if self.params['split_behav']:
+            bounds=[[None,None],[None,None],[None,None]]
+            U = np.unique(self.data_dict['trialFlag'])
+            for i in range(len(U)):
+                bounds.append([None,None])
+            bounds.extend([[None,None],[-.05,.05],[1,59],[-59,59]])
+        else:
+            # bound for gamma_1 = +/-.05
+            bounds=[[None,None],[None,None],[None,None],[None,None],[None,None],[-.05,.05],[1,59],[-59,59]]
+        
         for i in range(self.n_trials-1):
             initial_conds.append(0)  
             bounds.append([None,None])     
@@ -282,15 +308,23 @@ class reg_obj:
             self.data_dict['scanRate'] = self.data_dict_orig['scanRate']/downsample_factor #1/effective_stepsize
             sub_fac = downsample_factor #effective_stepsize*self.data_dict_orig['scanRate'] #np.round(effective_stepsize*self.data_dict_orig['scanRate']).astype(int)
             L = np.round(self.data_dict_orig[self.activity].shape[1]/sub_fac).astype(int)
-            self.data_dict[self.activity] = np.zeros((self.data_dict_orig[self.activity].shape[0], L))
+            # self.data_dict[self.activity] = np.zeros((self.data_dict_orig[self.activity].shape[0], L))
+            self.data_dict['dFF'] = np.zeros((self.data_dict_orig['dFF'].shape[0], L))
+            self.data_dict['dYY'] = np.zeros((self.data_dict_orig['dYY'].shape[0], L))
+            self.data_dict['dRR'] = np.zeros((self.data_dict_orig['dRR'].shape[0], L))
             self.data_dict['time'] = np.zeros((L,1))
+            self.data_dict['tPl'] = np.zeros((L,1))
             self.data_dict['behavior'] = np.zeros(L)
             self.data_dict['trialFlag'] = np.zeros(L)
             self.data_dict['beh_labels'] = np.zeros((L,1))
             for j in range(L):
                 sl = slice(np.round(sub_fac*j).astype(int), np.round(sub_fac*(j+1)).astype(int))
-                self.data_dict[self.activity][:, j] = self.data_dict_orig[self.activity][:,sl].mean(axis=1)
+                # self.data_dict[self.activity][:, j] = self.data_dict_orig[self.activity][:,sl].mean(axis=1)
+                self.data_dict['dFF'][:, j] = self.data_dict_orig['dFF'][:,sl].mean(axis=1)
+                self.data_dict['dYY'][:, j] = self.data_dict_orig['dYY'][:,sl].mean(axis=1)
+                self.data_dict['dRR'][:, j] = self.data_dict_orig['dRR'][:,sl].mean(axis=1)
                 self.data_dict['time'][j,0] = self.data_dict_orig['time'][sl].mean() #sub_fac*j
+                self.data_dict['tPl'][j,0] = self.data_dict_orig['tPl'][sl].mean() #sub_fac*j
                 self.data_dict['behavior'][j] = self.data_dict_orig['behavior'][sl].mean()
                 self.data_dict['beh_labels'][j,0] = stats.mode(self.data_dict_orig['beh_labels'][sl, :]).mode
                 self.data_dict['trialFlag'][j] = stats.mode(self.data_dict_orig['trialFlag'][sl]).mode
@@ -482,43 +516,24 @@ class reg_obj:
         """ default is to return fit with just alpha and trial regs. 
         Using extra_regs, option to return fit with any additional regs: [ ['partial_reg', idx], ['full_reg'] ] 
         extra_regs are the regressors TO SUBTRACT """
-        self.refresh_params()
-        dFF_full = self.data_dict[self.activity]
-        dFF = dFF_full[:,self.params['L']:-self.params['L']]
-        sl = slice(self.params['L'], dFF_full.shape[1]-self.params['L'])
-        # dFF = np.expand_dims(dFF, axis=0)
+        self.get_regressors()
+        dFF = copy.deepcopy(self.data_dict[self.activity])
         dFF_fit = np.zeros(dFF.shape)
         for n in range(dFF.shape[0]):
-            if self.model_fit[n]['success']:
-                self.params['tau'] = self.model_fit[n]['tau']
-                self.params['tau_feed'] = self.model_fit[n]['tau_feed']
-                if 'phi_beh_lab' not in self.model_fit[n]:
-                    self.model_fit[n]['phi_beh_lab'] = 0
-                if self.elasticNet:
-                    self.get_regressors(phi_input=self.model_fit[n]['phi'], phi_beh_lab_input=self.model_fit[n]['phi_beh_lab'], amplify_baseline=True, just_null_model=just_null_model)
-                elif just_null_model:
-                    self.get_regressors(phi_input=self.model_fit[n]['phi'], amplify_baseline=False, just_null_model=just_null_model)
-                else:
-                    self.get_regressors(phi_input=self.model_fit[n]['phi'], phi_beh_lab_input=self.model_fit[n]['phi_beh_lab'], amplify_baseline=False, just_null_model=just_null_model)
-                coeff_dict = self.coeff_dict_from_keys(idx=n)
-                reg_labels = list(coeff_dict.keys())
-                # make null dict by setting params of interest to 0
-                for j in range(len(reg_labels)):
-                    if (reg_labels[j]=='alpha_0') or (reg_labels[j]=='trial'): continue
-                    if extra_regs_to_use is not None:
-                        tmp_reg = np.zeros(coeff_dict[reg_labels[j]].shape)
-                        for sublist in extra_regs_to_use:
-                            if reg_labels[j] in sublist: 
-                                if len(sublist) == 1: 
-                                    continue # use all elements of this regressor
-                                else:
-                                    el_to_zero = [z for z in range(len(coeff_dict[reg_labels[j]])) if z != sublist[1]]
-                                    coeff_dict[reg_labels[j]][el_to_zero] = 0 #use some elements of this regressor
-                    else:
-                        coeff_dict[reg_labels[j]] = np.zeros(coeff_dict[reg_labels[j]].shape)
-                coeff_array = self.dict_to_flat_list(coeff_dict)
-                dFF_fit[n,:] = coeff_array@self.regressors_array[0][0]
-        return dFF_fit, dFF, sl
+            if just_null_model:
+                # get linpart to subtract from everything
+                coeffs_null = copy.deepcopy(self.model_fit[n])
+                for label in ['beta_0', 'gamma_0']:
+                    for j in range(coeffs_null[label].shape[0]):
+                        coeffs_null[label][j] = 0
+                coeff_list = self.dict_to_flat_list(coeffs_null)
+            else:
+                coeff_list = self.dict_to_flat_list(self.model_fit[n])
+            
+            dFF_fit[n,:] = self.get_model(coeff_list)
+
+        dFF -= dFF_fit
+        return dFF_fit, dFF
 
 
     def get_smooth_behavior(self):
@@ -633,21 +648,12 @@ class reg_obj:
     def estimate_motion_artifacts(self, inv_cv_thresh=1.0, max_dRR_thresh=0.3, make_hist=False):
         self.motion = {'inv_cv_thresh':inv_cv_thresh, 'max_dRR_thresh':max_dRR_thresh}
         self.get_regressors(just_null_model=True)
-        self.data_dict['dFF'] = self.data_dict['dRR'].copy()
-        self.model_fit = []
-        for n in range(self.data_dict['dRR'].shape[0]):
-            # pdb.set_trace()
-            p, _ = self.fit_reg_linear(n=n, phi_idx=0)
-            d = copy.deepcopy(p)
-            d['tau'] = 1
-            d['tau_feed'] = 1
-            d['phi'] = 0
-            d['success'] = True
-            d['activity'] = 'dFF'
-            d['kern'] = self.kern_type #'gauss'
-            self.model_fit.append(d)    
-        R0, dFF, _ = self.get_null_subtracted_raster(just_null_model=True)
-        dRR0 = dFF-R0
+        
+        # fit null model to dRR to get dRR0
+        self.activity = 'dRR'
+        self.model_fit = self.get_model_mle()
+    
+        R0, dRR0 = self.get_null_subtracted_raster(just_null_model=True)
         v=dRR0.var(axis=1)
         m=R0.mean(axis=1)
         self.motion['mag'] = dRR0.max(axis=1)-dRR0.min(axis=1)
@@ -729,6 +735,8 @@ class reg_obj:
 
     def preprocess(self, do_ICA=False):
         self.get_smooth_behavior()
+        self.data_dict_orig['behavior'] = copy.deepcopy(self.data_dict['behavior'])
+        self.data_dict_downsample['behavior'] = copy.deepcopy(self.data_dict['behavior'])
         motion_obj = copy.deepcopy(self) # i'm not proud of this
         motion_obj.estimate_motion_artifacts(make_hist=self.options['make_motion_hist'])
         self.motion = motion_obj.motion
@@ -754,7 +762,14 @@ class reg_obj:
 
 
     def get_model_mle_with_many_inits(self, shifted=None, tau_inits=[8,10,12,15,18,22,25,30,35,42,50]):
-        initial_conds=[0,.0001,.0001,.0001,0,0.5,5,0]
+        if self.params['split_behav']:
+            initial_conds=[0,.0001,.0001]
+            U = np.unique(self.data_dict['trialFlag'])
+            for i in range(len(U)):
+                initial_conds.append(.0001)
+            initial_conds.extend([0,0.5,5,0])
+        else:
+            initial_conds=[0,.0001,.0001,.0001,0,0.5,5,0]
         model_fit = self.get_model_mle(shifted=shifted, initial_conds=initial_conds.copy())
         # pdb.set_trace()
         self.evaluate_model(model_fit=model_fit, shifted=shifted)
