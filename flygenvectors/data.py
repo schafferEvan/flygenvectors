@@ -366,11 +366,11 @@ def estimate_neuron_behav_tau(data_dict):
     return tauList, a
 
 
-def binarize_timeseries(data_in):
+def binarize_timeseries(data_in, means_init=[[0.5],[0.8]]):
     # use GMM to turn scalar-valued timeseries into binary
     from sklearn.mixture import GaussianMixture
 
-    gmm = GaussianMixture(n_components=2, means_init=[[0.5],[0.8]])
+    gmm = GaussianMixture(n_components=2, means_init=means_init)
     log_beh = np.log(data_in)-np.log(data_in).min()
     log_beh = log_beh/log_beh.max()
     gmm_beh_fit = gmm.fit_predict(log_beh)
@@ -382,6 +382,15 @@ def binarize_timeseries(data_in):
         beh = np.logical_not(gmm_beh_fit)
     return beh
     # data_dict['ball'] = data_dict['ball'].flatten()
+
+
+def binarize_timeseries_by_outliers(data_in, sig=1):
+    # simplistic approach works well for sparse timeseries (better than GMM)
+    m = data_in.mean()
+    s = data_in.std()
+    data_out = data_in>(m+sig*s)
+    return data_out
+
 
 
 def get_dFF_ica(data_dict):
@@ -484,6 +493,34 @@ def split_trials(
         batch_indxs[dtype] = np.concatenate(batch_indxs[dtype], axis=0)
 
     return batch_indxs
+
+
+def trim_time(data_dict, before_stim=True):
+    """
+    Crop time from neural and behav data.
+    """
+    import copy
+    if before_stim:
+        buf = 60 #sec
+        buf_frames = int(round(data_dict['scanRate']*buf))
+        stim_idx = np.flatnonzero(data_dict['stim']==1)[0]
+        cut_pt = stim_idx-buf_frames
+
+    data_dict_new = copy.deepcopy(data_dict)
+    data_dict_new['dFF'] = data_dict_new['dFF'][:,:cut_pt]
+    data_dict_new['dYY'] = data_dict_new['dYY'][:,:cut_pt]
+    data_dict_new['dRR'] = data_dict_new['dRR'][:,:cut_pt]
+    data_dict_new['ball'] = data_dict_new['ball'][:cut_pt,:]
+    data_dict_new['behavior'] = data_dict_new['behavior'][:cut_pt,:]
+    data_dict_new['time'] = data_dict_new['time'][:cut_pt,:]
+    data_dict_new['trialFlag'] = data_dict_new['trialFlag'][:cut_pt,:]
+    data_dict_new['tPl'] = data_dict_new['tPl'][:cut_pt,:]
+    data_dict_new['stim'] = data_dict_new['stim'][:cut_pt,:]
+    data_dict_new['drink'] = data_dict_new['drink'][:cut_pt,:]
+    data_dict_new['dlc'] = data_dict_new['dlc'][:cut_pt,:]
+    if len(data_dict_new['beh_labels'])>0:
+        data_dict_new['beh_labels'] = data_dict_new['beh_labels'][:cut_pt,:]
+    return data_dict_new
 
 
 class Logger(object):
