@@ -51,7 +51,10 @@ reload(futils)
 reload(dataUtils)
 pickle_output = False
 
-exp_list = ['2019_04_18_fly2'] 
+exp_list = ['2019_04_18_fly2',
+            '2019_04_22_fly1',
+            '2019_04_24_fly1',
+            '2019_05_07_fly1'] 
 
 i = int(sys.argv[1]) # DATASET TO LOAD
 part_i = int(sys.argv[2])
