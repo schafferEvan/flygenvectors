@@ -1050,10 +1050,13 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None):
     ax_histy.set_ylim((ymin,ymax))
 
 
-def show_tau_scatter(model_fit, pval=.01):
+def show_tau_scatter(model_fit, pval=.01, idx=None):
     f = get_model_fit_as_dict(model_fit)
     rsq_dict = get_model_fit_as_dict(f['r_sq'])
-    rsq = rsq_dict['tau'] #['tot']
+    if idx is None:
+        rsq = rsq_dict['tau'] #['tot']
+    else:
+        rsq = rsq_dict['tau'][:,idx]
     tau = abs(f['tau'])
     tau_is_pos = (f['tau']>=0)
     # rsq_null = f['rsq_null']
