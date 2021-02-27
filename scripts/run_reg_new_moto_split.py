@@ -77,14 +77,14 @@ if (expt_id=='2018_08_24_fly3_run1') or (expt_id=='2018_08_24_fly2_run2'):
 #    data_dict['behavior'] = ro.data_dict['behavior']
 
 # crop time (crude bootstrapping)
-if part_i==0:
-    part='beg'
-elif part_i==1:
-    part='mid'
-elif part_i==2:
-    part='end'
-else:
-    print(part)
+# if part_i==0:
+#     part='beg'
+# elif part_i==1:
+#     part='mid'
+# elif part_i==2:
+#     part='end'
+# else:
+#     print(part)
 # for part in ['beg', 'mid', 'end']:
 # for part in ['end']:
 dict_crop = copy.deepcopy(data_dict)
@@ -120,16 +120,18 @@ ro = model.reg_obj(activity=activity,
 # ro.is_downsampled = True
 # ro.fit_and_eval_reg_model_extended(n_perms=n_perms)
 
-ro.model_fit = ro.get_model_mle_with_many_inits(shifted=None)
-pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_1p0.pkl', "wb" ) )
+if (part_i==0) or (part_i==2):
+    ro.model_fit = ro.get_model_mle_with_many_inits(shifted=None)
+    pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_1p0.pkl', "wb" ) )
 
-print('Testing model on circshifted data')
-ro.get_circshift_behav_data(n_perms=n_perms)
-ro.model_fit_shifted = [None]*n_perms
-for n in range(n_perms):
-    print('Perm '+str(n))
-    ro.model_fit_shifted[n] = ro.get_model_mle_with_many_inits(shifted=n)
-    pickle.dump( ro.model_fit_shifted, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_shifted_'+part+'_1p0.pkl', "wb" ) )
+if (part_i==1) or (part_i==2):
+    print('Testing model on circshifted data')
+    ro.get_circshift_behav_data(n_perms=n_perms)
+    ro.model_fit_shifted = [None]*n_perms
+    for n in range(n_perms):
+        print('Perm '+str(n))
+        ro.model_fit_shifted[n] = ro.get_model_mle_with_many_inits(shifted=n)
+        pickle.dump( ro.model_fit_shifted, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_shifted_'+part+'_1p0.pkl', "wb" ) )
     
 
 
