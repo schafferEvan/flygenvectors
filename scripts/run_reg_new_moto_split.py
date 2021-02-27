@@ -126,6 +126,7 @@ if (part_i==0) or (part_i==2):
 
 if (part_i==1) or (part_i==2):
     print('Testing model on circshifted data')
+    ro.downsample_in_time()
     ro.get_circshift_behav_data(n_perms=n_perms)
     ro.model_fit_shifted = [None]*n_perms
     for n in range(n_perms):
