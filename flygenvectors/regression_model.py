@@ -225,10 +225,16 @@ class reg_obj:
 
         # motion energy from ball
         if params['split_behav']:
-            ball = np.zeros((NT,len(data_dict['behavior'])))
-            for i in range(NT):
-                is_this_trial = np.squeeze(data_dict['trialFlag']==self.U[i])
-                ball[i,is_this_trial] = data_dict['behavior'][is_this_trial]-data_dict['behavior'][is_this_trial].mean()
+            if shifted is None:
+                ball = np.zeros((NT,len(data_dict['behavior'])))
+                for i in range(NT):
+                    is_this_trial = np.squeeze(data_dict['trialFlag']==self.U[i])
+                    ball[i,is_this_trial] = data_dict['behavior'][is_this_trial]-data_dict['behavior'][is_this_trial].mean()
+            else:
+                ball = np.zeros((NT,len(data_dict['behavior'])))
+                for i in range(NT):
+                    is_this_trial = np.squeeze(data_dict['trialFlag']==self.U[i])
+                    ball[i,is_this_trial] = data_dict['circshift_behav'][shifted][is_this_trial]-data_dict['circshift_behav'][shifted][is_this_trial].mean()
         elif just_null_model:
             ball = []
         else:
@@ -491,7 +497,10 @@ class reg_obj:
 
         p_vals = np.zeros(len(rsq[param]))
         for n in range(len(rsq[param])):
-            p_vals[n] = 1 - (rsq[param][n]>rsq_shift[param][:,n,param_idx]).sum()/rsq_shift[param].shape[0]
+            if isinstance(rsq[param][n],np.float64):
+                p_vals[n] = 1 - (rsq[param][n]>rsq_shift[param][:,n,param_idx]).sum()/rsq_shift[param].shape[0]
+            else:
+                p_vals[n] = 1 - (rsq[param][n,param_idx]>rsq_shift[param][:,n,param_idx]).sum()/rsq_shift[param].shape[0]
             # m=rsq_shift[param][:,n,param_idx].mean()
             # s=rsq_shift[param][:,n,param_idx].std()
             # std_devs[n] = (rsq[param][n]-m)/s
