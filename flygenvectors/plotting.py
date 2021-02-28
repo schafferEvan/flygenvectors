@@ -960,13 +960,21 @@ def unroll_model_fit_stats(model_fit):
     return model_fit_un
 
 
-def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None):
+def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, param2_input=None, use_cc=False):
+    """
+    Default is to plot scatter of a parameter vs residual r^2 of that parameter
+    param2_input: plot scatter vs another parameter instead of vs r^2
+    """
     f = get_model_fit_as_dict(model_fit)
     rsq_dict = get_model_fit_as_dict(f['r_sq'])
+    cc_dict = get_model_fit_as_dict(f['cc'])
     if isinstance(param_input,str):
         param_name = param_input
         param_idx = None
-        param = f[param_name]
+        if use_cc:
+            param = cc_dict[param_name]
+        else:
+            param = f[param_name]
         rsq = rsq_dict[param_name]
         stat = np.zeros(len(param))
         for i in range(len(param)):
@@ -974,11 +982,48 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None):
     elif isinstance(param_input,list):
         param_name = param_input[0]
         param_idx = param_input[1]
-        param = f[param_name][:,param_idx]
+        if use_cc:
+            param = cc_dict[param_name][:,param_idx]
+        else:
+            param = f[param_name][:,param_idx]
         rsq = rsq_dict[param_name][:,param_idx]
         stat = np.zeros(len(param))
         for i in range(len(param)):
             stat[i] = f['stat'][i][param_name][param_idx][1]
+    if param2_input is not None:
+        if isinstance(param2_input,str):
+            param2_name = param2_input
+            param2_idx = None
+            if use_cc:
+                param2 = cc_dict[param2_name]
+            else:
+                param2 = f[param2_name]
+            # rsq = rsq_dict[param2_name]
+            stat2 = np.zeros(len(param2))
+            for i in range(len(param2)):
+                stat2[i] = f['stat'][i][param2_name][0][1]
+        elif isinstance(param2_input,list):
+            param2_name = param2_input[0]
+            param2_idx = param2_input[1]
+            if use_cc:
+                param2 = cc_dict[param2_name][:,param2_idx]
+            else:
+                param2 = f[param2_name][:,param2_idx]
+            # rsq = rsq_dict[param2_name][:,param2_idx]
+            stat2 = np.zeros(len(param2))
+            for i in range(len(param2)):
+                stat2[i] = f['stat'][i][param2_name][param2_idx][1]
+        if(param2_name=='phi'): 
+            param2 = param2/data_dict['scanRate']
+            label2 = 'Phase (s)'
+        elif(param2_name=='beta_0'): 
+            label2 = r'$\beta_1$'
+        elif(param2_name=='gamma_0'): 
+            label2 = r'$\gamma_0$'
+        elif(param2_name=='tau_feed'):
+            label2 = r'$\tau_{feed}$'
+        else:
+            label2=param2_name
     success = True #f['success']
 
     if(param_name=='phi'): 
@@ -994,11 +1039,18 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None):
         label=param_name
 
     pval_text = pval #0.01
-    sig = (stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
-    param_sig = param[sig] #param[success*sig]
-    param_notsig = param[np.logical_not(sig)] #param[np.logical_not(success*sig)]
-    rsq_sig = rsq[sig] #rsq[success*sig]
-    rsq_notsig = rsq[np.logical_not(sig)] #rsq[np.logical_not(success*sig)]
+    sig = list(stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
+    if param2_input is None:
+        param_sig = param[sig] #param[success*sig]
+        param_notsig = param[np.logical_not(sig)] #param[np.logical_not(success*sig)]
+        rsq_sig = rsq[sig] #rsq[success*sig]
+        rsq_notsig = rsq[np.logical_not(sig)] #rsq[np.logical_not(success*sig)]
+    else:
+        sig2 = list(stat2<pval)
+        param_sig = param[sig and sig2] #param[success*sig]
+        param_notsig = param[np.logical_not(sig and sig2)]
+        param2_sig = param2[sig and sig2] #param[success*sig]
+        param2_notsig = param2[np.logical_not(sig and sig2)]
 
     plt.figure(figsize=(5, 5))
     left, width = 0.1, 0.65
@@ -1019,34 +1071,50 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None):
     ax_histy.axis('off')
 
 
-    xmin = np.floor(param.min()) #4/scanRate
-    xmax = np.ceil(param.max()) #30 #1000/scanRate #6000
+    xmin = param.min() #np.floor(param.min()) #4/scanRate
+    xmax = param.max() #np.ceil(param.max()) #30 #1000/scanRate #6000
     if ylim is None:
-        ymin = 0
-        ymax = 1
+        if param2_input is None:
+            ymin = 0
+            ymax = 1
+        else:
+            ymin = param2.min() #np.floor(param2.min()) #4/scanRate
+            ymax = param2.max() #np.ceil(param2.max())
     else:
         ymin = ylim[0]
         ymax = ylim[1]
     s = 100
 
-    ax_scatter.scatter(param_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=0.15, linewidths=0.75, edgecolors='k', s=s)
-    ax_scatter.scatter(param_sig,rsq_sig,c='#01386a',marker='.',alpha=0.4,linewidths=0.75,edgecolors='#01386a', s=s) #'#1f77b4'
+    if param2_input is None:
+        ax_scatter.scatter(param_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=0.15, linewidths=0.75, edgecolors='k', s=s)
+        ax_scatter.scatter(param_sig,rsq_sig,c='#01386a',marker='.',alpha=0.4,linewidths=0.75,edgecolors='#01386a', s=s) #'#1f77b4'
+    else:
+        ax_scatter.scatter(param_notsig,param2_notsig,c='tab:gray',marker='.',alpha=0.15, linewidths=0.75, edgecolors='k', s=s)
+        ax_scatter.scatter(param_sig,param2_sig,c='#01386a',marker='.',alpha=0.4,linewidths=0.75,edgecolors='#01386a', s=s) #'#1f77b4'
     # ax_scatter.scatter(tau_sig[tau_is_neg_sig],rsq_sig[tau_is_neg_sig],c='tab:red',marker='.',alpha=0.3)
     # ax_scatter.set_xscale('log')
     ax_scatter.set_xlim((xmin,xmax))
     ax_scatter.set_ylim((ymin,ymax))
     ax_scatter.set_xlabel(label)
-    ax_scatter.set_ylabel(r'$r^2$')
+    
+    if param2_input is None:
+        ax_scatter.set_ylabel(r'$r^2$')
+    else:
+        ax_scatter.set_ylabel(label2)
 
     xbinwidth = (xmax-xmin)/40
-    ybinwidth = 0.025*(ymax-ymin)
+    ybinwidth = (ymax-ymin)/40
     ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
     xbins = np.arange(xmin, xmax+xbinwidth, xbinwidth) #np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
     ax_histx.hist(param_notsig, bins=xbins,color='tab:gray') #'#929591')
     ax_histx.hist(param_sig, bins=xbins,color='#01386a',alpha=.7) #'#929591')
     ax_histx.set_xlim((xmin,xmax))
-    ax_histy.hist(rsq_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
-    ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color='#01386a',alpha=.7) #''#929591')
+    if param2_input is None:
+        ax_histy.hist(rsq_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
+        ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color='#01386a',alpha=.7) #''#929591')
+    else:
+        ax_histy.hist(param2_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
+        ax_histy.hist(param2_sig, bins=ybins, orientation='horizontal',color='#01386a',alpha=.7) #''#929591')
     ax_histy.set_ylim((ymin,ymax))
 
 
