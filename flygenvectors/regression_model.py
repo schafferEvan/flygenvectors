@@ -441,6 +441,7 @@ class reg_obj:
         output_mat = np.zeros(input_mat.shape)
         for i in range(input_mat.shape[0]):
             output_mat[i,:] = input_mat[i,:]*sig[i] + mu[i] #(input_mat[i,:]-mu[i])/sig[i]
+        return output_mat
 
 
     def normalize_rows_mag(self,input_mat,quantiles=(.01,.99),fix_nans=True): 
@@ -462,14 +463,26 @@ class reg_obj:
 
 
     def unnormalize_rows_mag(self,input_mat,q0,q1): 
-        # then integrate into data loading in _hunger notebook
-        # then integrate into use of residual raster to plot reinflated residuals
-        # then set everything to run overnight
-
         # inverts "normalize_rows", except for cropped extrema
         output_mat = np.zeros(input_mat.shape)
         for i in range(input_mat.shape[0]):
             output_mat[i,:] = input_mat[i,:]*(q1[i]-q0[i]) + q0[i]
+        return output_mat
+
+
+    def convert_dFF_to_ROC(self, input_mat, classifier_tseries=None):
+        """
+        convert activity to ROC using a binary classifier to define null.
+        Default classifier uses stationary state vs anything nonstationary
+        """
+        if classifier_tseries is None:
+            classifier_tseries = self.data_dict['beh_labels']!=0
+        output_mat = np.zeros(input_mat.shape)
+        l = np.logical_not(classifier_tseries).sum()
+        for i in range(input_mat.shape[0]):
+            null_dist = input_mat[i, np.logical_not(classifier_tseries)]
+            for t in range(input_mat.shape[1]):
+                output_mat[i,t] = (input_mat[i,t]>null_dist).sum()/l
         return output_mat
     
 
