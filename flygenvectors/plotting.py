@@ -1956,7 +1956,10 @@ def trim_dynamic_range(data,q_min,q_max):
     return data
 
 
-def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,include_dlc=False,num_cells=[],time_lims=[],slice_time=None,title='Raw'):
+def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,split_behavior=False,include_dlc=False,num_cells=[],time_lims=[],slice_time=None,title='Raw',activity='std',sort=False):
+    """
+    activity: version of neural activity to show: {'raw' (unnormalized), 'std' (units of std)}
+    """
     if(include_dlc):
         import matplotlib.pylab as pl
         f, axes = plt.subplots(10,1,gridspec_kw={'height_ratios':[12,1,1,1,1,1,1,1,1,2]},figsize=(10.5, 9))
@@ -1964,12 +1967,23 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
     else:
         f, axes = plt.subplots(2,1,gridspec_kw={'height_ratios':[8,1]},figsize=(10.5, 6))
 
+    if activity=='raw':
+        neural_data = data_dict['dFF'].copy()
+    elif activity=='nobase':
+        neural_data = data_dict['dFF'].copy()
+        for i in range(neural_data.shape[0]):
+            neural_data[i,:] -= neural_data[i,:].min() #np.quantile(neural_data[i,:],.01)
+    elif activity=='std':
+        neural_data = data_dict['dFF'].copy()*np.sqrt(data_dict['dFF'].shape[1])
     if(color_range=='auto'):
-        dFF = trim_dynamic_range(data_dict['dFF'], 0.01, 0.95)
+        dFF = trim_dynamic_range(neural_data, 0.01, 0.95)
         cmin, cmax = (0,1)
     else:
-        dFF = data_dict['dFF'] #data_dict['dFF_unnormalized']
+        dFF = neural_data #data_dict['dFF_unnormalized']
         cmin, cmax = color_range
+    if sort:
+        norder = np.argsort(dFF.max(axis=1))
+        dFF = dFF[norder,:]
 
     tPl = data_dict['tPl']
     behavior = data_dict['behavior']
@@ -2035,7 +2049,7 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
     
 
     plt.sca(axes[-1])
-    if(include_feeding):
+    if(include_feeding or split_behavior):
         for i in range(NT):
             is_this_trial = np.squeeze(trial_flag==U[i])
             behav_this_trial = behavior[is_this_trial]
@@ -2048,22 +2062,26 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
                 axes[-1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'k')
 
         axes[-1].set_xlim([min(tPl),max(tPl)])
-        axes[-1].plot(tPl, stim, color='darkviolet', alpha=0.7)
-        axes[-1].plot(tPl, feed, color='royalblue',alpha=0.8)
+        if include_feeding:
+            axes[-1].plot(tPl, stim, color='darkviolet', alpha=0.7)
+            axes[-1].plot(tPl, feed, color='royalblue',alpha=0.8)
         # axes[-1].plot(tPl,stim,'c:',alpha=0.6)
         # axes[-1].plot(tPl,feed,'c',alpha=0.7)
-        axes[-1].set_ylabel('feeding\nlocomotion')
+        axes[-1].set_ylabel('Running\nFlailing') #axes[-1].set_ylabel('feeding\nlocomotion')
     else:
         axes[-1].plot(tPl,behavior,'k')
         axes[-1].set_xlim([min(tPl),max(tPl)])
-        axes[-1].set_ylabel('ball\n')
+        axes[-1].set_ylabel('Running\n')
     axes[-1].set_yticks([])
     plt.xlabel('Time (s)')
 
     plt.subplots_adjust(right=0.8)
     cbar_ax = f.add_axes([0.85, 0.4, 0.03, 0.4])
     f.colorbar(im, cax=cbar_ax, ticks=[cmin,cmin+.5*(cmax-cmin),cmax])
-    cbar_ax.set_title(r'$\Delta R/R$')
+    if (activity=='raw') or (activity=='nobase'):
+        cbar_ax.set_title(r'$\Delta R/R$')
+    elif activity=='std':
+        cbar_ax.set_title(r'$\sigma_{\Delta R/R}$')
     return axes
 
     
@@ -2272,19 +2290,20 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding
     fig = plt.figure(figsize=(14,5))
     gs = GridSpec(2,1, height_ratios=[3.,1.],hspace=.05)
 
-    axes = fig.add_subplot(gs[0])
-    axes.plot(tPl, traces.T)
-    axes.set_xlim([min(tPl),max(tPl)])
-    axes.spines['top'].set_visible(False)
-    axes.spines['bottom'].set_visible(False)
-    axes.spines['right'].set_visible(False)
-    axes.set_ylabel(r'$\Delta F/F$')
-    axes.set_title(ttl)
+    axes=[]
+    axes.append( fig.add_subplot(gs[0]) )
+    axes[0].plot(tPl, traces.T)
+    axes[0].set_xlim([min(tPl),max(tPl)])
+    axes[0].spines['top'].set_visible(False)
+    axes[0].spines['bottom'].set_visible(False)
+    axes[0].spines['right'].set_visible(False)
+    axes[0].set_ylabel(r'$\Delta F/F$')
+    axes[0].set_title(ttl)
     
-    axes = fig.add_subplot(gs[1])
+    axes.append( fig.add_subplot(gs[1]) )
 
     if not include_feeding:
-        axes.plot(tPl, behavior, 'k')
+        axes[1].plot(tPl, behavior, 'k')
     else:
         U = np.unique(trial_flag)
         NT = len(U)
@@ -2293,22 +2312,23 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding
             behav_this_trial = behavior[is_this_trial]
             time_this_trial = tPl[is_this_trial]
             if i==1:
-                axes.plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
+                axes[1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
             elif (i==2) and (NT==4):
-                axes.plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
+                axes[1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
             else:
-                axes.plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'k')
+                axes[1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'k')
         if 'sucrose_touch' in data_dict:
             axes.plot(tPl, sucrose_touch, '--', color='darkgreen', alpha=0.7)
-        axes.plot(tPl, stim, color='darkviolet', alpha=0.7)
-        axes.plot(tPl, feed, color='royalblue',alpha=0.8)
+        axes[1].plot(tPl, stim, color='darkviolet', alpha=0.7)
+        axes[1].plot(tPl, feed, color='royalblue',alpha=0.8)
     
-    axes.set_xlim([min(tPl),max(tPl)])
-    axes.set_ylabel('feeding\nlocomotion')
-    axes.spines['top'].set_visible(False)
-    axes.spines['right'].set_visible(False)
-    axes.set_yticks([])
-    axes.set_xlabel('Time (s)')
+    axes[1].set_xlim([min(tPl),max(tPl)])
+    axes[1].set_ylabel('feeding\nlocomotion')
+    axes[1].spines['top'].set_visible(False)
+    axes[1].spines['right'].set_visible(False)
+    axes[1].set_yticks([])
+    axes[1].set_xlabel('Time (s)')
+    return axes
 
 
 
