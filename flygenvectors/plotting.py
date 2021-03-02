@@ -1947,6 +1947,41 @@ def show_colorCoded_cellMap(R, mask_vol, color_lims, data_dict, cmap=''):
     # axes[1, 1].set_title('Front')
 
 
+def show_scaled_image(im, dims_in_um, cmax=None):
+    """
+    Show projections of volume. Similar to show_colorCoded_cellMap and show_colorCoded_cellMap_points, but for images
+    """
+    plt.figure(figsize=(8, 8))
+    if cmax is None: cmax=im.max()
+    
+    # dims_in_um = centroids_dict_flat['dims_in_um']
+    totWidth = 1.1*(dims_in_um[2] + dims_in_um[1])
+    zpx = dims_in_um[2]/totWidth
+    ypx = dims_in_um[1]/totWidth
+    xpx = dims_in_um[0]/totWidth
+
+    ax2 = plt.axes([.05+zpx,  .05+zpx,  ypx,  xpx])
+    ax1 = plt.axes([.04,      .05+zpx,  zpx,  xpx])
+    ax3 = plt.axes([.05+zpx,  .04,      ypx,  zpx])
+
+    ax1.imshow(im.mean(axis=0), aspect='auto')
+    ax2.imshow(im.mean(axis=2).T, aspect='auto')
+    ax3.imshow(im.mean(axis=1).T, aspect='auto') #[::-1,:]
+    ax1.get_images()[0].set_clim(0,cmax)
+    ax2.get_images()[0].set_clim(0,cmax)
+    ax3.get_images()[0].set_clim(0,cmax)
+    ax1.axis('off')
+    ax2.axis('off')
+    ax3.axis('off')
+
+    ypx_per_um = im.shape[1]/dims_in_um[1]
+    scaleBar_um = 50 #50 um
+    bar_color = 'w'
+    ax2.plot( im.shape[1]*.97-np.array([scaleBar_um*ypx_per_um,0]), (im.shape[0]*.93, im.shape[0]*.93), bar_color)
+    plt.show()
+
+
+
 def trim_dynamic_range(data,q_min,q_max):
     bmin = np.quantile(data, q_min)
     bmax = np.quantile(data, q_max)
