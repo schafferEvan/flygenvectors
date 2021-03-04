@@ -960,7 +960,7 @@ def unroll_model_fit_stats(model_fit):
     return model_fit_un
 
 
-def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, param2_input=None, use_cc=False):
+def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, param2_input=None, use_cc=False, alphas=[.4,.15]):
     """
     Default is to plot scatter of a parameter vs residual r^2 of that parameter
     param2_input: plot scatter vs another parameter instead of vs r^2
@@ -1086,11 +1086,11 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, p
     s = 100
 
     if param2_input is None:
-        ax_scatter.scatter(param_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=0.15, linewidths=0.75, edgecolors='k', s=s)
-        ax_scatter.scatter(param_sig,rsq_sig,c='#01386a',marker='.',alpha=0.4,linewidths=0.75,edgecolors='#01386a', s=s) #'#1f77b4'
+        ax_scatter.scatter(param_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=alphas[1], linewidths=0.75, edgecolors='k', s=s)
+        ax_scatter.scatter(param_sig,rsq_sig,c='#01386a',marker='.',alpha=alphas[0],linewidths=0.75,edgecolors='#01386a', s=s) #'#1f77b4'
     else:
-        ax_scatter.scatter(param_notsig,param2_notsig,c='tab:gray',marker='.',alpha=0.15, linewidths=0.75, edgecolors='k', s=s)
-        ax_scatter.scatter(param_sig,param2_sig,c='#01386a',marker='.',alpha=0.4,linewidths=0.75,edgecolors='#01386a', s=s) #'#1f77b4'
+        ax_scatter.scatter(param_notsig,param2_notsig,c='tab:gray',marker='.',alpha=alphas[1], linewidths=0.75, edgecolors='k', s=s)
+        ax_scatter.scatter(param_sig,param2_sig,c='#01386a',marker='.',alpha=alphas[0],linewidths=0.75,edgecolors='#01386a', s=s) #'#1f77b4'
     # ax_scatter.scatter(tau_sig[tau_is_neg_sig],rsq_sig[tau_is_neg_sig],c='tab:red',marker='.',alpha=0.3)
     # ax_scatter.set_xscale('log')
     ax_scatter.set_xlim((xmin,xmax))
@@ -1947,12 +1947,13 @@ def show_colorCoded_cellMap(R, mask_vol, color_lims, data_dict, cmap=''):
     # axes[1, 1].set_title('Front')
 
 
-def show_scaled_image(im, dims_in_um, cmax=None):
+def show_scaled_image(im, dims_in_um, c_range=None, title='', cmap=None):
     """
     Show projections of volume. Similar to show_colorCoded_cellMap and show_colorCoded_cellMap_points, but for images
     """
     plt.figure(figsize=(8, 8))
-    if cmax is None: cmax=im.max()
+    if c_range is None: c_range=[-im.max(), im.max()]
+    if cmap is None: cmap=cold_to_hot_cmap() 
     
     # dims_in_um = centroids_dict_flat['dims_in_um']
     totWidth = 1.1*(dims_in_um[2] + dims_in_um[1])
@@ -1964,21 +1965,44 @@ def show_scaled_image(im, dims_in_um, cmax=None):
     ax1 = plt.axes([.04,      .05+zpx,  zpx,  xpx])
     ax3 = plt.axes([.05+zpx,  .04,      ypx,  zpx])
 
-    ax1.imshow(im.mean(axis=0), aspect='auto')
-    ax2.imshow(im.mean(axis=2).T, aspect='auto')
-    ax3.imshow(im.mean(axis=1).T, aspect='auto') #[::-1,:]
-    ax1.get_images()[0].set_clim(0,cmax)
-    ax2.get_images()[0].set_clim(0,cmax)
-    ax3.get_images()[0].set_clim(0,cmax)
+    # max abs val projection
+    idx_image = np.argmax(abs(im), axis=2)
+    im_proj_0 = np.zeros((im.shape[0],im.shape[1]))
+    for i in range(im.shape[0]):
+        for j in range(im.shape[1]):
+            im_proj_0[i,j] = im[i,j,idx_image[i,j]]
+    
+    idx_image = np.argmax(abs(im), axis=1)
+    im_proj_1 = np.zeros((im.shape[0],im.shape[2]))
+    for i in range(im.shape[0]):
+        for j in range(im.shape[2]):
+            im_proj_1[i,j] = im[i,idx_image[i,j],j]
+
+    idx_image = np.argmax(abs(im), axis=0)
+    im_proj_2 = np.zeros((im.shape[1],im.shape[2]))
+    for i in range(im.shape[1]):
+        for j in range(im.shape[2]):
+            im_proj_2[i,j] = im[idx_image[i,j],i,j]
+
+    ax1.imshow(im_proj_2, aspect='auto', cmap=cmap)
+    ax2.imshow(im_proj_0.T, aspect='auto', cmap=cmap)
+    ax3.imshow(im_proj_1.T, aspect='auto', cmap=cmap) #[::-1,:]
+    # ax1.imshow(im_proj_0, aspect='auto', cmap=cmap)
+    # ax2.imshow(im.mean(axis=2).T, aspect='auto', cmap=cmap)
+    # ax3.imshow(im.mean(axis=1).T, aspect='auto', cmap=cmap) #[::-1,:]
+    ax1.get_images()[0].set_clim(c_range[0],c_range[1])
+    ax2.get_images()[0].set_clim(c_range[0],c_range[1])
+    ax3.get_images()[0].set_clim(c_range[0],c_range[1])
     ax1.axis('off')
     ax2.axis('off')
     ax3.axis('off')
 
-    ypx_per_um = im.shape[1]/dims_in_um[1]
+    ypx_per_um = im.shape[0]/dims_in_um[1]
     scaleBar_um = 50 #50 um
     bar_color = 'w'
-    ax2.plot( im.shape[1]*.97-np.array([scaleBar_um*ypx_per_um,0]), (im.shape[0]*.93, im.shape[0]*.93), bar_color)
-    plt.show()
+    ax2.plot( im.shape[0]*.97-np.array([scaleBar_um*ypx_per_um,0]), (im.shape[1]*.93, im.shape[1]*.93), bar_color)
+    ax2.set_title(title)
+    # plt.show()
 
 
 
