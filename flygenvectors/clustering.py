@@ -51,45 +51,168 @@ class flyg_clust_obj:
 
 
     def get_clusters(self, n_neighbors=10, affinity='euclidean', linkage='ward', distance_threshold=0.5):
+        # hierarchical clustering
         connectivity_orig = kneighbors_graph(self.data_dict['train_all'].T, n_neighbors=n_neighbors, include_self=False)
         self.cluster = AgglomerativeClustering(n_clusters=None, connectivity=connectivity_orig,
                                           affinity=affinity, linkage=linkage,distance_threshold=distance_threshold)  
         self.cluster.fit_predict(self.data_dict['train_all'].T)
         self.nClust = len(np.unique(self.cluster.labels_))
-        print('N clusters: ' + str(self.nClust) )        
+        print('N clusters: ' + str(self.nClust) )  
 
 
-    def get_null_dist(self, n_samples=1000):
+    def get_simple_clusters(self):   
+        # simple clustering looking for closed loops in correlation
+        # compute pairwise correlations
+        N = self.data_dict['dFF'].shape[0]
+        C = self.data_dict['dFF']@self.data_dict['dFF'].T - np.eye(N)
+        accounted_for=[False]*N
+        pairs=[]
+
+        for i in range(N):
+            if not accounted_for[i]:
+                j = np.argmax(C[i,:])
+                if np.argmax(C[j,:])==i:
+                    pairs.append([i,j])
+                    accounted_for[j] = True
+                    accounted_for[i] = True
+                    
+        # C += np.eye(N)
+        self.simple_clust = {'C':C, 'pairs':pairs, 'accounted_for':accounted_for}
+        print('N clusters (simple): ' + str(len(pairs)) )
+        self.order_cells_by_simple_pairs()
+
+
+    def order_cells_by_simple_pairs(self):
+        # order remaining cells by sequential similarity to previous seed
+        pairs = self.simple_clust['pairs']
+        accounted_for = self.simple_clust['accounted_for']
+        C = self.simple_clust['C']
+        N = self.data_dict['dFF'].shape[0]
+        flat_pairs = [item for sublist in pairs for item in sublist]
+        order_from_pairs = np.zeros(N, dtype=int)
+        order_from_pairs[:len(flat_pairs)] = flat_pairs
+
+        unaccounted_for = np.flatnonzero(np.array(accounted_for)==False).tolist()
+        # new_not_accounted_for = np.ones(len(order_from_pairs)-len(flat_pairs))
+        seed = int(order_from_pairs[-1])
+        for j in range(N-len(flat_pairs)):
+            new_seed = np.argmax(C[seed, unaccounted_for])
+            order_from_pairs[j+len(flat_pairs)] = unaccounted_for[new_seed]
+            unaccounted_for.remove(unaccounted_for[new_seed])
+            seed = new_seed
+        self.simple_clust['order_from_pairs'] = order_from_pairs #.astype(int)
+        F_ord = self.data_dict['dFF'][self.simple_clust['order_from_pairs'],:]
+        self.simple_clust['C_ord'] = F_ord@F_ord.T
+                        
+
+    def get_null_dist(self, n_samples=1000, mx_null=None, enforce_both_sides=False, behav_null=False):
+        """
+        behav_null: whether to use completely random pairs or pairs with similar behav corr
+        mx_null: optional upper bound on clust size for which to compute null dist 
+                (if large clusters are going to be ignored)
+        enforce_both_sides: whether to only test samples from both sides
+                            (to test *symmetry* rather than more general structure)
+        """
         counts = np.bincount(self.cluster.labels_)
         A = counts.max() #np.argmax(counts)
-        self.null_dist = np.zeros((A+1,n_samples))
-        self.null_symmetry = np.zeros((A+1,n_samples))
-        self.null_dist_score = np.zeros((A+1,n_samples))
+        if mx_null is None:
+            mx_null = A+1
+        null_dist = np.zeros((A+1,n_samples))
+        null_symmetry = np.zeros((A+1,n_samples))
+        null_dist_score = np.zeros((A+1,n_samples))
         self.n_samples=n_samples
+        if behav_null:
+            behav_null_idx, behav_null_prob = self.get_behav_corr_groups_for_null()
+            null_behav_samples = self.generate_behav_samples(behav_null_idx, behav_null_prob, N=mx_null*n_samples)
 
         print('Max Clust size is '+str(A))
-        for i in range(2,A+1):
+        print('Computing null up to size = '+str(mx_null))
+        for i in range(2,mx_null):
             print(i,end=' ')
             for j in range(n_samples):
-                # check if clust is on both sides
-                self.mvn_obj.is_on_both_sides = False
-                while not self.mvn_obj.is_on_both_sides:
-                    self.mvn_obj.order = np.random.permutation(self.data_dict['val_all'].shape[1])
-                    self.mvn_obj.is_clust_on_both_sides(self.mvn_obj.order[:i])
+                if enforce_both_sides:
+                    # check if clust is on both sides
+                    self.mvn_obj.is_on_both_sides = False
+                    while not self.mvn_obj.is_on_both_sides:
+                        if behav_null:
+                            print('not yet implemented')
+                        else:
+                            self.mvn_obj.order = np.random.permutation(self.data_dict['val_all'].shape[1])
+                        self.mvn_obj.is_clust_on_both_sides(self.mvn_obj.order[:i])
+                else:
+                    if behav_null:
+                        self.mvn_obj.order = next(null_behav_samples)
+                    else:
+                        self.mvn_obj.order = np.random.permutation(self.data_dict['val_all'].shape[1])
                 
                 # variance of randomly defined clusters
                 samp = self.data_dict['val_all'][:,self.mvn_obj.order[:i]]
-                self.null_dist[i,j] = samp.var(axis=1).mean()
+                null_dist[i,j] = samp.var(axis=1).mean()
                 
                 # corresponding symmetry of randomly defined clusters
                 self.mvn_obj.get_img(idx=self.mvn_obj.order[:i])
                 self.mvn_obj.get_folded_cdf()
-                self.null_symmetry[i,j] = self.mvn_obj.folded_cdf
+                null_symmetry[i,j] = self.mvn_obj.folded_cdf
 
                 # distance score of randomly defined clusters
                 self.mvn_obj.get_folded_cdf_totprod(idx=self.mvn_obj.order[:i])
-                self.null_dist_score[i,j] = self.mvn_obj.folded_product_image.sum()
-                
+                null_dist_score[i,j] = self.mvn_obj.folded_product_image.sum()
+        return null_dist, null_symmetry, null_dist_score
+
+
+    def generate_behav_samples(self, behav_null_idx, behav_null_prob, N=3000, low_bound=.2):
+        """
+        Randomly select a pair (or more) of cells with approximately similar behav corr
+        behav_null_idx, behav_null_prob = get_behav_corr_groups_for_null()
+        low_bound: omit samples from small buckets (typically the tails of the distribution)
+        Randomly picks a bucket (cells with approx similar behav corr), 
+            flips biased coin to decide whether to use that bucket (based on bucket size),
+            if valid, returns random permutation of cells in that bucket.
+        """
+        bucket_order_init = np.random.randint(0,len(behav_null_idx),10*N)
+        p = low_bound + (1-low_bound)*np.random.rand(10*N)
+        valid_bucket_order = [None]*N
+        valid_samples = [None]*N
+        ctr=0
+        for i in range(10*N):
+            if p[i]<behav_null_prob[bucket_order_init[i]]:
+                valid_bucket_order[ctr]=bucket_order_init[i]
+                ctr += 1
+            if ctr==N: break
+
+        # genrate random permutations from selected buckets
+        for i in range(N):
+            valid_samples[i] = np.random.permutation( behav_null_idx[valid_bucket_order[i]] )
+
+        samples_iter = (i for i in valid_samples)
+        return samples_iter
+        # valid_sample=False
+        # while not valid_sample:
+        #     bucket = np.random.randint(0,len(behav_null_idx))
+        #     p = low_bound + (1-low_bound)*np.random.rand(1)
+        #     if p<behav_null_prob[bucket]:
+        #         valid_sample=True
+        #         order = np.random.permutation( behav_null_idx[bucket] )
+        # return order
+
+
+    def get_behav_corr_groups_for_null(self, bin_size=0.02):
+        # make list of cells with approximately equal behav corr 
+        # (to generate null hypothesis that behav corr explains spatial order)
+        # corr_prob gives prob of each bin, used for later sampling
+        beh = self.data_dict['behavior'].copy()
+        beh -= beh.mean()
+        beh /= beh.std()
+        behav_cc = self.data_dict['dFF']@beh/np.sqrt(len(beh))
+        binned_corr = np.round( behav_cc/bin_size )
+        U = np.unique(binned_corr)
+        corr_idx = [None]*len(U)
+        corr_prob = np.zeros(len(U))
+        for i in range(len(U)):
+            corr_idx[i] = np.flatnonzero( binned_corr==U[i] )
+            corr_prob[i] = len(corr_idx[i])
+        corr_prob /= corr_prob.max() #relative probability
+        return corr_idx, corr_prob
 
 
     def cross_validate_clusters(self, clust_p_thresh=0.05):
@@ -154,6 +277,46 @@ class flyg_clust_obj:
                 self.agg_clusters[self.agg_clusters==i] = -1
             if i not in self.n_clust_members[2]:
                 self.agg_clusters[self.agg_clusters==i] = -1
+
+
+    def make_summary_plot(self, size_list = [2,3,4]):
+        plt.figure(figsize=(14,4)) 
+        for i in range(len(size_list)):
+            to_plot = []
+            right_size_clust = self.n_clust_members[size_list[i]] 
+            for j in range(self.nClust):
+                if self.clust_is_sig[j]:
+                    if j in right_size_clust:
+                        to_plot.append(j) 
+            
+            plt.subplot(1,len(size_list),i+1)
+            clusts_to_plot = self.clust_dist_score[to_plot]
+            ulm = 1.05*clusts_to_plot.max() 
+            plt.hist(clusts_to_plot,25,(0,ulm),color='#0485d1',alpha=.6,label='true clusters')
+
+            # null_weights = np.ones_like(self.null_dist_score[size_list[i]]) * len(clusts_to_plot)/len(self.null_dist_score[size_list[i]])
+            # plt.hist(self.null_dist_score[size_list[i]],25,(0,ulm),weights=null_weights,color='g',alpha=.5,label='shuffled')
+
+            null_weights_beh = np.ones_like(self.null_dist_score_beh[size_list[i]]) * len(clusts_to_plot)/len(self.null_dist_score_beh[size_list[i]])
+            plt.hist(self.null_dist_score_beh[size_list[i]],25,(0,ulm),weights=null_weights_beh,color='k',alpha=.7,label='beh. matched shuffled')
+
+            plt.xlabel('Spatial Order Score') 
+            plt.xlim(0,ulm)
+            if i==0:
+                plt.ylabel('Count')
+                plt.ylim(0,50) 
+            elif i==1:
+                plt.ylim(0,10)
+                plt.yticks([0,5,10])
+            else:
+                plt.ylim(0,5)
+                plt.yticks([0,2.5,5]) 
+            plt.legend()
+            plt.title('Cluster Size = '+str(size_list[i]))
+
+        plt.tight_layout() 
+        # plt.savefig(fig_dirs['clustfig_folder']+expt_id+'_clust_dist_score_hist.pdf',transparent=True, bbox_inches='tight')
+        # plt.show()
                 
 
 class mvn_obj:
