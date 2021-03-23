@@ -902,9 +902,11 @@ def get_model_fit_as_dict(model_fit):
 def array_of_dicts_to_dict_of_arrays(a):
     # takes 2D array of dicts and returns dict of 2D arrays
     # similar to one-dimensional version above, "get_model_fit_as_dict"
+    labels_to_exclude = ['trial_coeffs']
     reg_labels = list(a[0][0].keys())
     d = {}
     for label in reg_labels:
+        if label in labels_to_exclude: continue
         if isinstance(a[0][0][label],dict):
             d[label] = []
             for i in range(len(a)):
@@ -960,7 +962,8 @@ def unroll_model_fit_stats(model_fit):
     return model_fit_un
 
 
-def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, param2_input=None, use_cc=False, alphas=[.4,.15]):
+def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, xlim=None, param2_input=None, 
+                        use_cc=False, alphas=[.4,.15], s = 100, n_xbins=40, n_ybins=40, sig_clr='#01386a'):
     """
     Default is to plot scatter of a parameter vs residual r^2 of that parameter
     param2_input: plot scatter vs another parameter instead of vs r^2
@@ -1070,9 +1073,12 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, p
     ax_histy.tick_params(direction='in', labelleft=False)
     ax_histy.axis('off')
 
-
-    xmin = param.min() #np.floor(param.min()) #4/scanRate
-    xmax = param.max() #np.ceil(param.max()) #30 #1000/scanRate #6000
+    if xlim is None:
+        xmin = param.min() #np.floor(param.min()) #4/scanRate
+        xmax = param.max() #np.ceil(param.max()) #30 #1000/scanRate #6000
+    else:
+        xmin = xlim[0]
+        xmax = xlim[1]
     if ylim is None:
         if param2_input is None:
             ymin = 0
@@ -1083,14 +1089,13 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, p
     else:
         ymin = ylim[0]
         ymax = ylim[1]
-    s = 100
 
     if param2_input is None:
         ax_scatter.scatter(param_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=alphas[1], linewidths=0.75, edgecolors='k', s=s)
-        ax_scatter.scatter(param_sig,rsq_sig,c='#01386a',marker='.',alpha=alphas[0],linewidths=0.75,edgecolors='#01386a', s=s) #'#1f77b4'
+        ax_scatter.scatter(param_sig,rsq_sig,c=sig_clr,marker='.',alpha=alphas[0],linewidths=0.75,edgecolors=sig_clr, s=s) #'#1f77b4'
     else:
         ax_scatter.scatter(param_notsig,param2_notsig,c='tab:gray',marker='.',alpha=alphas[1], linewidths=0.75, edgecolors='k', s=s)
-        ax_scatter.scatter(param_sig,param2_sig,c='#01386a',marker='.',alpha=alphas[0],linewidths=0.75,edgecolors='#01386a', s=s) #'#1f77b4'
+        ax_scatter.scatter(param_sig,param2_sig,c=sig_clr,marker='.',alpha=alphas[0],linewidths=0.75,edgecolors=sig_clr, s=s) #'#1f77b4'
     # ax_scatter.scatter(tau_sig[tau_is_neg_sig],rsq_sig[tau_is_neg_sig],c='tab:red',marker='.',alpha=0.3)
     # ax_scatter.set_xscale('log')
     ax_scatter.set_xlim((xmin,xmax))
@@ -1102,23 +1107,23 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, p
     else:
         ax_scatter.set_ylabel(label2)
 
-    xbinwidth = (xmax-xmin)/40
-    ybinwidth = (ymax-ymin)/40
+    xbinwidth = (xmax-xmin)/n_xbins
+    ybinwidth = (ymax-ymin)/n_ybins
     ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
     xbins = np.arange(xmin, xmax+xbinwidth, xbinwidth) #np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
     ax_histx.hist(param_notsig, bins=xbins,color='tab:gray') #'#929591')
-    ax_histx.hist(param_sig, bins=xbins,color='#01386a',alpha=.7) #'#929591')
+    ax_histx.hist(param_sig, bins=xbins,color=sig_clr,alpha=.7) #'#929591')
     ax_histx.set_xlim((xmin,xmax))
     if param2_input is None:
         ax_histy.hist(rsq_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
-        ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color='#01386a',alpha=.7) #''#929591')
+        ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7) #''#929591')
     else:
         ax_histy.hist(param2_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
-        ax_histy.hist(param2_sig, bins=ybins, orientation='horizontal',color='#01386a',alpha=.7) #''#929591')
+        ax_histy.hist(param2_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7) #''#929591')
     ax_histy.set_ylim((ymin,ymax))
 
 
-def show_tau_scatter(model_fit, pval=.01, idx=None):
+def show_tau_scatter(model_fit, pval=.01, idx=None, sig_clr='#01386a'):
     f = get_model_fit_as_dict(model_fit)
     rsq_dict = get_model_fit_as_dict(f['r_sq'])
     if idx is None:
@@ -1177,7 +1182,7 @@ def show_tau_scatter(model_fit, pval=.01, idx=None):
     s = 100
 
     ax_scatter.scatter(tau_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=0.15, linewidths=0.75, edgecolors='k', s=s)
-    ax_scatter.scatter(tau_sig[tau_is_pos_sig],rsq_sig[tau_is_pos_sig],c='#01386a',marker='.',alpha=0.4,linewidths=0.75,edgecolors='#01386a', s=s) #'#1f77b4'
+    ax_scatter.scatter(tau_sig[tau_is_pos_sig],rsq_sig[tau_is_pos_sig],c=sig_clr,marker='.',alpha=0.4,linewidths=0.75,edgecolors=sig_clr, s=s) #'#1f77b4'
     # ax_scatter.scatter(tau_sig[tau_is_neg_sig],rsq_sig[tau_is_neg_sig],c='tab:red',marker='.',alpha=0.3)
     ax_scatter.set_xscale('log')
     ax_scatter.set_xlim((xmin,xmax))
@@ -1192,10 +1197,10 @@ def show_tau_scatter(model_fit, pval=.01, idx=None):
     ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
     xbins = np.logspace(np.log10(xmin), np.log10(xmax),num=len(ybins), base=10) #np.exp(1))
     ax_histx.hist(tau_notsig, bins=xbins,log=True,color='tab:gray') #'#929591')
-    ax_histx.hist(tau_sig, bins=xbins,log=True,color='#01386a',alpha=.7) #'#929591')
+    ax_histx.hist(tau_sig, bins=xbins,log=True,color=sig_clr,alpha=.7) #'#929591')
     ax_histx.set_xlim((xmin,xmax))
     ax_histy.hist(rsq_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
-    ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color='#01386a',alpha=.7) #''#929591')
+    ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7) #''#929591')
     ax_histy.set_ylim((ymin,ymax))
 
 
@@ -1468,7 +1473,7 @@ def show_PC_residual_raster(data_dict):
 
 
 
-def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pval=0.01, sort_by=[], color_lims_scale=[-0.75,0.75], color_lims=None):
+def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pval=0.01, sort_by=[], color_lims_scale=[-0.75,0.75], color_lims=None, title=None):
     """
     Plot map of cells for one dataset, all MIPs, colorcoded by desired quantity
 
@@ -1592,6 +1597,9 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
     bar_color = 'w'
     # ax2.plot( template_dims[1]*.97-(scaleBar_um*ypx_per_um,0), (template_dims[0]*.93, template_dims[0]*.93),bar_color)
     ax2.plot( dims_in_um[1]*.97-(scaleBar_um,0), (dims_in_um[0]*.93, dims_in_um[0]*.93),bar_color)
+
+    if title is not None:
+        ax2.set_title(title)
 
     if(len(not_sig)):
         ax3.scatter(data_dict['aligned_centroids'][not_sig,0],
@@ -2284,7 +2292,7 @@ def show_maps_for_avg_traces(dict_tot, example_array_tot):
 
 
 
-def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding=False, slice_time=None):
+def show_activity_traces(model_fit, data_dict, plot_param, n_ex=1, show_fit=False, include_feeding=False, slice_time=None, sup_ttl=None):
     """
     plot_param: param for sorting, in format [['partial_reg', idx]] or  'full_reg'
     n_ex: number of examples.  n_ex>0 gives largest, n_ex<0 gives smallest, n_ex=0 GIVES AVG of everything
@@ -2292,6 +2300,7 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding
     from matplotlib.gridspec import GridSpec
     scanRate = data_dict['scanRate']
     dFF = data_dict['dFF'] #trim_dynamic_range(data_dict['dFF'], 0.01, 0.95)
+    if show_fit: n_ex=1
 
     if model_fit is not None:
         f = get_model_fit_as_dict(model_fit)
@@ -2308,7 +2317,8 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding
         ttl = ' Ex:'+str(plot_param)
         if n_ex is None: n_ex = len(plot_param)
     
-
+    if sup_ttl is not None:
+        ttl += sup_ttl 
     # pdb.set_trace()
     if isinstance(n_ex, list):
         num_ex = n_ex[1]
@@ -2318,6 +2328,8 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding
         start_ex = 0
     if num_ex>0:
         traces = dFF[s[start_ex:start_ex+num_ex],:]
+        if show_fit:
+            fits = data_dict['dFF_fit'][s[start_ex:start_ex+num_ex],:]
         print(s[:num_ex])
     elif num_ex<0:
         if not start_ex:
@@ -2351,12 +2363,16 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding
 
     axes=[]
     axes.append( fig.add_subplot(gs[0]) )
-    axes[0].plot(tPl, traces.T)
+    if show_fit:
+        axes[0].plot(tPl, traces.T, linewidth=3, color='tab:blue')
+        axes[0].plot(tPl, fits.T, '--', color='#95d0fc', linewidth=3)
+    else:
+        axes[0].plot(tPl, traces.T)
     axes[0].set_xlim([min(tPl),max(tPl)])
     axes[0].spines['top'].set_visible(False)
     axes[0].spines['bottom'].set_visible(False)
     axes[0].spines['right'].set_visible(False)
-    axes[0].set_ylabel(r'$\Delta F/F$')
+    axes[0].set_ylabel(r'$\Delta R/R$')
     axes[0].set_title(ttl)
     
     axes.append( fig.add_subplot(gs[1]) )
@@ -2382,13 +2398,49 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding
         axes[1].plot(tPl, feed, color='royalblue',alpha=0.8)
     
     axes[1].set_xlim([min(tPl),max(tPl)])
-    axes[1].set_ylabel('feeding\nlocomotion')
+    axes[1].set_ylabel('Running')
     axes[1].spines['top'].set_visible(False)
     axes[1].spines['right'].set_visible(False)
     axes[1].set_yticks([])
     axes[1].set_xlabel('Time (s)')
     return axes
 
+
+def get_model_as_dist(centroids, vals, sig=15, grid_points=None):
+    """
+    centroids: location of every cell
+    vals: value of that cell (e.g. a model parameter)
+    sig: standard deviation of gaussian blur for each point (in microns)
+    """
+    from scipy.stats import multivariate_normal
+    # define grid
+    mx = centroids['dims_in_um'][[1,0,2]]
+    if grid_points is None:
+        grid_points = np.round(mx/8).astype(int)
+        
+    pos_new = []
+    pos_new.append( np.linspace(0,mx[0],grid_points[0]) )
+    pos_new.append( np.linspace(0,mx[1],grid_points[1]) )
+    pos_new.append( np.linspace(0,mx[2],grid_points[2]) )
+
+    N = centroids['aligned_centroids'].shape[0]
+    
+    # for each cell, add to grid_image
+    grid_image = np.zeros((grid_points[0],grid_points[1],grid_points[2]))
+    idx_image = np.zeros((grid_points[0],grid_points[1],grid_points[2]))
+    for n in range(N):
+        if(np.mod(n,200)==0): print(n,end=' ')
+            
+        m = [None]*3
+        for i in range(len(pos_new)):
+            m[i] = int(np.argmin( abs( centroids['aligned_centroids'][n,i]-pos_new[i] ) ))
+
+        grid_image[m[0],m[1],m[2]] += vals[n]
+        idx_image[m[0],m[1],m[2]] += 1
+    
+    idx_image[idx_image==0]=1
+    grid_image /= idx_image
+    return grid_image
 
 
 
