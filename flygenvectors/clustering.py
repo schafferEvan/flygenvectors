@@ -82,6 +82,33 @@ class flyg_clust_obj:
         self.order_cells_by_simple_pairs()
 
 
+    def get_simple_clusters_euc(self):   
+        # simple clustering looking for closed loops in euclidian distance
+        N = self.data_dict['dFF'].shape[0]
+        E = np.zeros((N,N))
+        for i in range(N):
+            E[:,i] = ( self.data_dict['dFF'] - np.roll(self.data_dict['dFF'], -i, axis=0) ).var(axis=1)
+        for i in range(N):
+            E[i,:] = np.roll(E[i,:],i)
+        for i in range(N):
+            E[i,i] = np.inf
+
+        accounted_for=[False]*N
+        pairs=[]
+        for i in range(N):
+            if not accounted_for[i]:
+                j = np.argmin(E[i,:])
+                if np.argmin(E[j,:])==i:
+                    pairs.append([i,j])
+                    accounted_for[j] = True
+                    accounted_for[i] = True
+                    
+        # C += np.eye(N)
+        self.simple_clust_euc = {'E':E, 'pairs':pairs, 'accounted_for':accounted_for}
+        print('N clusters (simple euc): ' + str(len(pairs)) )
+        # self.order_cells_by_simple_pairs()
+
+
     def order_cells_by_simple_pairs(self):
         # order remaining cells by sequential similarity to previous seed
         pairs = self.simple_clust['pairs']
