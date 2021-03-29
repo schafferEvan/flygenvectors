@@ -968,6 +968,8 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
     Default is to plot scatter of a parameter vs residual r^2 of that parameter
     param2_input: plot scatter vs another parameter instead of vs r^2
     """
+    from matplotlib.ticker import ScalarFormatter
+
     f = get_model_fit_as_dict(model_fit)
     rsq_dict = get_model_fit_as_dict(f['r_sq'])
     cc_dict = get_model_fit_as_dict(f['cc'])
@@ -1017,8 +1019,8 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
             for i in range(len(param2)):
                 stat2[i] = f['stat'][i][param2_name][param2_idx][1]
         if(param2_name=='phi'): 
-            param2 = param2/data_dict['scanRate']
-            label2 = 'Phase (s)'
+            # param2 = param2 /data_dict['scanRate'] # this is now absorbed into model
+            label2 = 'Temporal Shift (s)'
         elif(param2_name=='beta_0'): 
             label2 = r'$\beta_1$'
         elif(param2_name=='gamma_0'): 
@@ -1027,11 +1029,13 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
             label2 = r'$\tau_{feed}$'
         else:
             label2=param2_name
-    success = True #f['success']
+    # success = True #f['success']
 
     if(param_name=='phi'): 
-        param = param/data_dict['scanRate']
-        label = 'Phase (s)'
+        # param = param/data_dict['scanRate'] # this is now absorbed into model
+        label = 'Temporal Shift (s)'
+    elif(param_name=='tau'):
+        label = r'$\tau$ (s)'
     elif(param_name=='beta_0'): 
         label = r'$\beta_0$'
     elif(param_name=='gamma_0'): 
@@ -1067,11 +1071,16 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
     ax_scatter.tick_params(direction='in', top=True, right=True)
     ax_histx = plt.axes(rect_histx)
     ax_histx.tick_params(direction='in', labelbottom=False)
-    # ax_histx.set_xscale('log')
     ax_histx.axis('off')
     ax_histy = plt.axes(rect_histy)
     ax_histy.tick_params(direction='in', labelleft=False)
     ax_histy.axis('off')
+    if param_name=='tau':
+        ax_histx.set_xscale('log')
+        ax_scatter.set_xscale('log')
+    if param2_name=='phi':
+        ax_histy.set_yscale('symlog', linthreshy=.1, linscaley=.2/120)
+        ax_scatter.set_yscale('symlog', linthreshy=.1, linscaley=.2/120)
 
     if xlim is None:
         xmin = param.min() #np.floor(param.min()) #4/scanRate
@@ -1102,6 +1111,11 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
     ax_scatter.set_ylim((ymin,ymax))
     ax_scatter.set_xlabel(label)
     
+    if param_name=='tau':
+        ax_scatter.set_xscale('log')
+        ax_scatter.set_xticks((1,3,10,30))
+        ax_scatter.set_xticklabels(('1','3','10','30'))
+        ax_scatter.get_xaxis().set_major_formatter(ScalarFormatter())
     if param2_input is None:
         ax_scatter.set_ylabel(r'$r^2$')
     else:
@@ -1109,8 +1123,18 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
 
     xbinwidth = (xmax-xmin)/n_xbins
     ybinwidth = (ymax-ymin)/n_ybins
-    ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
-    xbins = np.arange(xmin, xmax+xbinwidth, xbinwidth) #np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
+    if param2_name=='phi':
+        tmp = np.logspace(-1,np.log10(59),num=12)
+        ybins = np.array( (-tmp[::-1]).tolist() + [0] + tmp.tolist() )
+        # ybins = np.array( (-tmp[::-1]).tolist() + [-.7,-.3,0,.3,.7] + tmp.tolist() )
+        ax_scatter.set_yticks([-30,-3,-1,1,3,30])
+        ax_scatter.get_yaxis().set_major_formatter(ScalarFormatter())
+    else:
+        ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
+    if param_name=='tau':
+        xbins = np.logspace(np.log10(xmin), np.log10(xmax),num=len(ybins), base=10) #np.exp(1))
+    else:
+        xbins = np.arange(xmin, xmax+xbinwidth, xbinwidth) #np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
     ax_histx.hist(param_notsig, bins=xbins,color='tab:gray') #'#929591')
     ax_histx.hist(param_sig, bins=xbins,color=sig_clr,alpha=.7) #'#929591')
     ax_histx.set_xlim((xmin,xmax))
@@ -1123,7 +1147,9 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
     ax_histy.set_ylim((ymin,ymax))
 
 
-def show_tau_scatter(model_fit, pval=.01, idx=None, sig_clr='#01386a'):
+
+
+def show_tau_scatter(model_fit, pval=.01, idx=None, sig_clr='#01386a', s=100, alphas=[.15,.4]):
     f = get_model_fit_as_dict(model_fit)
     rsq_dict = get_model_fit_as_dict(f['r_sq'])
     if idx is None:
@@ -1179,10 +1205,9 @@ def show_tau_scatter(model_fit, pval=.01, idx=None, sig_clr='#01386a'):
     xmax = 60 #1000/scanRate #6000
     ymin = 0
     ymax = 1
-    s = 100
 
-    ax_scatter.scatter(tau_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=0.15, linewidths=0.75, edgecolors='k', s=s)
-    ax_scatter.scatter(tau_sig[tau_is_pos_sig],rsq_sig[tau_is_pos_sig],c=sig_clr,marker='.',alpha=0.4,linewidths=0.75,edgecolors=sig_clr, s=s) #'#1f77b4'
+    ax_scatter.scatter(tau_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=alphas[0], linewidths=0.75, edgecolors='k', s=s)
+    ax_scatter.scatter(tau_sig[tau_is_pos_sig],rsq_sig[tau_is_pos_sig],c=sig_clr,marker='.',alpha=alphas[1],linewidths=0.75,edgecolors=sig_clr, s=s) #'#1f77b4'
     # ax_scatter.scatter(tau_sig[tau_is_neg_sig],rsq_sig[tau_is_neg_sig],c='tab:red',marker='.',alpha=0.3)
     ax_scatter.set_xscale('log')
     ax_scatter.set_xlim((xmin,xmax))
