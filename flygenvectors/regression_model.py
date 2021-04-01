@@ -17,6 +17,16 @@ import pdb
 
 class reg_obj:
     def __init__(self, activity='dFF', exp_id=None, data_dict={}, fig_dirs={}, split_behav=False, use_beh_labels=None):
+        """
+        Model:
+            'alpha_0': baseline (up to quadratic in time)
+            'beta_0':  running (taken from ball motion energy)
+            'gamma_0': running state change (smooth derivative of ball motion)
+            'delta_0': labels (from arHMM + DGP)
+            'tau':     width of kernel (applied to beta and delta)
+            'phi':     displacement of kernel (applied to beta and delta)
+            'trial_coeffs': # separate baselines for trials (1-N_trials)
+        """
         self.data_dict = copy.deepcopy(data_dict) #protect original dictionary
         self.data_dict_orig = copy.deepcopy(self.data_dict)
         self.data_dict_downsample = copy.deepcopy(self.data_dict)
@@ -41,7 +51,7 @@ class reg_obj:
         }
         self.is_downsampled = False
         self.t_exp = []
-        self.coeff_label_list = ['alpha_0','beta_0','gamma_0','tau','phi','trial_coeffs']
+        self.coeff_label_list = ['alpha_0','beta_0','gamma_0','delta_0','tau','phi','trial_coeffs']
         self.options = {'make_motion_hist':False}
         self.cell_id = 0
         self.model_fit = []
@@ -56,9 +66,9 @@ class reg_obj:
         lin_piece = d['alpha_0']@time_regs + d['trial_coeffs']@trial_regressors
         A = np.array([[1,1],[0,1]])
         if self.params['split_behav']:
-            dFF_fit =  lin_piece + d['beta_0']@self.linear_regressors_dict['beta_0'] + d['gamma_0']@A@self.linear_regressors_dict['gamma_0']
+            dFF_fit =  lin_piece + d['beta_0']@self.linear_regressors_dict['beta_0'] + d['gamma_0']@A@self.linear_regressors_dict['gamma_0'] + d['delta_0']@self.linear_regressors_dict['delta_0'] 
         else:
-            dFF_fit =  lin_piece + d['beta_0']*self.linear_regressors_dict['beta_0'] + d['gamma_0']@A@self.linear_regressors_dict['gamma_0']
+            dFF_fit =  lin_piece + d['beta_0']*self.linear_regressors_dict['beta_0'] + d['gamma_0']@A@self.linear_regressors_dict['gamma_0'] + d['delta_0']@self.linear_regressors_dict['delta_0'] 
         return dFF_fit
 
 
@@ -67,6 +77,8 @@ class reg_obj:
         # d is a dictionary of regression coefficients
         kern = self.get_kern(d['phi'], d['tau']) #(1/np.sqrt(tau))*np.exp(-t_exp/tau)
         ball = self.regressors_dict['beta_0']
+        
+        # ball
         if self.params['split_behav']:
             self.linear_regressors_dict['beta_0'] = np.zeros(ball.shape)
             for i in range(ball.shape[0]):
@@ -75,6 +87,14 @@ class reg_obj:
         else:
             self.linear_regressors_dict['beta_0'] = np.convolve(kern,ball,'same')
             self.linear_regressors_dict['beta_0'] -= self.linear_regressors_dict['beta_0'].mean()
+
+        # beh labels
+        self.linear_regressors_dict['delta_0'] = np.zeros(self.regressors_dict['delta_0'].shape)
+        if self.params['use_beh_labels']:
+            for i in range(self.regressors_dict['delta_0'].shape[0]):
+                self.linear_regressors_dict['delta_0'][i,:] = np.convolve(kern, self.regressors_dict['delta_0'][i,:], 'same')
+                if self.linear_regressors_dict['delta_0'][i,:].mean() != 0:
+                    self.linear_regressors_dict['delta_0'][i,:] -= self.linear_regressors_dict['delta_0'][i,:].mean()
     
 
     def get_kern(self, phi, tau):
@@ -113,30 +133,31 @@ class reg_obj:
         # add call to method here that overwrites data_dict with only some timesteps.
         # NEED call downsample() beforehand to reset the dict.
         # **********
-        if initial_conds is None:
-            if self.params['split_behav']:
-                initial_conds=[0,.0001,.0001]
-                U = np.unique(self.data_dict['trialFlag'])
-                for i in range(len(U)):
-                    initial_conds.append(.0001)
-                initial_conds.extend([0,0.5,5,0])
-            else:
-                initial_conds=[0,.0001,.0001,.0001,0,0.5,5,0]
+        if self.params['split_behav'] and self.params['use_beh_labels']:
+            print('ERROR: SPLIT BEHAV with BEHAV LABELS NOT IMPLEMENTED')
+            return
 
+        initial_conds = self.get_default_inits()
         self.get_regressors(shifted=shifted)
         if self.params['split_behav']:
-            bounds=[[None,None],[None,None],[None,None]]
-            U = np.unique(self.data_dict['trialFlag'])
+            bounds=[[None,None],[None,None],[None,None]] # alpha
+            U = np.unique(self.data_dict['trialFlag'])   # beta
             for i in range(len(U)):
                 bounds.append([None,None])
-            bounds.extend([[None,None],[-.05,.05],[1,59],[-59,59]])
+            bounds.extend([[None,None],[-.05,.05],[1,59],[-59,59]]) # gamma, tau, phi
+        elif self.params['use_beh_labels']:
+            bounds=[[None,None],[None,None],[None,None]]    # alpha
+            bounds.append([None,None])                      # beta
+            bounds.extend([[None,None],[-.05,.05]])         # gamma
+            bounds.extend([[None,None],[None,None]])        # delta
+            bounds.extend([[1,59],[-59,59]])                # tau, phi
         else:
             # bound for gamma_1 = +/-.05
             bounds=[[None,None],[None,None],[None,None],[None,None],[None,None],[-.05,.05],[1,59],[-59,59]]
         
         for i in range(self.n_trials-1):
-            initial_conds.append(0)  
-            bounds.append([None,None])     
+            initial_conds.append(0)    # trial coeffs
+            bounds.append([None,None]) # trial coeffs    
 
         N = self.data_dict[self.activity].shape[0]
         model_fit = [None]*N
@@ -179,6 +200,8 @@ class reg_obj:
                 s = 1
         elif label=='gamma_0':
             s = self.regressors_dict['gamma_0'].shape[0]
+        elif label=='delta_0':
+            s = self.regressors_dict['delta_0'].shape[0]
         elif (label=='tau') or (label=='phi'):
             s = 1
         elif label=='trial_coeffs':
@@ -203,6 +226,7 @@ class reg_obj:
         data_dict = self.data_dict # evaluate on orig, even if fit was done on downsampled data
         params = self.params
         if just_null_model: params['split_behav'] = False
+        if just_null_model: params['use_beh_labels'] = False
         # L = params['L']
         ts_full = data_dict['time']-data_dict['time'].mean() #data_dict['time'][0]
         ts = ts_full-ts_full.mean()
@@ -258,6 +282,16 @@ class reg_obj:
 
         run_diff_smooth = self.get_beh_diff(is_running)
 
+        # grooming (beh labels)
+        grooming = np.zeros((2,len(data_dict['behavior'])))
+        if self.params['use_beh_labels']:
+            if shifted is None:
+                grooming[0,:] = 1*(data_dict['beh_labels']==2)[:,0]
+                grooming[1,:] = 1*(data_dict['beh_labels']==3)[:,0]
+            else:
+                grooming[0,:] = 1*(data_dict['circshift_beh_labels'][shifted]==2)[:,0]
+                grooming[1,:] = 1*(data_dict['circshift_beh_labels'][shifted]==3)[:,0]
+
         if just_null_model:
             self.regressors_dict = {
                 'alpha_0':alpha_regs, 
@@ -268,7 +302,8 @@ class reg_obj:
                 'alpha_0':alpha_regs, 
                 'trial':trial_regressors, 
                 'beta_0':ball,
-                'gamma_0':run_diff_smooth 
+                'gamma_0':run_diff_smooth,
+                'delta_0':grooming 
             }
         self.linear_regressors_dict = copy.deepcopy(self.regressors_dict)
 
@@ -338,13 +373,17 @@ class reg_obj:
 
         
 
-    def evaluate_model(self, model_fit, reg_labels=['beta_0','gamma_0'], shifted=None):
+    def evaluate_model(self, model_fit, reg_labels=None, shifted=None):
         # regenerate fit from best parameters and evaluate model
         # self.data_dict = self.data_dict_orig # don't do this
         self.refresh_params()
         self.get_regressors(shifted=shifted)
+        if reg_labels is None:
+            if self.params['use_beh_labels']:
+                reg_labels=['beta_0','gamma_0','delta_0']
+            else:
+                reg_labels=['beta_0','gamma_0']
         
-
         print('evaluating ', end='')
         for n in range(self.data_dict[self.activity].shape[0]):
             if not np.mod(n,round(self.data_dict[self.activity].shape[0]/20)): print('.', end='')
@@ -407,9 +446,9 @@ class reg_obj:
                 r_sq[label] = r_sq_list
                 cc[label] = cc_list
              
-            if self.params['use_beh_labels'] is not None:
-                stat['tau_beh_lab'] = stat['beh_lbl']
-                stat['phi_beh_lab'] = stat['beh_lbl']
+            # if self.params['use_beh_labels'] is not None:
+            #     stat['tau_beh_lab'] = stat['beh_lbl']
+            #     stat['phi_beh_lab'] = stat['beh_lbl']
             if 'drink_hunger' in list(stat.keys()): stat['tau_feed'] = stat['drink_hunger']    
 
             r_sq['tau'] = r_sq['beta_0']
@@ -545,7 +584,7 @@ class reg_obj:
             if just_null_model:
                 # get linpart to subtract from everything
                 coeffs_null = copy.deepcopy(self.model_fit[n])
-                for label in ['beta_0', 'gamma_0']:
+                for label in ['beta_0', 'gamma_0', 'delta_0']:
                     for j in range(coeffs_null[label].shape[0]):
                         coeffs_null[label][j] = 0
                 coeff_list = self.dict_to_flat_list(coeffs_null)
@@ -783,15 +822,25 @@ class reg_obj:
         return self.data_dict
 
 
-    def get_model_mle_with_many_inits(self, shifted=None, tau_inits=[8,10,12,15,18,22,25,30,35,42,50]):
+    def get_default_inits(self):
         if self.params['split_behav']:
-            initial_conds=[0,.0001,.0001]
-            U = np.unique(self.data_dict['trialFlag'])
+            initial_conds=[0,.0001,.0001] # alpha
+            U = np.unique(self.data_dict['trialFlag']) # beta
             for i in range(len(U)):
                 initial_conds.append(.0001)
-            initial_conds.extend([0,0.5,5,0])
+            initial_conds.extend([0,0.5,5,0]) # gamma, tau, phi
+        elif self.params['use_beh_labels']:
+            initial_conds=[0,.0001,.0001]        # alpha
+            initial_conds.append(.0001)          # beta
+            initial_conds.extend([0,0.5])        # gamma
+            initial_conds.extend([.0001,.0001])  # delta
+            initial_conds.extend([5,0])          # tau, phi
         else:
             initial_conds=[0,.0001,.0001,.0001,0,0.5,5,0]
+        return initial_conds
+
+    def get_model_mle_with_many_inits(self, shifted=None, tau_inits=[8,10,12,15,18,22,25,30,35,42,50]):
+        initial_conds = self.get_default_inits()
         model_fit = self.get_model_mle(shifted=shifted, initial_conds=initial_conds.copy())
         # pdb.set_trace()
         self.evaluate_model(model_fit=model_fit, shifted=shifted)
