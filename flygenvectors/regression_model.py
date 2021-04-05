@@ -137,7 +137,8 @@ class reg_obj:
             print('ERROR: SPLIT BEHAV with BEHAV LABELS NOT IMPLEMENTED')
             return
 
-        initial_conds = self.get_default_inits()
+        if initial_conds is None:
+            initial_conds = self.get_default_inits()
         self.get_regressors(shifted=shifted)
         if self.params['split_behav']:
             bounds=[[None,None],[None,None],[None,None]] # alpha
