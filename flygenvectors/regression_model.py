@@ -117,7 +117,7 @@ class reg_obj:
         return obj
 
 
-    def get_model_mle(self, downsample=True, shifted=None, initial_conds=None):
+    def get_model_mle(self, downsample=True, shifted=None, initial_conds=None, bounds=None):
         """
         downsample: flag creates downsampled dict, or points to it if one is already made.
         shifted: if not None, uses circshifted dict instead of original
@@ -140,25 +140,10 @@ class reg_obj:
         if initial_conds is None:
             initial_conds = self.get_default_inits()
         self.get_regressors(shifted=shifted)
-        if self.params['split_behav']:
-            bounds=[[None,None],[None,None],[None,None]] # alpha
-            U = np.unique(self.data_dict['trialFlag'])   # beta
-            for i in range(len(U)):
-                bounds.append([None,None])
-            bounds.extend([[None,None],[-.05,.05],[1,59],[-59,59]]) # gamma, tau, phi
-        elif self.params['use_beh_labels']:
-            bounds=[[None,None],[None,None],[None,None]]    # alpha
-            bounds.append([None,None])                      # beta
-            bounds.extend([[None,None],[-.05,.05]])         # gamma
-            bounds.extend([[None,None],[None,None]])        # delta
-            bounds.extend([[1,59],[-59,59]])                # tau, phi
-        else:
-            # bound for gamma_1 = +/-.05
-            bounds=[[None,None],[None,None],[None,None],[None,None],[None,None],[-.05,.05],[1,59],[-59,59]]
-        
-        for i in range(self.n_trials-1):
-            initial_conds.append(0)    # trial coeffs
-            bounds.append([None,None]) # trial coeffs    
+        if bounds is None:
+            bounds = self.get_default_bounds()
+        if self.exclude_regressors is not None:
+            bounds = self.exclude_regressors_by_bounds(bounds)
 
         N = self.data_dict[self.activity].shape[0]
         model_fit = [None]*N
@@ -840,6 +825,38 @@ class reg_obj:
             initial_conds=[0,.0001,.0001,.0001,0,0.5,5,0]
         return initial_conds
 
+
+    def get_default_bounds(self):
+        if self.params['split_behav']:
+            bounds=[[None,None],[None,None],[None,None]] # alpha
+            U = np.unique(self.data_dict['trialFlag'])   # beta
+            for i in range(len(U)):
+                bounds.append([None,None])
+            bounds.extend([[None,None],[-.05,.05],[1,59],[-59,59]]) # gamma, tau, phi
+        elif self.params['use_beh_labels']:
+            bounds=[[None,None],[None,None],[None,None]]    # alpha
+            bounds.append([None,None])                      # beta
+            bounds.extend([[None,None],[-.05,.05]])         # gamma
+            bounds.extend([[None,None],[None,None]])        # delta
+            bounds.extend([[1,59],[-59,59]])                # tau, phi
+        else:
+            # bound for gamma_1 = +/-.05
+            bounds=[[None,None],[None,None],[None,None],[None,None],[None,None],[-.05,.05],[1,59],[-59,59]]
+        
+        for i in range(self.n_trials-1):
+            initial_conds.append(0)    # trial coeffs
+            bounds.append([None,None]) # trial coeffs   
+        return bounds
+
+
+    def exclude_regressors_by_bounds(self, bounds):
+        for i in self.exclude_regressors:
+            if self.exclude_regressors[i] == 'gamma_0':
+                bounds[4] = [-1e-12,1e-12]
+                bounds[5] = [-1e-12,1e-12]
+        return bounds
+
+
     def get_model_mle_with_many_inits(self, shifted=None, tau_inits=[8,10,12,15,18,22,25,30,35,42,50]):
         initial_conds = self.get_default_inits()
         model_fit = self.get_model_mle(shifted=shifted, initial_conds=initial_conds.copy())
@@ -855,7 +872,11 @@ class reg_obj:
         return model_fit
 
 
-    def fit_and_eval_reg_model_extended(self, n_perms=10):
+    def fit_and_eval_reg_model_extended(self, n_perms=10, exclude_regressors=None):
+        """
+        exclude_regressors: (list) test model with some coefficients set to zero 
+        """
+        self.exclude_regressors = exclude_regressors
         self.model_fit = self.get_model_mle_with_many_inits(shifted=None)
         print('Testing model on circshifted data')
         # pdb.set_trace()
