@@ -144,7 +144,9 @@ class reg_obj:
             bounds = self.get_default_bounds()
         if self.exclude_regressors is not None:
             bounds = self.exclude_regressors_by_bounds(bounds)
-
+        for i in range(self.n_trials-1):
+            initial_conds.append(0)    # trial coeffs
+            bounds.append([None,None]) # trial coeffs   
         N = self.data_dict[self.activity].shape[0]
         model_fit = [None]*N
         for n in range(N):
@@ -842,10 +844,6 @@ class reg_obj:
         else:
             # bound for gamma_1 = +/-.05
             bounds=[[None,None],[None,None],[None,None],[None,None],[None,None],[-.05,.05],[1,59],[-59,59]]
-        
-        for i in range(self.n_trials-1):
-            initial_conds.append(0)    # trial coeffs
-            bounds.append([None,None]) # trial coeffs   
         return bounds
 
 
