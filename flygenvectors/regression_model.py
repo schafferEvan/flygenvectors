@@ -857,8 +857,9 @@ class reg_obj:
         return bounds
 
 
-    def get_model_mle_with_many_inits(self, shifted=None, tau_inits=[8,10,12,15,18,22,25,30,35,42,50]):
+    def get_model_mle_with_many_inits(self, shifted=None, tau_inits=[8,10,12,15,18,22,25,30,35,42,50], exclude_regressors=None):
         initial_conds = self.get_default_inits()
+        self.exclude_regressors = exclude_regressors
         model_fit = self.get_model_mle(shifted=shifted, initial_conds=initial_conds.copy())
         # pdb.set_trace()
         self.evaluate_model(model_fit=model_fit, shifted=shifted)
@@ -877,7 +878,7 @@ class reg_obj:
         exclude_regressors: (list) test model with some coefficients set to zero 
         """
         self.exclude_regressors = exclude_regressors
-        self.model_fit = self.get_model_mle_with_many_inits(shifted=None)
+        self.model_fit = self.get_model_mle_with_many_inits(shifted=None, exclude_regressors=exclude_regressors)
         print('Testing model on circshifted data')
         # pdb.set_trace()
         self.get_circshift_behav_data(n_perms=n_perms)
@@ -885,7 +886,7 @@ class reg_obj:
         for n in range(n_perms):
             print('Perm '+str(n))
             try:
-                self.model_fit_shifted[n] = self.get_model_mle_with_many_inits(shifted=n)
+                self.model_fit_shifted[n] = self.get_model_mle_with_many_inits(shifted=n, exclude_regressors=exclude_regressors)
             except:
                 pdb.set_trace()
 
