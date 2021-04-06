@@ -848,8 +848,8 @@ class reg_obj:
 
 
     def exclude_regressors_by_bounds(self, bounds):
-        for i in self.exclude_regressors:
-            if self.exclude_regressors[i] == 'gamma_0':
+        for reg in self.exclude_regressors:
+            if reg == 'gamma_0':
                 bounds[4] = [-1e-12,1e-12]
                 bounds[5] = [-1e-12,1e-12]
         return bounds
