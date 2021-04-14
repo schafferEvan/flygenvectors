@@ -55,20 +55,26 @@ class reg_obj:
         self.options = {'make_motion_hist':False}
         self.cell_id = 0
         self.model_fit = []
+        self.exclude_regressors = None
 
 
-    def get_model(self, fit_coeffs):
+    def get_model(self, fit_coeffs, just_null_model=False):
         '''use parameters to generate fit''' 
         d = self.coeff_list_to_dict(fit_coeffs)
-        self.get_linear_regressors(d)
+        if not just_null_model:
+            self.get_linear_regressors(d)
         time_regs = self.regressors_dict['alpha_0']
         trial_regressors = self.regressors_dict['trial']
         lin_piece = d['alpha_0']@time_regs + d['trial_coeffs']@trial_regressors
         A = np.array([[1,1],[0,1]])
-        if self.params['split_behav']:
-            dFF_fit =  lin_piece + d['beta_0']@self.linear_regressors_dict['beta_0'] + d['gamma_0']@A@self.linear_regressors_dict['gamma_0'] + d['delta_0']@self.linear_regressors_dict['delta_0'] 
-        else:
+        if just_null_model:
+            dFF_fit =  lin_piece
+        elif self.params['split_behav']:
+            dFF_fit =  lin_piece + d['beta_0']@self.linear_regressors_dict['beta_0'] + d['gamma_0']@A@self.linear_regressors_dict['gamma_0']
+        elif self.params['use_beh_labels']:
             dFF_fit =  lin_piece + d['beta_0']*self.linear_regressors_dict['beta_0'] + d['gamma_0']@A@self.linear_regressors_dict['gamma_0'] + d['delta_0']@self.linear_regressors_dict['delta_0'] 
+        else:
+            dFF_fit =  lin_piece + d['beta_0']*self.linear_regressors_dict['beta_0'] + d['gamma_0']@A@self.linear_regressors_dict['gamma_0'] 
         return dFF_fit
 
 
@@ -187,9 +193,18 @@ class reg_obj:
             else:
                 s = 1
         elif label=='gamma_0':
-            s = self.regressors_dict['gamma_0'].shape[0]
+            if 'gamma_0' in self.regressors_dict:
+                if self.regressors_dict['gamma_0'] is not None:
+                    s = self.regressors_dict['gamma_0'].shape[0]
+                else:
+                    s = 0
+            else:
+                s = 0
         elif label=='delta_0':
-            s = self.regressors_dict['delta_0'].shape[0]
+            if self.params['use_beh_labels']:
+                s = self.regressors_dict['delta_0'].shape[0]
+            else:
+                s = 0
         elif (label=='tau') or (label=='phi'):
             s = 1
         elif label=='trial_coeffs':
@@ -283,7 +298,10 @@ class reg_obj:
         if just_null_model:
             self.regressors_dict = {
                 'alpha_0':alpha_regs, 
-                'trial':trial_regressors
+                'trial':trial_regressors,
+                'beta_0':None,
+                'gamma_0':None,
+                'delta_0':None 
             }
         else:
             self.regressors_dict = {
@@ -565,7 +583,7 @@ class reg_obj:
         """ default is to return fit with just alpha and trial regs. 
         Using extra_regs, option to return fit with any additional regs: [ ['partial_reg', idx], ['full_reg'] ] 
         extra_regs are the regressors TO SUBTRACT """
-        self.get_regressors()
+        self.get_regressors(just_null_model=just_null_model)
         dFF = copy.deepcopy(self.data_dict[self.activity])
         dFF_fit = np.zeros(dFF.shape)
         for n in range(dFF.shape[0]):
@@ -579,7 +597,7 @@ class reg_obj:
             else:
                 coeff_list = self.dict_to_flat_list(self.model_fit[n])
             
-            dFF_fit[n,:] = self.get_model(coeff_list)
+            dFF_fit[n,:] = self.get_model(coeff_list, just_null_model=just_null_model)
 
         dFF -= dFF_fit
         return dFF_fit, dFF
@@ -782,8 +800,9 @@ class reg_obj:
         self.data_dict_downsample['circshift_beh_labels'] = copy.deepcopy( self.data_dict['circshift_beh_labels'] )
 
 
-    def preprocess(self, do_ICA=False):
-        self.get_smooth_behavior()
+    def preprocess(self, do_ICA=False, get_behav_from_ball=False):
+        if get_behav_from_ball:
+            self.get_smooth_behavior()
         self.data_dict_orig['behavior'] = copy.deepcopy(self.data_dict['behavior'])
         self.data_dict_downsample['behavior'] = copy.deepcopy(self.data_dict['behavior'])
         motion_obj = copy.deepcopy(self) # i'm not proud of this
