@@ -1025,6 +1025,8 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
             label2 = r'$\beta_1$'
         elif(param2_name=='gamma_0'): 
             label2 = r'$\gamma_0$'
+        elif(param2_name=='delta_0'): 
+            label2 = r'$\delta_0$'
         elif(param2_name=='tau_feed'):
             label2 = r'$\tau_{feed}$'
         else:
@@ -1040,6 +1042,8 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
         label = r'$\beta_0$'
     elif(param_name=='gamma_0'): 
         label = r'$\gamma_0$'
+    elif(param_name=='delta_0'): 
+        label = r'$\delta_0$'
     elif(param_name=='tau_feed'):
         label = r'$\tau_{feed}$'
     else:
