@@ -16,7 +16,7 @@ import pdb
 
 
 class reg_obj:
-    def __init__(self, activity='dFF', exp_id=None, data_dict={}, fig_dirs={}, split_behav=False, use_beh_labels=None):
+    def __init__(self, activity='dFF', exp_id=None, data_dict={}, fig_dirs={}, split_behav=False, use_beh_labels=None, use_only_valid=False):
         """
         Model:
             'alpha_0': baseline (up to quadratic in time)
@@ -26,6 +26,8 @@ class reg_obj:
             'tau':     width of kernel (applied to beta and delta)
             'phi':     displacement of kernel (applied to beta and delta)
             'trial_coeffs': # separate baselines for trials (1-N_trials)
+        split_behav: treat behavior from separate trials as separate regressors (for run+flail experiments)
+        use_only_valid: fit model only using time points where beh label is valid (duration > 1s)
         """
         self.data_dict = copy.deepcopy(data_dict) #protect original dictionary
         self.data_dict_orig = copy.deepcopy(self.data_dict)
@@ -37,6 +39,7 @@ class reg_obj:
         self.params = {
             'split_behav':split_behav,
             'use_beh_labels':use_beh_labels,
+            'use_only_valid':use_only_valid,
             'sigLimSec':60,
             'M':0,
             'L':0,
@@ -115,11 +118,17 @@ class reg_obj:
 
 
     def get_objective_fn(self, fit_coeffs):
-        '''evaluate fit''' 
+        '''evaluate fit
+        use_only_valid: if True, computes objective only from times with valid behav label, defined in preprocessing as state with duration > 1s
+        ''' 
         dFF = self.data_dict[self.activity][self.cell_id,:]
         dFF_fit = self.get_model(fit_coeffs)
         #obj = ((dFF[len(t_exp)-1:]-dFF_fit)**2).sum()
-        obj = ((dFF-dFF_fit)**2).sum()
+        if self.params['use_only_valid']:
+            v = self.data_dict['state_is_valid']
+            obj = ((dFF[v]-dFF_fit[v])**2).sum()
+        else:
+            obj = ((dFF-dFF_fit)**2).sum()
         return obj
 
 
@@ -201,10 +210,10 @@ class reg_obj:
             else:
                 s = 0
         elif label=='delta_0':
-            if self.params['use_beh_labels']:
-                s = self.regressors_dict['delta_0'].shape[0]
-            else:
-                s = 0
+            # if self.params['use_beh_labels']:
+            s = self.regressors_dict['delta_0'].shape[0]
+            # else:
+            #     s = 0
         elif (label=='tau') or (label=='phi'):
             s = 1
         elif label=='trial_coeffs':
@@ -262,8 +271,8 @@ class reg_obj:
                 for i in range(NT):
                     is_this_trial = np.squeeze(data_dict['trialFlag']==self.U[i])
                     ball[i,is_this_trial] = data_dict['circshift_behav'][shifted][is_this_trial]-data_dict['circshift_behav'][shifted][is_this_trial].mean()
-        elif just_null_model:
-            ball = []
+        # elif just_null_model:
+        #     ball = []
         else:
             if shifted is None:
                 ball = data_dict['behavior']-data_dict['behavior'].mean()
@@ -295,22 +304,22 @@ class reg_obj:
                 grooming[0,:] = 1*(data_dict['circshift_beh_labels'][shifted]==2)[:,0]
                 grooming[1,:] = 1*(data_dict['circshift_beh_labels'][shifted]==3)[:,0]
 
-        if just_null_model:
-            self.regressors_dict = {
-                'alpha_0':alpha_regs, 
-                'trial':trial_regressors,
-                'beta_0':None,
-                'gamma_0':None,
-                'delta_0':None 
-            }
-        else:
-            self.regressors_dict = {
-                'alpha_0':alpha_regs, 
-                'trial':trial_regressors, 
-                'beta_0':ball,
-                'gamma_0':run_diff_smooth,
-                'delta_0':grooming 
-            }
+        # if just_null_model:
+        #     self.regressors_dict = {
+        #         'alpha_0':alpha_regs, 
+        #         'trial':trial_regressors,
+        #         'beta_0':None,
+        #         'gamma_0':None,
+        #         'delta_0':None 
+        #     }
+        # else:
+        self.regressors_dict = {
+            'alpha_0':alpha_regs, 
+            'trial':trial_regressors, 
+            'beta_0':ball,
+            'gamma_0':run_diff_smooth,
+            'delta_0':grooming 
+        }
         self.linear_regressors_dict = copy.deepcopy(self.regressors_dict)
 
 
@@ -410,6 +419,9 @@ class reg_obj:
             dFF_fit_linpart = self.get_model(coeff_list) 
             dFF -= dFF_fit_linpart
             dFF_fit -= dFF_fit_linpart
+            if self.params['use_only_valid']:
+                dFF = dFF[self.data_dict['state_is_valid']]
+                dFF_fit = dFF_fit[self.data_dict['state_is_valid']]
 
             SS_res = ( (dFF-dFF_fit)**2 )
             SS_tot = ( (dFF-dFF.mean())**2 ) #( (dFF_without_linpart-dFF_without_linpart.mean())**2 )
@@ -432,6 +444,8 @@ class reg_obj:
                     coeff_list = self.dict_to_flat_list(coeffs_null)
                     dFF_fit_null = self.get_model(coeff_list) 
                     dFF_fit_null -= dFF_fit_linpart
+                    if self.params['use_only_valid']:
+                        dFF_fit_null = dFF_fit_null[self.data_dict['state_is_valid']]
 
                     SS_res_0 = ( (dFF-dFF_fit_null)**2 )
                     # res_var_0 = (dFF-dFF_fit_null).var()
@@ -587,15 +601,15 @@ class reg_obj:
         dFF = copy.deepcopy(self.data_dict[self.activity])
         dFF_fit = np.zeros(dFF.shape)
         for n in range(dFF.shape[0]):
-            if just_null_model:
-                # get linpart to subtract from everything
-                coeffs_null = copy.deepcopy(self.model_fit[n])
-                for label in ['beta_0', 'gamma_0', 'delta_0']:
-                    for j in range(coeffs_null[label].shape[0]):
-                        coeffs_null[label][j] = 0
-                coeff_list = self.dict_to_flat_list(coeffs_null)
-            else:
-                coeff_list = self.dict_to_flat_list(self.model_fit[n])
+            # if just_null_model:
+            #     # get linpart to subtract from everything
+            #     coeffs_null = copy.deepcopy(self.model_fit[n])
+            #     for label in ['beta_0', 'gamma_0', 'delta_0']:
+            #         for j in range(coeffs_null[label].shape[0]):
+            #             coeffs_null[label][j] = 0
+            #     coeff_list = self.dict_to_flat_list(coeffs_null)
+            # else:
+            coeff_list = self.dict_to_flat_list(self.model_fit[n])
             
             dFF_fit[n,:] = self.get_model(coeff_list, just_null_model=just_null_model)
 
@@ -836,14 +850,15 @@ class reg_obj:
             for i in range(len(U)):
                 initial_conds.append(.0001)
             initial_conds.extend([0,0.5,5,0]) # gamma, tau, phi
-        elif self.params['use_beh_labels']:
+        else:
+            # elif self.params['use_beh_labels']:
             initial_conds=[0,.0001,.0001]        # alpha
             initial_conds.append(.0001)          # beta
             initial_conds.extend([0,0.5])        # gamma
             initial_conds.extend([.0001,.0001])  # delta
             initial_conds.extend([5,0])          # tau, phi
-        else:
-            initial_conds=[0,.0001,.0001,.0001,0,0.5,5,0]
+        # else:
+        #     initial_conds=[0,.0001,.0001,.0001,0,0.5,5,0]
         return initial_conds
 
 
@@ -854,15 +869,16 @@ class reg_obj:
             for i in range(len(U)):
                 bounds.append([None,None])
             bounds.extend([[None,None],[-.05,.05],[1,59],[-59,59]]) # gamma, tau, phi
-        elif self.params['use_beh_labels']:
+        else:
+            # elif self.params['use_beh_labels']:
             bounds=[[None,None],[None,None],[None,None]]    # alpha
             bounds.append([None,None])                      # beta
             bounds.extend([[None,None],[-.05,.05]])         # gamma
             bounds.extend([[None,None],[None,None]])        # delta
             bounds.extend([[1,59],[-59,59]])                # tau, phi
-        else:
-            # bound for gamma_1 = +/-.05
-            bounds=[[None,None],[None,None],[None,None],[None,None],[None,None],[-.05,.05],[1,59],[-59,59]]
+        # else:
+        #     # bound for gamma_1 = +/-.05
+        #     bounds=[[None,None],[None,None],[None,None],[None,None],[None,None],[-.05,.05],[1,59],[-59,59]]
         return bounds
 
 
