@@ -373,6 +373,7 @@ class reg_obj:
             self.data_dict['behavior'] = np.zeros(L)
             self.data_dict['trialFlag'] = np.zeros(L)
             self.data_dict['beh_labels'] = np.zeros((L,1))
+            self.data_dict['state_is_valid'] = np.zeros(L, dtype=bool)
             for j in range(L):
                 sl = slice(np.round(sub_fac*j).astype(int), np.round(sub_fac*(j+1)).astype(int))
                 # self.data_dict[self.activity][:, j] = self.data_dict_orig[self.activity][:,sl].mean(axis=1)
@@ -384,6 +385,7 @@ class reg_obj:
                 self.data_dict['behavior'][j] = self.data_dict_orig['behavior'][sl].mean()
                 self.data_dict['beh_labels'][j,0] = stats.mode(self.data_dict_orig['beh_labels'][sl, :]).mode
                 self.data_dict['trialFlag'][j] = stats.mode(self.data_dict_orig['trialFlag'][sl]).mode
+                self.data_dict['state_is_valid'] = np.max( self.data_dict_orig['state_is_valid'][sl] ) # True if any elem is True
             self.data_dict_downsample = copy.deepcopy(self.data_dict)
 
         
