@@ -461,6 +461,8 @@ class reg_obj:
                     else:
                         norm_reg = self.linear_regressors_dict[label][j,:].copy()
                     norm_reg -= norm_reg.mean()
+                    if self.params['use_only_valid']:
+                        norm_reg = norm_reg[self.data_dict['state_is_valid']]
                     cc_list.append( (norm_resid*norm_reg).mean()/(norm_resid.std()*norm_reg.std()) )
                     # if r_sq_list[-1]<0:
                     #     print('shit', end=' ')
