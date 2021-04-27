@@ -233,6 +233,67 @@ def plot_dlc_arhmm_states(
     return fig
 
 
+def plot_states_simple(
+        data_dict, slc=None, axes=None, restrict_xticks=True):
+    """
+    Args:
+        states (np array): length T
+        slc: length 2 list of slice indices
+    """
+    import matplotlib.cm as cm
+    beh_labels = data_dict['beh_labels'].copy()
+    beh_labels[beh_labels==4]=0
+
+    if axes is None:
+        fig, axes = plt.subplots(figsize=(12,3))
+        include_cbar = True
+    else:
+        include_cbar = False
+
+    Accent = cm.get_cmap('Dark2', 4) #Accent
+    Accent.colors = np.roll(Accent.colors,1,axis=0)
+    Accent.colors[0,-1] = 0.3
+    Accent.colors[3,:] = Accent.colors[1,:].copy()
+    Accent.colors[2,2] = 0.95
+    Accent.colors[2,0] = 0.5
+    Accent.colors[2,-1] = 0.9
+    Accent.colors[1,:3] *= 0
+    if slc is None:
+        im = axes.imshow(beh_labels.T,aspect='auto',cmap=Accent)#,cmap='Accent',vmin=0, vmax=3)
+    else:
+        im = axes.imshow(beh_labels[slc[0]:slc[1]].T,aspect='auto',cmap=Accent)#,cmap='Accent',vmin=0, vmax=3)
+
+    if restrict_xticks:
+        xtk_labels = np.array([i for i in range(100, int(data_dict['tPl'][-1,0]), 100)]) #[300,400,500,600]
+    else:
+        xtk_labels = np.array([i for i in range(100, int(data_dict['tPl'][-1,0]), 50)]) #[300,400,500,600]
+    if slc is not None:
+        val = (data_dict['tPl'][slc[0]]<xtk_labels)*(xtk_labels<data_dict['tPl'][slc[1]])
+        # val = (slc[0]/data_dict['scanRate']<xtk_labels)*(xtk_labels<slc[1]/data_dict['scanRate'])
+        xtk_labels = xtk_labels[val]
+    xtks = np.zeros(xtk_labels.shape)
+    for i in range(len(xtks)):
+        xtks[i] = np.argmin( abs(xtk_labels[i] - data_dict['tPl']) )
+    if slc is not None:
+        xtks -= slc[0]
+    # xtk_labels_adj = np.array(xtk_labels) #-xtk_labels[0]    
+    plt.xticks(ticks=xtks, labels=xtk_labels)
+    axes.set_xlabel('Time (s)')
+    axes.set_yticks([])
+    # axes.set_xlim(300*data_dict['scanRate'],600*data_dict['scanRate'])
+
+    if include_cbar:
+        cbar = plt.colorbar(im) #, ticks=np.arange(np.min(beh_labels),np.max(beh_labels)+1))
+        labels = ['still / other', 'run', 'front_groom', 'back_groom']
+        l = len(labels)
+        lp1 = (l-1)/(2*l)
+        cbar.set_ticks( np.linspace( lp1, l-1-lp1, l ) )
+        cbar.ax.set_yticklabels(labels)  # vertically oriented colorbar
+    plt.tight_layout()
+    #return fig
+
+
+
 #############################
 # SSM-specific plotting utils
 #############################
@@ -2052,7 +2113,9 @@ def trim_dynamic_range(data,q_min,q_max):
     return data
 
 
-def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,split_behavior=False,include_dlc=False,num_cells=[],time_lims=[],slice_time=None,title='Raw',activity='std',sort=False):
+def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,split_behavior=False,
+                            include_dlc=False,include_beh_labels=False,num_cells=[],time_lims=[],
+                            slice_time=None,title='Raw',activity='std',sort=False):
     """
     activity: version of neural activity to show: {'raw' (unnormalized), 'std' (units of std)}
     """
@@ -2145,7 +2208,9 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,s
     
 
     plt.sca(axes[-1])
-    if(include_feeding or split_behavior):
+    if include_beh_labels:
+        plot_states_simple(data_dict, slc=time_lims, axes=axes[-1], restrict_xticks=False)
+    elif(include_feeding or split_behavior):
         for i in range(NT):
             is_this_trial = np.squeeze(trial_flag==U[i])
             behav_this_trial = behavior[is_this_trial]
