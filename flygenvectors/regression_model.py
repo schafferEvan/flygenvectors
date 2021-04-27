@@ -405,88 +405,111 @@ class reg_obj:
         for n in range(self.data_dict[self.activity].shape[0]):
             if not np.mod(n,round(self.data_dict[self.activity].shape[0]/20)): print('.', end='')
             sys.stdout.flush()
-            # if self.model_fit[n]['success']:
-            dFF = self.data_dict[self.activity][n,:].copy()
-            coeff_list = self.dict_to_flat_list(model_fit[n])
-            dFF_fit = self.get_model(coeff_list)
-            coeff_dict = model_fit[n]
-            self.get_linear_regressors(coeff_dict)
-
-            # get linpart to subtract from everything
-            coeffs_null = copy.deepcopy(model_fit[n])
-            for label in reg_labels:
-                for j in range(coeffs_null[label].shape[0]):
-                    coeffs_null[label][j] = 0
-            coeff_list = self.dict_to_flat_list(coeffs_null)
-            dFF_fit_linpart = self.get_model(coeff_list) 
-            dFF -= dFF_fit_linpart
-            dFF_fit -= dFF_fit_linpart
-            if self.params['use_only_valid']:
-                dFF = dFF[self.data_dict['state_is_valid']]
-                dFF_fit = dFF_fit[self.data_dict['state_is_valid']]
-
-            SS_res = ( (dFF-dFF_fit)**2 )
-            SS_tot = ( (dFF-dFF.mean())**2 ) #( (dFF_without_linpart-dFF_without_linpart.mean())**2 )
-            r_sq_tot = 1-SS_res.sum()/SS_tot.sum()
-            
-            # for all parameter categories, for all parameters in this category, find fit without this parameter to compute p_val
-            stat = {}  
-            for label in reg_labels: stat[label] = None
-            r_sq = copy.deepcopy(stat)
-            cc = copy.deepcopy(stat)
-            r_sq['tot'] = r_sq_tot
-            for label in reg_labels:
-                stat_list = []
-                r_sq_list = []
-                cc_list = []
-                for j in range(coeff_dict[label].shape[0]):
-                    # j_inc = [x for x in range(coeff_dict[label].shape[0]) if x != j]
-                    coeffs_null = copy.deepcopy(model_fit[n])
-                    coeffs_null[label][j] = 0
-                    coeff_list = self.dict_to_flat_list(coeffs_null)
-                    dFF_fit_null = self.get_model(coeff_list) 
-                    dFF_fit_null -= dFF_fit_linpart
-                    if self.params['use_only_valid']:
-                        dFF_fit_null = dFF_fit_null[self.data_dict['state_is_valid']]
-
-                    SS_res_0 = ( (dFF-dFF_fit_null)**2 )
-                    # res_var_0 = (dFF-dFF_fit_null).var()
-                    stat_list.append( stats.wilcoxon(np.squeeze(SS_res_0),np.squeeze(SS_res)) )
-                    r_sq_list.append( (SS_res_0.sum()-SS_res.sum())/SS_tot.sum() )
-                    
-                    # cc between a regressor and fit leaving out regressor
-                    norm_resid = dFF-dFF_fit_null - (dFF-dFF_fit_null).mean()
-                    if len( self.linear_regressors_dict[label].shape )==1:
-                        norm_reg = self.linear_regressors_dict[label].copy()
-                    else:
-                        norm_reg = self.linear_regressors_dict[label][j,:].copy()
-                    norm_reg -= norm_reg.mean()
-                    if self.params['use_only_valid']:
-                        norm_reg = norm_reg[self.data_dict['state_is_valid']]
-                    cc_list.append( (norm_resid*norm_reg).mean()/(norm_resid.std()*norm_reg.std()) )
-                    # if r_sq_list[-1]<0:
-                    #     print('shit', end=' ')
-                stat[label] = stat_list
-                r_sq[label] = r_sq_list
-                cc[label] = cc_list
-             
-            # if self.params['use_beh_labels'] is not None:
-            #     stat['tau_beh_lab'] = stat['beh_lbl']
-            #     stat['phi_beh_lab'] = stat['beh_lbl']
-            if 'drink_hunger' in list(stat.keys()): stat['tau_feed'] = stat['drink_hunger']    
-
-            r_sq['tau'] = r_sq['beta_0']
-            r_sq['phi'] = r_sq['beta_0']
-            stat['tau'] = stat['beta_0']
-            stat['phi'] = stat['beta_0']
-            cc['tau'] = cc['beta_0']
-            cc['phi'] = cc['beta_0']
+            r_sq, stat, cc, _ = self.evaluate_model_for_one_cell(n, 
+                model_fit=model_fit, reg_labels=reg_labels, shifted=shifted, regs_prepped=True)
             model_fit[n]['r_sq'] = r_sq #1-SS_res.sum()/SS_tot.sum()
             model_fit[n]['stat'] = stat
             model_fit[n]['cc'] = cc
         print(' Complete')
+        sys.stdout.flush()
 
     
+    
+    def evaluate_model_for_one_cell(self, n, model_fit, reg_labels=None, shifted=None, regs_prepped=False):
+        # regenerate fit from best parameters and evaluate model
+        # self.data_dict = self.data_dict_orig # don't do this
+        if not regs_prepped:
+            self.refresh_params()
+            self.get_regressors(shifted=shifted)
+        if reg_labels is None:
+            if self.params['use_beh_labels']:
+                reg_labels=['beta_0','gamma_0','delta_0']
+            else:
+                reg_labels=['beta_0','gamma_0']
+        
+        dFF = self.data_dict[self.activity][n,:].copy()
+        coeff_list = self.dict_to_flat_list(model_fit[n])
+        dFF_fit = self.get_model(coeff_list)
+        coeff_dict = model_fit[n]
+        self.get_linear_regressors(coeff_dict)
+
+        # get linpart to subtract from everything
+        coeffs_null = copy.deepcopy(model_fit[n])
+        for label in reg_labels:
+            for j in range(coeffs_null[label].shape[0]):
+                coeffs_null[label][j] = 0
+        coeff_list = self.dict_to_flat_list(coeffs_null)
+        dFF_fit_linpart = self.get_model(coeff_list) 
+        dFF -= dFF_fit_linpart
+        dFF_fit -= dFF_fit_linpart
+        if self.params['use_only_valid']:
+            dFF = dFF[self.data_dict['state_is_valid']]
+            dFF_fit = dFF_fit[self.data_dict['state_is_valid']]
+
+        SS_res = ( (dFF-dFF_fit)**2 )
+        SS_tot = ( (dFF-dFF.mean())**2 ) #( (dFF_without_linpart-dFF_without_linpart.mean())**2 )
+        r_sq_tot = 1-SS_res.sum()/SS_tot.sum()
+        
+        # for all parameter categories, for all parameters in this category, find fit without this parameter to compute p_val
+        stat = {}  
+        for label in reg_labels: stat[label] = None
+        r_sq = copy.deepcopy(stat)
+        cc = copy.deepcopy(stat)
+        null_fits = copy.deepcopy(stat)
+        r_sq['tot'] = r_sq_tot
+        for label in reg_labels:
+            stat_list = []
+            r_sq_list = []
+            cc_list = []
+            null_fit_list = [None]*coeff_dict[label].shape[0]
+            for j in range(coeff_dict[label].shape[0]):
+                # j_inc = [x for x in range(coeff_dict[label].shape[0]) if x != j]
+                coeffs_null = copy.deepcopy(model_fit[n])
+                coeffs_null[label][j] = 0
+                coeff_list = self.dict_to_flat_list(coeffs_null)
+                dFF_fit_null = self.get_model(coeff_list) 
+                dFF_fit_null -= dFF_fit_linpart
+                if self.params['use_only_valid']:
+                    dFF_fit_null = dFF_fit_null[self.data_dict['state_is_valid']]
+
+                null_fit_list[j] = dFF_fit_null
+                SS_res_0 = ( (dFF-dFF_fit_null)**2 )
+                # res_var_0 = (dFF-dFF_fit_null).var()
+                stat_list.append( stats.wilcoxon(np.squeeze(SS_res_0),np.squeeze(SS_res)) )
+                r_sq_list.append( (SS_res_0.sum()-SS_res.sum())/SS_tot.sum() )
+                
+                # cc between a regressor and fit leaving out regressor
+                norm_resid = dFF-dFF_fit_null - (dFF-dFF_fit_null).mean()
+                if len( self.linear_regressors_dict[label].shape )==1:
+                    norm_reg = self.linear_regressors_dict[label].copy()
+                else:
+                    norm_reg = self.linear_regressors_dict[label][j,:].copy()
+                norm_reg -= norm_reg.mean()
+                if self.params['use_only_valid']:
+                    norm_reg = norm_reg[self.data_dict['state_is_valid']]
+                cc_list.append( (norm_resid*norm_reg).mean()/(norm_resid.std()*norm_reg.std()) )
+                # if r_sq_list[-1]<0:
+                #     print('shit', end=' ')
+            stat[label] = stat_list
+            r_sq[label] = r_sq_list
+            cc[label] = cc_list
+            null_fits[label] = null_fit_list
+         
+        # if self.params['use_beh_labels'] is not None:
+        #     stat['tau_beh_lab'] = stat['beh_lbl']
+        #     stat['phi_beh_lab'] = stat['beh_lbl']
+        if 'drink_hunger' in list(stat.keys()): stat['tau_feed'] = stat['drink_hunger']    
+
+        r_sq['tau'] = r_sq['beta_0']
+        r_sq['phi'] = r_sq['beta_0']
+        stat['tau'] = stat['beta_0']
+        stat['phi'] = stat['beta_0']
+        cc['tau'] = cc['beta_0']
+        cc['phi'] = cc['beta_0']
+        return r_sq, stat, cc, null_fits
+
+
+
     def normalize_rows_euc(self,input_mat,fix_nans=True): 
         output_mat = np.zeros(input_mat.shape)
         mu = np.zeros(input_mat.shape[0])
