@@ -385,7 +385,8 @@ class reg_obj:
                 self.data_dict['behavior'][j] = self.data_dict_orig['behavior'][sl].mean()
                 self.data_dict['beh_labels'][j,0] = stats.mode(self.data_dict_orig['beh_labels'][sl, :]).mode
                 self.data_dict['trialFlag'][j] = stats.mode(self.data_dict_orig['trialFlag'][sl]).mode
-                self.data_dict['state_is_valid'][j] = np.max( self.data_dict_orig['state_is_valid'][sl] ) # True if any elem is True
+                if 'state_is_valid' in self.data_dict_orig:
+                    self.data_dict['state_is_valid'][j] = np.max( self.data_dict_orig['state_is_valid'][sl] ) # True if any elem is True
             self.data_dict_downsample = copy.deepcopy(self.data_dict)
 
         
