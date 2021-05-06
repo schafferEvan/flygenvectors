@@ -234,7 +234,7 @@ def plot_dlc_arhmm_states(
 
 
 def plot_states_simple(
-        data_dict, slc=None, axes=None, restrict_xticks=True):
+        data_dict, slc=None, axes=None, restrict_xticks=True, valid_only=False):
     """
     Args:
         states (np array): length T
@@ -243,6 +243,8 @@ def plot_states_simple(
     import matplotlib.cm as cm
     beh_labels = data_dict['beh_labels'].copy()
     beh_labels[beh_labels==4]=0
+    if valid_only:
+        beh_labels[np.logical_not(data_dict['state_is_valid'])] = 0
 
     if axes is None:
         fig, axes = plt.subplots(figsize=(12,3))
@@ -1637,6 +1639,8 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
             sort_val = color_data[sig]
         elif sort_by=='inv_val':
             sort_val = -color_data[sig]
+        elif sort_by=='abs_val':
+            sort_val = np.abs(color_data[sig])
         sorted_order = np.argsort(sort_val)
         sig = (np.array(sig)[sorted_order]).tolist()
 
@@ -2114,10 +2118,12 @@ def trim_dynamic_range(data,q_min,q_max):
 
 
 def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,split_behavior=False,
-                            include_dlc=False,include_beh_labels=False,num_cells=[],time_lims=[],
-                            slice_time=None,title='Raw',activity='std',sort=False):
+                            include_dlc=False,include_beh_labels=False,num_cells=[],time_lims=None,
+                            slice_time=None,title='Raw',activity='std',sort=False,valid_only=False,restrict_xticks=True):
     """
     activity: version of neural activity to show: {'raw' (unnormalized), 'std' (units of std)}
+    valid_only: if include_beh_labels, dictates whether to show raw labels or pruned (>1s)
+    restrict_xticks: if include_beh_labels, dictates density of xticks
     """
     if(include_dlc):
         import matplotlib.pylab as pl
@@ -2168,7 +2174,7 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,s
     if num_cells:
         dFF = dFF[:num_cells,:]
 
-    if time_lims:
+    if time_lims is not None:
         dFF = dFF[:,time_lims[0]:time_lims[1]]
         tPl = tPl[time_lims[0]:time_lims[1]]
         behavior = behavior[time_lims[0]:time_lims[1]]
@@ -2209,7 +2215,7 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,s
 
     plt.sca(axes[-1])
     if include_beh_labels:
-        plot_states_simple(data_dict, slc=time_lims, axes=axes[-1], restrict_xticks=False)
+        plot_states_simple(data_dict, slc=time_lims, axes=axes[-1], restrict_xticks=restrict_xticks, valid_only=valid_only)
     elif(include_feeding or split_behavior):
         for i in range(NT):
             is_this_trial = np.squeeze(trial_flag==U[i])
@@ -2386,10 +2392,13 @@ def show_maps_for_avg_traces(dict_tot, example_array_tot):
 
 
 
-def show_activity_traces(model_fit, data_dict, plot_param, n_ex=1, show_fit=False, include_feeding=False, slice_time=None, sup_ttl=None):
+def show_activity_traces(model_fit, data_dict, plot_param, n_ex=1, show_fit=False, 
+                        include_feeding=False, slice_time=None, sup_ttl=None, include_beh_labels=False, valid_only=False):
     """
     plot_param: param for sorting, in format [['partial_reg', idx]] or  'full_reg'
     n_ex: number of examples.  n_ex>0 gives largest, n_ex<0 gives smallest, n_ex=0 GIVES AVG of everything
+    include_beh_labels: show beh_labels ethogram instead of simple running trace
+    valid_only: if include_beh_labels, dictates whether to show raw labels or curated (bouts>1s)
     """
     from matplotlib.gridspec import GridSpec
     scanRate = data_dict['scanRate']
@@ -2470,33 +2479,35 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex=1, show_fit=Fals
     axes[0].set_title(ttl)
     
     axes.append( fig.add_subplot(gs[1]) )
-
-    if not include_feeding:
-        axes[1].plot(tPl, behavior, 'k')
+    if include_beh_labels:
+        plot_states_simple(data_dict, slc=slice_time, axes=axes[-1], restrict_xticks=True, valid_only=valid_only)
     else:
-        U = np.unique(trial_flag)
-        NT = len(U)
-        for i in range(NT):
-            is_this_trial = np.squeeze(trial_flag==U[i])
-            behav_this_trial = behavior[is_this_trial]
-            time_this_trial = tPl[is_this_trial]
-            if i==1:
-                axes[1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
-            elif (i==2) and (NT==4):
-                axes[1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
-            else:
-                axes[1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'k')
-        if 'sucrose_touch' in data_dict:
-            axes.plot(tPl, sucrose_touch, '--', color='darkgreen', alpha=0.7)
-        axes[1].plot(tPl, stim, color='darkviolet', alpha=0.7)
-        axes[1].plot(tPl, feed, color='royalblue',alpha=0.8)
-    
-    axes[1].set_xlim([min(tPl),max(tPl)])
-    axes[1].set_ylabel('Running')
-    axes[1].spines['top'].set_visible(False)
-    axes[1].spines['right'].set_visible(False)
-    axes[1].set_yticks([])
-    axes[1].set_xlabel('Time (s)')
+        if not include_feeding:
+            axes[1].plot(tPl, behavior, 'k')
+        else:
+            U = np.unique(trial_flag)
+            NT = len(U)
+            for i in range(NT):
+                is_this_trial = np.squeeze(trial_flag==U[i])
+                behav_this_trial = behavior[is_this_trial]
+                time_this_trial = tPl[is_this_trial]
+                if i==1:
+                    axes[1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
+                elif (i==2) and (NT==4):
+                    axes[1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
+                else:
+                    axes[1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'k')
+            if 'sucrose_touch' in data_dict:
+                axes.plot(tPl, sucrose_touch, '--', color='darkgreen', alpha=0.7)
+            axes[1].plot(tPl, stim, color='darkviolet', alpha=0.7)
+            axes[1].plot(tPl, feed, color='royalblue',alpha=0.8)
+        
+        axes[1].set_xlim([min(tPl),max(tPl)])
+        axes[1].set_ylabel('Running')
+        axes[1].spines['top'].set_visible(False)
+        axes[1].spines['right'].set_visible(False)
+        axes[1].set_yticks([])
+        axes[1].set_xlabel('Time (s)')
     return axes
 
 
