@@ -1565,7 +1565,8 @@ def show_PC_residual_raster(data_dict):
 
 
 
-def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pval=0.01, sort_by=[], color_lims_scale=[-0.75,0.75], color_lims=None, title=None):
+def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pval=0.01, sort_by=[], 
+                                    color_lims_scale=[-0.75,0.75], color_lims=None, title=None, use_cc=True):
     """
     Plot map of cells for one dataset, all MIPs, colorcoded by desired quantity
 
@@ -1575,6 +1576,7 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
         plot_param (string or list): if string, param to use for color code. If list, pair of param to use (str) and index (int)
         color_lims_scale (list): bounds for min and max.  If _scale[0]<0, enforces symmetry of colormap
         color_lims: if None, created by color_lims_scale and data range
+        use_cc: plot corr coeff of chosen regressor with residual fit, rather than the raw parameter value
     """
     from matplotlib import colors
     import matplotlib.cm as cm
@@ -1605,10 +1607,16 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
             if plot_field is None:
                 color_data = np.array(model_fit)
             if np.isnan(plot_field_idx):
-                color_data[i] = model_fit[i][plot_field]
+                if use_cc:
+                    color_data[i] = model_fit[i]['cc'][plot_field][0]
+                else:
+                    color_data[i] = model_fit[i][plot_field]
                 sig.append( model_fit[i]['stat'][plot_field][0][1]<pval ) # 1-sided test that behavior model > null model
             else:
-                color_data[i] = model_fit[i][plot_field][plot_field_idx]
+                if use_cc:
+                    color_data[i] = model_fit[i]['cc'][plot_field][plot_field_idx]
+                else:
+                    color_data[i] = model_fit[i][plot_field][plot_field_idx]
                 sig.append( model_fit[i]['stat'][plot_field][plot_field_idx][1]<pval ) # 1-sided test that behavior model > null model
         if (plot_field=='tau') or (plot_field=='tau_feed'): color_data = np.log10(color_data)
 
