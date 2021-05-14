@@ -754,7 +754,10 @@ class reg_obj:
             self.data_dict['behavior'][self.data_dict['behavior']>.022] = .022
 
 
-    def estimate_motion_artifacts(self, inv_cv_thresh=1.0, max_dRR_thresh=0.3, make_hist=False):
+    def estimate_motion_artifacts(self, inv_cv_thresh=1.0, max_dRR_thresh=0.75, make_hist=False):
+        """
+        original value of max_dRR_thresh=0.3
+        """
         self.motion = {'inv_cv_thresh':inv_cv_thresh, 'max_dRR_thresh':max_dRR_thresh}
         self.get_regressors(just_null_model=True)
         
