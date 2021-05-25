@@ -170,7 +170,7 @@ class reg_obj:
             # self.cell_id = n
             # res = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds)
             # model_fit[n] = self.coeff_list_to_dict(res['x'])
-            model_fit[n] = get_one_cell_mle(cell_id=n, initial_conds=initial_conds, bounds=bounds)
+            model_fit[n] = self.get_one_cell_mle(cell_id=n, initial_conds=initial_conds, bounds=bounds)
         return model_fit
 
 
