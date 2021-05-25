@@ -308,9 +308,9 @@ class reg_obj:
                 is_running = 1*(data_dict['circshift_behav'][shifted]>.0005)
         else:
             if shifted is None:
-                is_running = data_dict['beh_labels'][:,2]
+                is_running = 1*(data_dict['beh_labels'][:,2]>0.5)
             else:
-                is_running = data_dict['circshift_beh_labels'][shifted][:,2]
+                is_running = 1*(data_dict['circshift_beh_labels'][shifted][:,2]>0.5)
 
         run_diff_smooth = self.get_beh_diff(is_running)
 
