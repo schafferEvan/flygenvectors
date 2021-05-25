@@ -9,6 +9,7 @@ from scipy import stats
 import matplotlib.pyplot as plt
 import copy
 import data as dataUtils
+import utils as futils
 import plotting
 import ssmplotting
 import pdb
@@ -166,10 +167,29 @@ class reg_obj:
         model_fit = [None]*N
         for n in range(N):
             if not np.mod(n,100): print(str(int(100*n/N))+'%', end=' ')
-            self.cell_id = n
-            res = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds)
-            model_fit[n] = self.coeff_list_to_dict(res['x'])
+            # self.cell_id = n
+            # res = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds)
+            # model_fit[n] = self.coeff_list_to_dict(res['x'])
+            model_fit[n] = get_one_cell_mle(cell_id=n, initial_conds=initial_conds, bounds=bounds)
         return model_fit
+
+
+    def get_one_cell_mle(self, cell_id=None, initial_conds=None, bounds=None):
+        self.cell_id = cell_id
+        if initial_conds is None:
+            initial_conds = self.get_default_inits()
+        self.get_regressors(shifted=shifted)
+        if bounds is None:
+            bounds = self.get_default_bounds()
+        if self.exclude_regressors is not None:
+            bounds = self.exclude_regressors_by_bounds(bounds)
+        for i in range(self.n_trials-1):
+            initial_conds.append(0)    # trial coeffs
+            bounds.append([None,None]) # trial coeffs   
+            
+        res = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds)
+        cell_fit = self.coeff_list_to_dict(res['x'])
+        return cell_fit
         
 
     def dict_to_flat_list(self, coeff_dict):
@@ -288,9 +308,9 @@ class reg_obj:
                 is_running = 1*(data_dict['circshift_behav'][shifted]>.0005)
         else:
             if shifted is None:
-                is_running = 1*(data_dict['beh_labels']==1)[:,0]
+                is_running = data_dict['beh_labels'][:,2]
             else:
-                is_running = 1*(data_dict['circshift_beh_labels'][shifted]==1)[:,0]
+                is_running = data_dict['circshift_beh_labels'][shifted][:,2]
 
         run_diff_smooth = self.get_beh_diff(is_running)
 
@@ -298,11 +318,11 @@ class reg_obj:
         grooming = np.zeros((2,len(data_dict['behavior'])))
         if self.params['use_beh_labels']:
             if shifted is None:
-                grooming[0,:] = 1*(data_dict['beh_labels']==2)[:,0]
-                grooming[1,:] = 1*(data_dict['beh_labels']==3)[:,0]
+                grooming[0,:] = data_dict['beh_labels'][:,3]
+                grooming[1,:] = data_dict['beh_labels'][:,4]
             else:
-                grooming[0,:] = 1*(data_dict['circshift_beh_labels'][shifted]==2)[:,0]
-                grooming[1,:] = 1*(data_dict['circshift_beh_labels'][shifted]==3)[:,0]
+                grooming[0,:] = data_dict['circshift_beh_labels'][shifted][:,3]
+                grooming[1,:] = data_dict['circshift_beh_labels'][shifted][:,4]
 
         # if just_null_model:
         #     self.regressors_dict = {
@@ -372,7 +392,7 @@ class reg_obj:
             self.data_dict['tPl'] = np.zeros((L,1))
             self.data_dict['behavior'] = np.zeros(L)
             self.data_dict['trialFlag'] = np.zeros(L)
-            self.data_dict['beh_labels'] = np.zeros((L,1))
+            self.data_dict['beh_labels'] = np.zeros( (L, self.data_dict_orig['beh_labels'].shape[1]) )
             self.data_dict['state_is_valid'] = np.zeros(L, dtype=bool)
             for j in range(L):
                 sl = slice(np.round(sub_fac*j).astype(int), np.round(sub_fac*(j+1)).astype(int))
@@ -383,7 +403,10 @@ class reg_obj:
                 self.data_dict['time'][j,0] = self.data_dict_orig['time'][sl].mean() #sub_fac*j
                 self.data_dict['tPl'][j,0] = self.data_dict_orig['tPl'][sl].mean() #sub_fac*j
                 self.data_dict['behavior'][j] = self.data_dict_orig['behavior'][sl].mean()
-                self.data_dict['beh_labels'][j,0] = stats.mode(self.data_dict_orig['beh_labels'][sl, :]).mode
+                if self.data_dict_orig['beh_labels'].shape[1]==1:
+                    self.data_dict['beh_labels'][j,:] = stats.mode(self.data_dict_orig['beh_labels'][sl, :]).mode
+                else:
+                    self.data_dict['beh_labels'][j,:] = self.data_dict_orig['beh_labels'][sl, :].mean(axis=0)
                 self.data_dict['trialFlag'][j] = stats.mode(self.data_dict_orig['trialFlag'][sl]).mode
                 if 'state_is_valid' in self.data_dict_orig:
                     self.data_dict['state_is_valid'][j] = np.max( self.data_dict_orig['state_is_valid'][sl] ) # True if any elem is True
@@ -458,6 +481,7 @@ class reg_obj:
         cc = copy.deepcopy(stat)
         null_fits = copy.deepcopy(stat)
         r_sq['tot'] = r_sq_tot
+        exclude_regressors_backup = self.exclude_regressors.copy()
         for label in reg_labels:
             stat_list = []
             r_sq_list = []
@@ -465,10 +489,18 @@ class reg_obj:
             null_fit_list = [None]*coeff_dict[label].shape[0]
             for j in range(coeff_dict[label].shape[0]):
                 # j_inc = [x for x in range(coeff_dict[label].shape[0]) if x != j]
-                coeffs_null = copy.deepcopy(model_fit[n])
-                coeffs_null[label][j] = 0
+                # coeffs_null = copy.deepcopy(model_fit[n])
+                # coeffs_null[label][j] = 0
+                self.exclude_regressors = exclude_regressors_backup.copy()
+                if coeff_dict[label].shape[0]>1:
+                    self.exclude_regressors.append( [label,j] )
+                else:
+                    self.exclude_regressors.append( [label] )
+                ics = self.dict_to_flat_list(model_fit[n])
+                coeffs_null = get_one_cell_mle(cell_id=n, initial_conds=ics)
                 coeff_list = self.dict_to_flat_list(coeffs_null)
                 dFF_fit_null = self.get_model(coeff_list) 
+
                 dFF_fit_null -= dFF_fit_linpart
                 if self.params['use_only_valid']:
                     dFF_fit_null = dFF_fit_null[self.data_dict['state_is_valid']]
@@ -500,7 +532,7 @@ class reg_obj:
         #     stat['tau_beh_lab'] = stat['beh_lbl']
         #     stat['phi_beh_lab'] = stat['beh_lbl']
         if 'drink_hunger' in list(stat.keys()): stat['tau_feed'] = stat['drink_hunger']    
-
+        self.exclude_regressors = exclude_regressors_backup
         r_sq['tau'] = r_sq['beta_0']
         r_sq['phi'] = r_sq['beta_0']
         stat['tau'] = stat['beta_0']
@@ -789,12 +821,12 @@ class reg_obj:
         return dRR0, R0
 
 
-    def get_train_test_data(self, trial_len=100, rng_seed=0, trials_tr=10, trials_val=2, trials_test=0, trials_gap=0):
+    def get_train_test_data(self, trial_len=100, rng_seed=0, trials_tr=10, trials_val=2, trials_test=0, trials_gap=0, activity='dFF'):
         """
         split into train/test trials
         trial_len: length of pseudo-trials
         """
-        data_neural = self.data_dict['dFF'].T        
+        data_neural = self.data_dict[activity].T        
         n_trials = np.floor(data_neural.shape[0] / trial_len)
         indxs = dataUtils.split_trials(
             n_trials, rng_seed=rng_seed, trials_tr=trials_tr, trials_val=trials_val, trials_test=trials_test, trials_gap=trials_gap)
@@ -915,9 +947,15 @@ class reg_obj:
 
     def exclude_regressors_by_bounds(self, bounds):
         for reg in self.exclude_regressors:
-            if reg == 'gamma_0':
+            if reg == 'beta_0':
+                bounds[3] = [-1e-12,1e-12]
+            elif reg == 'gamma_0':
                 bounds[4] = [-1e-12,1e-12]
                 bounds[5] = [-1e-12,1e-12]
+            elif reg == ['delta_0',0]:
+                bounds[6] = [-1e-12,1e-12]
+            elif reg == ['delta_0',1]:
+                bounds[7] = [-1e-12,1e-12]
         return bounds
 
 
@@ -955,4 +993,43 @@ class reg_obj:
                 pdb.set_trace()
 
 
+def get_summary_dict(expt_id, split_behav, data_dict, model_fit, model_fit_shifted, use_beh_labels):
+    """
+    summary preprocessing step to either plot regression output or feed it into other analyses
+    """
+    ro = reg_obj(exp_id=expt_id, 
+                   data_dict=data_dict,
+                   fig_dirs=futils.get_fig_dirs(expt_id),
+                   split_behav=split_behav,
+                   use_beh_labels=use_beh_labels)
+    ro.downsample_in_time()
+    ro.model_fit = model_fit #copy.deepcopy(model_fit)
+    ro.model_fit_shifted = model_fit_shifted    
+
+    f = plotting.get_model_fit_as_dict(ro.model_fit)
+    rsq = plotting.get_model_fit_as_dict(f['r_sq'])
+    cc = plotting.get_model_fit_as_dict(f['cc'])
+    #pdb.set_trace()
+    # get full and null-subtracted fit
+    null_fit, dFF_tot = ro.get_null_subtracted_raster(just_null_model=True)
+    ro.params['use_beh_labels'] = True
+    dFF_fit, resid_tot = ro.get_null_subtracted_raster(just_null_model=False)
+    #pdb.set_trace()
+    
+    # rescale fits to original dR/R
+    dFF_tot_base = ro.unnormalize_rows_euc(dFF_tot, 0*ro.data_dict['mu'], ro.data_dict['sig'])
+    dFF_fit_base = ro.unnormalize_rows_euc(dFF_fit-null_fit, 0*ro.data_dict['mu'], ro.data_dict['sig'])
+    dFF_resid_base = ro.unnormalize_rows_euc(resid_tot, 0*ro.data_dict['mu'], ro.data_dict['sig'])
+
+    # show rescaled null-subtracted fit
+    #reload(plotting)
+    dict_tmp = copy.deepcopy(ro.data_dict)
+    dict_tmp['dFF'] = dFF_tot_base
+    dict_tmp['dFF_fit'] = dFF_fit_base
+    dict_tmp['dFF_resid_base'] = dFF_resid_base
+    dict_tmp['dFF_resid'] = resid_tot
+    dict_tmp['behavior'][dict_tmp['behavior']>0] = 1
+    
+    summary_dict = {'expt_id':expt_id, 'ro':ro, 'data_dict':dict_tmp, 'f':f, 'rsq':rsq, 'cc':cc}
+    return summary_dict
 
