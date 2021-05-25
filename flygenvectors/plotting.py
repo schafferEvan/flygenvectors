@@ -242,7 +242,7 @@ def plot_states_simple(
     """
     import matplotlib.cm as cm
     beh_labels = data_dict['beh_labels'].copy()
-    beh_labels[beh_labels==4]=0
+    # beh_labels[beh_labels==4]=0
     if valid_only:
         beh_labels[np.logical_not(data_dict['state_is_valid'])] = 0
 
@@ -252,18 +252,19 @@ def plot_states_simple(
     else:
         include_cbar = False
 
-    Accent = cm.get_cmap('Dark2', 4) #Accent
-    Accent.colors = np.roll(Accent.colors,1,axis=0)
-    Accent.colors[0,-1] = 0.3
-    Accent.colors[3,:] = Accent.colors[1,:].copy()
-    Accent.colors[2,2] = 0.95
-    Accent.colors[2,0] = 0.5
-    Accent.colors[2,-1] = 0.9
-    Accent.colors[1,:3] *= 0
+    # Accent = cm.get_cmap('Dark2', 4) #Accent
+    cmap = cm.get_cmap('Accent', 5)
+    tmp = cm.get_cmap('tab10', 8)
+    cmap.colors[0,:] = [1,1,1,1]
+    cmap.colors[1:4,:] = tmp.colors[:3,:]
+    cmap.colors[4,:] = [0,0,0,.4]
+    cmap.colors[2,:3] *= .85
+    # cmap.colors[1,:3] *= .75
+
     if slc is None:
-        im = axes.imshow(beh_labels.T,aspect='auto',cmap=Accent)#,cmap='Accent',vmin=0, vmax=3)
+        im = axes.imshow(beh_labels.T,aspect='auto',cmap=cmap)#,cmap='Accent',vmin=0, vmax=3)
     else:
-        im = axes.imshow(beh_labels[slc[0]:slc[1]].T,aspect='auto',cmap=Accent)#,cmap='Accent',vmin=0, vmax=3)
+        im = axes.imshow(beh_labels[slc[0]:slc[1]].T,aspect='auto',cmap=cmap)#,cmap='Accent',vmin=0, vmax=3)
 
     if restrict_xticks:
         xtk_labels = np.array([i for i in range(100, int(data_dict['tPl'][-1,0]), 100)]) #[300,400,500,600]
@@ -286,7 +287,7 @@ def plot_states_simple(
 
     if include_cbar:
         cbar = plt.colorbar(im) #, ticks=np.arange(np.min(beh_labels),np.max(beh_labels)+1))
-        labels = ['still / other', 'run', 'front_groom', 'back_groom']
+        labels = ['still', 'run', 'front_groom', 'back_groom', 'other']
         l = len(labels)
         lp1 = (l-1)/(2*l)
         cbar.set_ticks( np.linspace( lp1, l-1-lp1, l ) )
@@ -2146,8 +2147,13 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,s
         neural_data = data_dict['dFF'].copy()
         for i in range(neural_data.shape[0]):
             neural_data[i,:] -= neural_data[i,:].min() #np.quantile(neural_data[i,:],.01)
+    elif activity=='resid':
+        neural_data = data_dict['dFF_resid'].copy()*np.sqrt(data_dict['dFF'].shape[1])
+    elif activity=='resid_dFF':
+        neural_data = data_dict['dFF_resid_base'].copy()
     elif activity=='std':
         neural_data = data_dict['dFF'].copy()*np.sqrt(data_dict['dFF'].shape[1])
+    
     if(color_range=='auto'):
         dFF = trim_dynamic_range(neural_data, 0.01, 0.95)
         cmin, cmax = (0,1)
@@ -2253,9 +2259,9 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,s
     plt.subplots_adjust(right=0.8)
     cbar_ax = f.add_axes([0.85, 0.4, 0.03, 0.4])
     f.colorbar(im, cax=cbar_ax, ticks=[cmin,cmin+.5*(cmax-cmin),cmax])
-    if (activity=='raw') or (activity=='nobase'):
+    if (activity=='raw') or (activity=='nobase') or (activity=='dFF_resid_base'):
         cbar_ax.set_title(r'$\Delta R/R$')
-    elif activity=='std':
+    elif (activity=='std') or (activity=='resid'):
         cbar_ax.set_title(r'$\sigma_{\Delta R/R}$')
     return axes
 
