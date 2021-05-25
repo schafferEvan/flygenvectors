@@ -170,11 +170,11 @@ class reg_obj:
             # self.cell_id = n
             # res = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds)
             # model_fit[n] = self.coeff_list_to_dict(res['x'])
-            model_fit[n] = self.get_one_cell_mle(cell_id=n, initial_conds=initial_conds, bounds=bounds)
+            model_fit[n] = self.get_one_cell_mle(cell_id=n, initial_conds=initial_conds, bounds=bounds, shifted=shifted)
         return model_fit
 
 
-    def get_one_cell_mle(self, cell_id=None, initial_conds=None, bounds=None):
+    def get_one_cell_mle(self, cell_id=None, initial_conds=None, bounds=None, shifted=None):
         self.cell_id = cell_id
         if initial_conds is None:
             initial_conds = self.get_default_inits()
@@ -497,7 +497,7 @@ class reg_obj:
                 else:
                     self.exclude_regressors.append( [label] )
                 ics = self.dict_to_flat_list(model_fit[n])
-                coeffs_null = get_one_cell_mle(cell_id=n, initial_conds=ics)
+                coeffs_null = get_one_cell_mle(cell_id=n, initial_conds=ics, shifted=shifted)
                 coeff_list = self.dict_to_flat_list(coeffs_null)
                 dFF_fit_null = self.get_model(coeff_list) 
 
