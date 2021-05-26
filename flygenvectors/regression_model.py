@@ -60,6 +60,7 @@ class reg_obj:
         self.cell_id = 0
         self.model_fit = []
         self.exclude_regressors = None
+        self.scaling_for_fit = 100 # temporarily adjust dynamic range for robustness in fitting
 
 
     def get_model(self, fit_coeffs, just_null_model=False):
@@ -121,8 +122,9 @@ class reg_obj:
     def get_objective_fn(self, fit_coeffs):
         '''evaluate fit
         use_only_valid: if True, computes objective only from times with valid behav label, defined in preprocessing as state with duration > 1s
+        NOTE: don't use this outside of get_one_cell_mle without first rescaling fit_coeffs
         ''' 
-        dFF = self.data_dict[self.activity][self.cell_id,:]
+        dFF = self.data_dict[self.activity][self.cell_id,:]*self.scaling_for_fit
         dFF_fit = self.get_model(fit_coeffs)
         #obj = ((dFF[len(t_exp)-1:]-dFF_fit)**2).sum()
         if self.params['use_only_valid']:
@@ -165,8 +167,11 @@ class reg_obj:
             bounds.append([None,None]) # trial coeffs   
         N = self.data_dict[self.activity].shape[0]
         model_fit = [None]*N
+        # pdb.set_trace()
         for n in range(N):
-            if not np.mod(n,100): print(str(int(100*n/N))+'%', end=' ')
+            if not np.mod(n,10): 
+                print(str(int(100*n/N))+'%', end=' ')
+                sys.stdout.flush()
             # self.cell_id = n
             # res = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds)
             # model_fit[n] = self.coeff_list_to_dict(res['x'])
@@ -188,9 +193,23 @@ class reg_obj:
             bounds.append([None,None]) # trial coeffs   
             
         res = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds)
-        cell_fit = self.coeff_list_to_dict(res['x'])
+        res_scaled = self.fix_coeff_scaling(res['x'])
+        cell_fit = self.coeff_list_to_dict(res_scaled)
         return cell_fit
         
+
+    def fix_coeff_scaling(self, resx):
+        # after rescaling dFF for numerical robustness, undo in saved parameters
+        cell_fit = self.coeff_list_to_dict(resx)
+        cell_fit_scale = copy.deepcopy(cell_fit)
+        cell_fit_scale['alpha_0']/=self.scaling_for_fit
+        cell_fit_scale['beta_0']/=self.scaling_for_fit
+        cell_fit_scale['gamma_0']/=self.scaling_for_fit
+        cell_fit_scale['delta_0']/=self.scaling_for_fit
+        cell_fit_scale['trial_coeffs']/=self.scaling_for_fit
+        res_out = self.dict_to_flat_list(cell_fit_scale)
+        return res_out
+
 
     def dict_to_flat_list(self, coeff_dict):
         # regenerate coeff dict from list (inverse of below).
@@ -870,7 +889,7 @@ class reg_obj:
         perms = np.random.randint(low=low_idx, high=high_idx, size=n_perms)
         for n in range(n_perms):
             self.data_dict['circshift_behav'][n] = np.roll(self.data_dict['behavior'], perms[n])
-            self.data_dict['circshift_beh_labels'][n] = np.roll(self.data_dict['beh_labels'], perms[n])
+            self.data_dict['circshift_beh_labels'][n] = np.roll(self.data_dict['beh_labels'], perms[n], axis=0)
         self.data_dict_orig['circshift_behav'] = copy.deepcopy( self.data_dict['circshift_behav'] )
         self.data_dict_downsample['circshift_behav'] = copy.deepcopy( self.data_dict['circshift_behav'] )
         self.data_dict_orig['circshift_beh_labels'] = copy.deepcopy( self.data_dict['circshift_beh_labels'] )
@@ -959,13 +978,17 @@ class reg_obj:
         return bounds
 
 
-    def get_model_mle_with_many_inits(self, shifted=None, tau_inits=[8,10,12,15,18,22,25,30,35,42,50], exclude_regressors=None):
+    def get_model_mle_with_many_inits(self, shifted=None, tau_inits=[8,10,12,15,18,22,25,30,35,42,50], exclude_regressors=None, verbose=True):
+        """
+        # DEPRECATED. use fit_and_eval_reg_model
+        """
         initial_conds = self.get_default_inits()
         self.exclude_regressors = exclude_regressors
         model_fit = self.get_model_mle(shifted=shifted, initial_conds=initial_conds.copy())
         # pdb.set_trace()
         self.evaluate_model(model_fit=model_fit, shifted=shifted)
         for i in enumerate(tau_inits):
+            if verbose: print( str(i[0])+' of '+str(len(tau_inits))+': ', end=' ' )
             initial_conds[-2] = i[1]
             model_fit_new = self.get_model_mle(shifted=shifted, initial_conds=initial_conds.copy())
             self.evaluate_model(model_fit=model_fit_new, shifted=shifted)
@@ -975,23 +998,16 @@ class reg_obj:
         return model_fit
 
 
-    def fit_and_eval_reg_model_extended(self, n_perms=10, exclude_regressors=None):
+    def fit_and_eval_reg_model(self, shifted=None, exclude_regressors=None):
         """
         exclude_regressors: (list) test model with some coefficients set to zero 
         """
         self.exclude_regressors = exclude_regressors
-        self.model_fit = self.get_model_mle_with_many_inits(shifted=None, exclude_regressors=exclude_regressors)
-        print('Testing model on circshifted data')
-        # pdb.set_trace()
-        self.get_circshift_behav_data(n_perms=n_perms)
-        self.model_fit_shifted = [None]*n_perms
-        for n in range(n_perms):
-            print('Perm '+str(n))
-            try:
-                self.model_fit_shifted[n] = self.get_model_mle_with_many_inits(shifted=n, exclude_regressors=exclude_regressors)
-            except:
-                pdb.set_trace()
-
+        initial_conds = self.get_default_inits()
+        model_fit = self.get_model_mle(shifted=shifted, initial_conds=initial_conds.copy())
+        self.evaluate_model(model_fit=model_fit, shifted=shifted)
+        return model_fit
+            
 
 def get_summary_dict(expt_id, split_behav, data_dict, model_fit, model_fit_shifted, use_beh_labels):
     """
