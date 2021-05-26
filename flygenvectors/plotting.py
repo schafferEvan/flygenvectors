@@ -234,14 +234,19 @@ def plot_dlc_arhmm_states(
 
 
 def plot_states_simple(
-        data_dict, slc=None, axes=None, restrict_xticks=True, valid_only=False):
+        data_dict, slc=None, axes=None, restrict_xticks=True, valid_only=False, valid_thresh=0.75):
     """
     Args:
         states (np array): length T
         slc: length 2 list of slice indices
     """
     import matplotlib.cm as cm
-    beh_labels = data_dict['beh_labels'].copy()
+    # beh_labels = data_dict['beh_labels'].copy()
+    beh_labels = np.expand_dims(np.argmax(data_dict['beh_labels'],axis=1),axis=1).copy()
+    not_valid = data_dict['beh_labels'].max(axis=1)<valid_thresh
+    beh_labels[not_valid]=0 #assign points with low certainty to "other"
+
+
     # beh_labels[beh_labels==4]=0
     if valid_only:
         beh_labels[np.logical_not(data_dict['state_is_valid'])] = 0
@@ -260,6 +265,7 @@ def plot_states_simple(
     cmap.colors[4,:] = [0,0,0,.4]
     cmap.colors[2,:3] *= .85
     # cmap.colors[1,:3] *= .75
+    cmap.colors = np.roll(cmap.colors,1,axis=0)
 
     if slc is None:
         im = axes.imshow(beh_labels.T,aspect='auto',cmap=cmap)#,cmap='Accent',vmin=0, vmax=3)
@@ -287,7 +293,7 @@ def plot_states_simple(
 
     if include_cbar:
         cbar = plt.colorbar(im) #, ticks=np.arange(np.min(beh_labels),np.max(beh_labels)+1))
-        labels = ['still', 'run', 'front_groom', 'back_groom', 'other']
+        labels = ['other', 'still', 'run', 'front_groom', 'back_groom']
         l = len(labels)
         lp1 = (l-1)/(2*l)
         cbar.set_ticks( np.linspace( lp1, l-1-lp1, l ) )
