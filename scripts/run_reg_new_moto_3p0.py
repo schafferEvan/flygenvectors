@@ -134,7 +134,8 @@ ro = model.reg_obj(activity=activity,
 if (part_i==0) or (part_i==2):
     # ro.model_fit = ro.get_model_mle_with_many_inits(shifted=None, exclude_regressors=['gamma_0', 'delta_0'])
     # pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_3p0_run.pkl', "wb" ) )
-    ro.model_fit = ro.get_model_mle_with_many_inits(shifted=None, exclude_regressors=['gamma_0'])
+    # ro.model_fit = ro.get_model_mle_with_many_inits(shifted=None, exclude_regressors=['gamma_0'])
+    ro.model_fit = ro.fit_and_eval_reg_model(shifted=None, exclude_regressors=['gamma_0'])
     pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_3p0_all.pkl', "wb" ) )
 
 if (part_i==1) or (part_i==2):
@@ -144,8 +145,9 @@ if (part_i==1) or (part_i==2):
     ro.model_fit_shifted = [None]*n_perms
     for n in range(n_perms):
         print('Perm '+str(n))
-        ro.model_fit_shifted[n] = ro.get_model_mle_with_many_inits(shifted=n)
-        pickle.dump( ro.model_fit_shifted, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_shifted_'+part+'_1p0_prune.pkl', "wb" ) )
+        # ro.model_fit_shifted[n] = ro.get_model_mle_with_many_inits(shifted=n, exclude_regressors=['gamma_0'])
+        ro.model_fit_shifted[n] = ro.fit_and_eval_reg_model(shifted=n, exclude_regressors=['gamma_0'])
+        pickle.dump( ro.model_fit_shifted, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_shifted_'+part+'_3p0_all.pkl', "wb" ) )
     
 
 
