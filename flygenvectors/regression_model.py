@@ -13,6 +13,9 @@ import utils as futils
 import plotting
 import ssmplotting
 import pdb
+from joblib import Parallel, delayed
+import multiprocessing
+
 
 
 
@@ -61,6 +64,7 @@ class reg_obj:
         self.model_fit = []
         self.exclude_regressors = None
         self.scaling_for_fit = 100 # temporarily adjust dynamic range for robustness in fitting
+        self.num_cores = multiprocessing.cpu_count()
 
 
     def get_model(self, fit_coeffs, just_null_model=False):
@@ -135,7 +139,7 @@ class reg_obj:
         return obj
 
 
-    def get_model_mle(self, downsample=True, shifted=None, initial_conds=None, bounds=None):
+    def get_model_mle(self, downsample=True, shifted=None, initial_conds=None, bounds=None, parallel=True):
         """
         downsample: flag creates downsampled dict, or points to it if one is already made.
         shifted: if not None, uses circshifted dict instead of original
@@ -168,14 +172,18 @@ class reg_obj:
         N = self.data_dict[self.activity].shape[0]
         model_fit = [None]*N
         # pdb.set_trace()
-        for n in range(N):
-            if not np.mod(n,10): 
-                print(str(int(100*n/N))+'%', end=' ')
-                sys.stdout.flush()
-            # self.cell_id = n
-            # res = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds)
-            # model_fit[n] = self.coeff_list_to_dict(res['x'])
-            model_fit[n] = self.get_one_cell_mle(cell_id=n, initial_conds=initial_conds, bounds=bounds, shifted=shifted)
+        if parallel:
+            model_fit = Parallel(n_jobs=self.num_cores)(delayed(
+                self.get_one_cell_mle)(cell_id=n, initial_conds=initial_conds, bounds=bounds, shifted=shifted) for n in range(N))
+        else:
+            for n in range(N):
+                if not np.mod(n,10): 
+                    print(str(int(100*n/N))+'%', end=' ')
+                    sys.stdout.flush()
+                # self.cell_id = n
+                # res = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds)
+                # model_fit[n] = self.coeff_list_to_dict(res['x'])
+                model_fit[n] = self.get_one_cell_mle(cell_id=n, initial_conds=initial_conds, bounds=bounds, shifted=shifted)
         return model_fit
 
 
