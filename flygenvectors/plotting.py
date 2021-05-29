@@ -2595,6 +2595,14 @@ def cold_to_hot_cmap(show_map=False, tks=None, tk_labels=None):
     return my_cmap
 
 
+def cmap_from_dendrogram(R):
+    # convert colors from a dencrogram into usable colormap
+    from matplotlib.colors import LinearSegmentedColormap
+    basic_cols=np.unique(R['leaves_color_list'])
+    my_cmap=LinearSegmentedColormap.from_list('mycmap', basic_cols)
+    return my_cmap
+
+
 def display_cmap(my_cmap, mx=100, tks=[0,50,100], tk_labels=None):
     plt.figure(figsize=(5,0.25))
     sprange = 100
