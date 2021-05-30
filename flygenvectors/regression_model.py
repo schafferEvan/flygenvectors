@@ -174,7 +174,7 @@ class reg_obj:
         # pdb.set_trace()
         if parallel:
             model_fit = Parallel(n_jobs=self.num_cores)(delayed(
-                self.get_one_cell_mle)(cell_id=n, initial_conds=initial_conds, bounds=bounds, shifted=shifted) for n in range(N))
+                self.get_one_cell_mle)(cell_id=n, initial_conds_input=initial_conds, bounds=bounds, shifted=shifted) for n in range(N))
         else:
             for n in range(N):
                 if not np.mod(n,10): 
