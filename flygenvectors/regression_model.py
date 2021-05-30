@@ -183,22 +183,25 @@ class reg_obj:
                 # self.cell_id = n
                 # res = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds)
                 # model_fit[n] = self.coeff_list_to_dict(res['x'])
-                model_fit[n] = self.get_one_cell_mle(cell_id=n, initial_conds=initial_conds, bounds=bounds, shifted=shifted)
+                model_fit[n] = self.get_one_cell_mle(cell_id=n, initial_conds_input=initial_conds, bounds=bounds, shifted=shifted)
         return model_fit
 
 
-    def get_one_cell_mle(self, cell_id=None, initial_conds=None, bounds=None, shifted=None):
+    def get_one_cell_mle(self, cell_id=None, initial_conds_input=None, bounds=None, shifted=None):
         self.cell_id = cell_id
-        if initial_conds is None:
+        if initial_conds_input is None:
             initial_conds = self.get_default_inits()
+        else:
+            initial_conds = copy.deepcopy(initial_conds_input)
         self.get_regressors(shifted=shifted)
         if bounds is None:
             bounds = self.get_default_bounds()
         if self.exclude_regressors is not None:
             bounds = self.exclude_regressors_by_bounds(bounds)
         for i in range(self.n_trials-1):
-            initial_conds.append(0)    # trial coeffs
             bounds.append([None,None]) # trial coeffs   
+            if initial_conds_input is None:
+                initial_conds.append(0)    # trial coeffs
             
         res = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds)
         res_scaled = self.fix_coeff_scaling(res['x'])
@@ -487,7 +490,8 @@ class reg_obj:
         # get linpart to subtract from everything
         coeffs_null = copy.deepcopy(model_fit[n])
         for label in reg_labels:
-            for j in range(coeffs_null[label].shape[0]):
+            # for j in range(coeffs_null[label].shape[0]):
+            for j in range(len(coeffs_null[label])):
                 coeffs_null[label][j] = 0
         coeff_list = self.dict_to_flat_list(coeffs_null)
         dFF_fit_linpart = self.get_model(coeff_list) 
@@ -513,18 +517,18 @@ class reg_obj:
             stat_list = []
             r_sq_list = []
             cc_list = []
-            null_fit_list = [None]*coeff_dict[label].shape[0]
-            for j in range(coeff_dict[label].shape[0]):
+            null_fit_list = [None]*len(coeff_dict[label])
+            for j in range( len(coeff_dict[label]) ):
                 # j_inc = [x for x in range(coeff_dict[label].shape[0]) if x != j]
                 # coeffs_null = copy.deepcopy(model_fit[n])
                 # coeffs_null[label][j] = 0
                 self.exclude_regressors = exclude_regressors_backup.copy()
-                if coeff_dict[label].shape[0]>1:
+                if len(coeff_dict[label])>1:
                     self.exclude_regressors.append( [label,j] )
                 else:
                     self.exclude_regressors.append( [label] )
                 ics = self.dict_to_flat_list(model_fit[n])
-                coeffs_null = get_one_cell_mle(cell_id=n, initial_conds=ics, shifted=shifted)
+                coeffs_null = self.get_one_cell_mle(cell_id=n, initial_conds_input=ics, shifted=shifted)
                 coeff_list = self.dict_to_flat_list(coeffs_null)
                 dFF_fit_null = self.get_model(coeff_list) 
 
