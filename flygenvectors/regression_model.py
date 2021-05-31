@@ -174,7 +174,7 @@ class reg_obj:
         # pdb.set_trace()
         if parallel:
             model_fit = Parallel(n_jobs=self.num_cores)(delayed(
-                self.get_one_cell_mle)(cell_id=n, initial_conds_input=initial_conds, bounds=bounds, shifted=shifted) for n in range(N))
+                self.get_one_cell_mle)(cell_id=n, initial_conds=initial_conds, bounds=bounds, shifted=shifted) for n in range(N))
         else:
             for n in range(N):
                 if not np.mod(n,10): 
@@ -183,25 +183,25 @@ class reg_obj:
                 # self.cell_id = n
                 # res = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds)
                 # model_fit[n] = self.coeff_list_to_dict(res['x'])
-                model_fit[n] = self.get_one_cell_mle(cell_id=n, initial_conds_input=initial_conds, bounds=bounds, shifted=shifted)
+                model_fit[n] = self.get_one_cell_mle(cell_id=n, initial_conds=initial_conds, bounds=bounds, shifted=shifted)
         return model_fit
 
 
-    def get_one_cell_mle(self, cell_id=None, initial_conds_input=None, bounds=None, shifted=None):
+    def get_one_cell_mle(self, cell_id=None, initial_conds=None, bounds=None, shifted=None):
         self.cell_id = cell_id
-        if initial_conds_input is None:
-            initial_conds = self.get_default_inits()
-        else:
-            initial_conds = copy.deepcopy(initial_conds_input)
-        self.get_regressors(shifted=shifted)
-        if bounds is None:
-            bounds = self.get_default_bounds()
-        if self.exclude_regressors is not None:
-            bounds = self.exclude_regressors_by_bounds(bounds)
-        for i in range(self.n_trials-1):
-            bounds.append([None,None]) # trial coeffs   
-            if initial_conds_input is None:
-                initial_conds.append(0)    # trial coeffs
+        # if initial_conds_input is None:
+        #     initial_conds = self.get_default_inits()
+        # else:
+        #     initial_conds = copy.deepcopy(initial_conds_input)
+        # self.get_regressors(shifted=shifted)
+        # if bounds is None:
+        #     bounds = self.get_default_bounds()
+        # if self.exclude_regressors is not None:
+        #     bounds = self.exclude_regressors_by_bounds(bounds)
+        # for i in range(self.n_trials-1):
+        #     bounds.append([None,None]) # trial coeffs   
+        #     if initial_conds_input is None:
+        #         initial_conds.append(0)    # trial coeffs
             
         res = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds)
         res_scaled = self.fix_coeff_scaling(res['x'])
@@ -528,7 +528,13 @@ class reg_obj:
                 else:
                     self.exclude_regressors.append( [label] )
                 ics = self.dict_to_flat_list(model_fit[n])
-                coeffs_null = self.get_one_cell_mle(cell_id=n, initial_conds_input=ics, shifted=shifted)
+
+                bounds = self.get_default_bounds()
+                bounds = self.exclude_regressors_by_bounds(bounds)
+                for i in range(self.n_trials-1):
+                    bounds.append([None,None]) # trial coeffs   
+
+                coeffs_null = self.get_one_cell_mle(cell_id=n, initial_conds=ics, bounds=bounds, shifted=shifted)
                 coeff_list = self.dict_to_flat_list(coeffs_null)
                 dFF_fit_null = self.get_model(coeff_list) 
 
