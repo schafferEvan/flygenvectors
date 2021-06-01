@@ -222,12 +222,13 @@ class reg_obj:
         return res_out
 
 
-    def dict_to_flat_list(self, coeff_dict):
+    def dict_to_flat_list(self, coeff_dict, omit_list=['r_sq','stat','cc']):
         # regenerate coeff dict from list (inverse of below).
         reg_labels = list(coeff_dict.keys())
         coeff_list_nested = []
-        for j in range(len(reg_labels)):
-            coeff_list_nested.append( coeff_dict[ reg_labels[j] ] )
+        for l in reg_labels:
+            if l not in omit_list:
+                coeff_list_nested.append( coeff_dict[l] )
         coeff_list = [val for sublist in coeff_list_nested for val in sublist]
         return coeff_list
 
@@ -984,7 +985,7 @@ class reg_obj:
 
     def exclude_regressors_by_bounds(self, bounds):
         for reg in self.exclude_regressors:
-            if reg == 'beta_0':
+            if reg == ['beta_0']:
                 bounds[3] = [-1e-12,1e-12]
             elif reg == 'gamma_0':
                 bounds[4] = [-1e-12,1e-12]
