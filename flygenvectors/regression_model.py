@@ -190,7 +190,7 @@ class reg_obj:
     def get_one_cell_mle(self, cell_id=None, initial_conds=None, bounds=None, shifted=None):
         self.cell_id = cell_id
         if not np.mod(cell_id,100): 
-            print(str(int(100*n/self.data_dict[self.activity].shape[0]))+'%', end=' ')
+            print(str(int(100*cell_id/self.data_dict[self.activity].shape[0]))+'%', end=' ')
             sys.stdout.flush()
         # if initial_conds_input is None:
         #     initial_conds = self.get_default_inits()
@@ -465,13 +465,13 @@ class reg_obj:
             r_sq = [None]*N
             stat = [None]*N
             cc = [None]*N
-            r_sq, stat, cc, _  = Parallel(n_jobs=self.num_cores)(delayed(
+            out_tot  = Parallel(n_jobs=self.num_cores)(delayed(
                 self.evaluate_model_for_one_cell)(n, 
                     model_fit=model_fit, reg_labels=reg_labels, shifted=shifted, regs_prepped=True) for n in range(N))
             for n in range(self.data_dict[self.activity].shape[0]):
-                model_fit[n]['r_sq'] = r_sq[n] #1-SS_res.sum()/SS_tot.sum()
-                model_fit[n]['stat'] = stat[n]
-                model_fit[n]['cc'] = cc[n]
+                model_fit[n]['r_sq'] = out_tot[n][0] #1-SS_res.sum()/SS_tot.sum()
+                model_fit[n]['stat'] = out_tot[n][1]
+                model_fit[n]['cc'] = out_tot[n][2]
         else:
             for n in range(self.data_dict[self.activity].shape[0]):
                 if not np.mod(n,round(self.data_dict[self.activity].shape[0]/20)): print('.', end='')
@@ -489,9 +489,9 @@ class reg_obj:
     def evaluate_model_for_one_cell(self, n, model_fit, reg_labels=None, shifted=None, regs_prepped=False):
         # regenerate fit from best parameters and evaluate model
         # self.data_dict = self.data_dict_orig # don't do this
-        if not np.mod(n,round(self.data_dict[self.activity].shape[0]/20)): 
-            print('.', end='')
-            sys.stdout.flush()
+        # if not np.mod(n,round(self.data_dict[self.activity].shape[0]/20)): 
+        #     print('.', end='')
+        #     sys.stdout.flush()
         if not regs_prepped:
             self.refresh_params()
             self.get_regressors(shifted=shifted)
