@@ -189,6 +189,9 @@ class reg_obj:
 
     def get_one_cell_mle(self, cell_id=None, initial_conds=None, bounds=None, shifted=None):
         self.cell_id = cell_id
+        if not np.mod(cell_id,100): 
+            print(str(int(100*n/self.data_dict[self.activity].shape[0]))+'%', end=' ')
+            sys.stdout.flush()
         # if initial_conds_input is None:
         #     initial_conds = self.get_default_inits()
         # else:
@@ -445,7 +448,7 @@ class reg_obj:
 
         
 
-    def evaluate_model(self, model_fit, reg_labels=None, shifted=None):
+    def evaluate_model(self, model_fit, reg_labels=None, shifted=None, parallel=True):
         # regenerate fit from best parameters and evaluate model
         # self.data_dict = self.data_dict_orig # don't do this
         self.refresh_params()
@@ -457,14 +460,27 @@ class reg_obj:
                 reg_labels=['beta_0','gamma_0']
         
         print('evaluating ', end='')
-        for n in range(self.data_dict[self.activity].shape[0]):
-            if not np.mod(n,round(self.data_dict[self.activity].shape[0]/20)): print('.', end='')
-            sys.stdout.flush()
-            r_sq, stat, cc, _ = self.evaluate_model_for_one_cell(n, 
-                model_fit=model_fit, reg_labels=reg_labels, shifted=shifted, regs_prepped=True)
-            model_fit[n]['r_sq'] = r_sq #1-SS_res.sum()/SS_tot.sum()
-            model_fit[n]['stat'] = stat
-            model_fit[n]['cc'] = cc
+        if parallel:
+            N = len(model_fit)
+            r_sq = [None]*N
+            stat = [None]*N
+            cc = [None]*N
+            r_sq, stat, cc, _  = Parallel(n_jobs=self.num_cores)(delayed(
+                self.evaluate_model_for_one_cell)(n, 
+                    model_fit=model_fit, reg_labels=reg_labels, shifted=shifted, regs_prepped=True) for n in range(N))
+            for n in range(self.data_dict[self.activity].shape[0]):
+                model_fit[n]['r_sq'] = r_sq[n] #1-SS_res.sum()/SS_tot.sum()
+                model_fit[n]['stat'] = stat[n]
+                model_fit[n]['cc'] = cc[n]
+        else:
+            for n in range(self.data_dict[self.activity].shape[0]):
+                if not np.mod(n,round(self.data_dict[self.activity].shape[0]/20)): print('.', end='')
+                sys.stdout.flush()
+                r_sq, stat, cc, _ = self.evaluate_model_for_one_cell(n, 
+                    model_fit=model_fit, reg_labels=reg_labels, shifted=shifted, regs_prepped=True)
+                model_fit[n]['r_sq'] = r_sq #1-SS_res.sum()/SS_tot.sum()
+                model_fit[n]['stat'] = stat
+                model_fit[n]['cc'] = cc
         print(' Complete')
         sys.stdout.flush()
 
@@ -473,6 +489,9 @@ class reg_obj:
     def evaluate_model_for_one_cell(self, n, model_fit, reg_labels=None, shifted=None, regs_prepped=False):
         # regenerate fit from best parameters and evaluate model
         # self.data_dict = self.data_dict_orig # don't do this
+        if not np.mod(n,round(self.data_dict[self.activity].shape[0]/20)): 
+            print('.', end='')
+            sys.stdout.flush()
         if not regs_prepped:
             self.refresh_params()
             self.get_regressors(shifted=shifted)
