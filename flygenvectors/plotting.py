@@ -2595,11 +2595,17 @@ def cold_to_hot_cmap(show_map=False, tks=None, tk_labels=None):
     return my_cmap
 
 
-def cmap_from_dendrogram(R):
+def cmap_from_dendrogram(R, color_idx=None):
     # convert colors from a dencrogram into usable colormap
+    # import matplotlib.cm as cm
     from matplotlib.colors import LinearSegmentedColormap
     basic_cols=np.unique(R['leaves_color_list'])
-    my_cmap=LinearSegmentedColormap.from_list('mycmap', basic_cols)
+    if color_idx is None:
+        map_cols = basic_cols
+    else:
+        # gry = cm.get_cmap('Greys', 15)
+        map_cols = ['#363737', basic_cols[color_idx]]
+    my_cmap=LinearSegmentedColormap.from_list('mycmap', map_cols)
     return my_cmap
 
 
