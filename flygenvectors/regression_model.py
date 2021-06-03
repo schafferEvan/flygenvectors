@@ -448,7 +448,7 @@ class reg_obj:
 
         
 
-    def evaluate_model(self, model_fit, reg_labels=None, shifted=None, parallel=True):
+    def evaluate_model(self, model_fit, reg_labels=None, shifted=None, parallel=True, refit_model=True):
         # regenerate fit from best parameters and evaluate model
         # self.data_dict = self.data_dict_orig # don't do this
         self.refresh_params()
@@ -462,22 +462,22 @@ class reg_obj:
         print('evaluating ', end='')
         if parallel:
             N = len(model_fit)
-            r_sq = [None]*N
-            stat = [None]*N
-            cc = [None]*N
             out_tot  = Parallel(n_jobs=self.num_cores)(delayed(
                 self.evaluate_model_for_one_cell)(n, 
-                    model_fit=model_fit, reg_labels=reg_labels, shifted=shifted, regs_prepped=True) for n in range(N))
+                    model_fit=model_fit, reg_labels=reg_labels, shifted=shifted, regs_prepped=True, refit_model=refit_model) for n in range(N))
             for n in range(self.data_dict[self.activity].shape[0]):
-                model_fit[n]['r_sq'] = out_tot[n][0] #1-SS_res.sum()/SS_tot.sum()
-                model_fit[n]['stat'] = out_tot[n][1]
-                model_fit[n]['cc'] = out_tot[n][2]
+                if refit_model:
+                    # purely based on later utility, keep r_sq and stat from refit, keep cc from orig fit
+                    model_fit[n]['r_sq'] = out_tot[n][0]
+                    model_fit[n]['stat'] = out_tot[n][1]
+                else:
+                    model_fit[n]['cc'] = out_tot[n][2]
         else:
             for n in range(self.data_dict[self.activity].shape[0]):
                 if not np.mod(n,round(self.data_dict[self.activity].shape[0]/20)): print('.', end='')
                 sys.stdout.flush()
                 r_sq, stat, cc, _ = self.evaluate_model_for_one_cell(n, 
-                    model_fit=model_fit, reg_labels=reg_labels, shifted=shifted, regs_prepped=True)
+                    model_fit=model_fit, reg_labels=reg_labels, shifted=shifted, regs_prepped=True, refit_model=refit_model)
                 model_fit[n]['r_sq'] = r_sq #1-SS_res.sum()/SS_tot.sum()
                 model_fit[n]['stat'] = stat
                 model_fit[n]['cc'] = cc
@@ -486,12 +486,13 @@ class reg_obj:
 
     
     
-    def evaluate_model_for_one_cell(self, n, model_fit, reg_labels=None, shifted=None, regs_prepped=False):
+    def evaluate_model_for_one_cell(self, n, model_fit, reg_labels=None, shifted=None, regs_prepped=False, refit_model=False):
         # regenerate fit from best parameters and evaluate model
         # self.data_dict = self.data_dict_orig # don't do this
-        # if not np.mod(n,round(self.data_dict[self.activity].shape[0]/20)): 
-        #     print('.', end='')
-        #     sys.stdout.flush()
+        if not refit_model:
+            if not np.mod(n,round(self.data_dict[self.activity].shape[0]/50)): 
+                print('.', end='')
+                sys.stdout.flush()
         if not regs_prepped:
             self.refresh_params()
             self.get_regressors(shifted=shifted)
@@ -510,7 +511,6 @@ class reg_obj:
         # get linpart to subtract from everything
         coeffs_null = copy.deepcopy(model_fit[n])
         for label in reg_labels:
-            # for j in range(coeffs_null[label].shape[0]):
             for j in range(len(coeffs_null[label])):
                 coeffs_null[label][j] = 0
         coeff_list = self.dict_to_flat_list(coeffs_null)
@@ -540,21 +540,26 @@ class reg_obj:
             null_fit_list = [None]*len(coeff_dict[label])
             for j in range( len(coeff_dict[label]) ):
                 # j_inc = [x for x in range(coeff_dict[label].shape[0]) if x != j]
-                # coeffs_null = copy.deepcopy(model_fit[n])
-                # coeffs_null[label][j] = 0
-                self.exclude_regressors = exclude_regressors_backup.copy()
-                if len(coeff_dict[label])>1:
-                    self.exclude_regressors.append( [label,j] )
+                if not refit_model:
+                    # use existing parameters to evaluate model
+                    coeffs_null = copy.deepcopy(model_fit[n])
+                    coeffs_null[label][j] = 0
                 else:
-                    self.exclude_regressors.append( [label] )
-                ics = self.dict_to_flat_list(model_fit[n])
+                    # refit model with new constraints
+                    self.exclude_regressors = exclude_regressors_backup.copy()
+                    if len(coeff_dict[label])>1:
+                        self.exclude_regressors.append( [label,j] )
+                    else:
+                        self.exclude_regressors.append( [label] )
+                    ics = self.dict_to_flat_list(model_fit[n])
 
-                bounds = self.get_default_bounds()
-                bounds = self.exclude_regressors_by_bounds(bounds)
-                for i in range(self.n_trials-1):
-                    bounds.append([None,None]) # trial coeffs   
+                    bounds = self.get_default_bounds()
+                    bounds = self.exclude_regressors_by_bounds(bounds)
+                    for i in range(self.n_trials-1):
+                        bounds.append([None,None]) # trial coeffs   
 
-                coeffs_null = self.get_one_cell_mle(cell_id=n, initial_conds=ics, bounds=bounds, shifted=shifted)
+                    coeffs_null = self.get_one_cell_mle(cell_id=n, initial_conds=ics, bounds=bounds, shifted=shifted)
+                
                 coeff_list = self.dict_to_flat_list(coeffs_null)
                 dFF_fit_null = self.get_model(coeff_list) 
 
