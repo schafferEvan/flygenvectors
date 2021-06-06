@@ -196,8 +196,8 @@ class reg_obj:
         
         options={'maxiter': 500, 'ftol': 1e-06}
         obj_fun_val = np.inf
-        for i in enumerate(tau_inits):
-            initial_conds[8] = tau_inits[i]
+        for tau in tau_inits:
+            initial_conds[8] = tau
             res_tmp = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds, options=options)
             if res_tmp.fun<obj_fun_val:
                 res = copy.deepcopy(res_tmp)
