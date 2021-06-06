@@ -132,11 +132,18 @@ ro = model.reg_obj(activity=activity,
 # ro.fit_and_eval_reg_model_extended(n_perms=n_perms)
 
 if (part_i==0) or (part_i==2):
-    # ro.model_fit = ro.get_model_mle_with_many_inits(shifted=None, exclude_regressors=['gamma_0', 'delta_0'])
-    # pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_3p0_run.pkl', "wb" ) )
-    # ro.model_fit = ro.get_model_mle_with_many_inits(shifted=None, exclude_regressors=['gamma_0'])
-    ro.model_fit = ro.fit_and_eval_reg_model(shifted=None, exclude_regressors=['gamma_0'])
+    # ro.model_fit = ro.fit_and_eval_reg_model(shifted=None, exclude_regressors=['gamma_0'])
+    ro.exclude_regressors = ['gamma_0']
+    initial_conds = ro.get_default_inits()
+    ro.model_fit = ro.get_model_mle(shifted=None, initial_conds=initial_conds.copy())
     pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_3p0_all.pkl', "wb" ) )
+
+    ro.evaluate_model(model_fit=ro.model_fit, parallel=True, refit_model=True)
+    pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_3p1_all.pkl', "wb" ) )
+
+    ro.evaluate_model(model_fit=ro.model_fit, parallel=True, refit_model=False)
+    pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_3p2_all.pkl', "wb" ) )
+
 
 if (part_i==1) or (part_i==2):
     print('Testing model on circshifted data')
