@@ -187,26 +187,21 @@ class reg_obj:
         return model_fit
 
 
-    def get_one_cell_mle(self, cell_id=None, initial_conds=None, bounds=None, shifted=None):
+    def get_one_cell_mle(self, cell_id=None, initial_conds=None, bounds=None, 
+                        shifted=None, tau_inits=[5,20,40]):
         self.cell_id = cell_id
         if not np.mod(cell_id,100): 
             print(str(int(100*cell_id/self.data_dict[self.activity].shape[0]))+'%', end=' ')
             sys.stdout.flush()
-        # if initial_conds_input is None:
-        #     initial_conds = self.get_default_inits()
-        # else:
-        #     initial_conds = copy.deepcopy(initial_conds_input)
-        # self.get_regressors(shifted=shifted)
-        # if bounds is None:
-        #     bounds = self.get_default_bounds()
-        # if self.exclude_regressors is not None:
-        #     bounds = self.exclude_regressors_by_bounds(bounds)
-        # for i in range(self.n_trials-1):
-        #     bounds.append([None,None]) # trial coeffs   
-        #     if initial_conds_input is None:
-        #         initial_conds.append(0)    # trial coeffs
-            
-        res = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds)
+        
+        options={'maxiter': 500, 'ftol': 1e-06}
+        obj_fun_val = np.inf
+        for i in enumerate(tau_inits):
+            initial_conds[8] = tau_inits[i]
+            res_tmp = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds, options=options)
+            if res_tmp.fun<obj_fun_val:
+                res = copy.deepcopy(res_tmp)
+                obj_fun_val = res.fun
         res_scaled = self.fix_coeff_scaling(res['x'])
         cell_fit = self.coeff_list_to_dict(res_scaled)
         return cell_fit
@@ -455,13 +450,13 @@ class reg_obj:
         self.get_regressors(shifted=shifted)
         if reg_labels is None:
             if self.params['use_beh_labels']:
-                reg_labels=['beta_0','gamma_0','delta_0']
+                reg_labels=['beta_0','delta_0'] #'gamma_0',
             else:
-                reg_labels=['beta_0','gamma_0']
+                reg_labels=['beta_0'] #,'gamma_0'
         
         print('evaluating ', end='')
+        N = len(model_fit)
         if parallel:
-            N = len(model_fit)
             out_tot  = Parallel(n_jobs=self.num_cores)(delayed(
                 self.evaluate_model_for_one_cell)(n, 
                     model_fit=model_fit, reg_labels=reg_labels, shifted=shifted, regs_prepped=True, refit_model=refit_model) for n in range(N))
@@ -473,8 +468,8 @@ class reg_obj:
                 else:
                     model_fit[n]['cc'] = out_tot[n][2]
         else:
-            for n in range(self.data_dict[self.activity].shape[0]):
-                if not np.mod(n,round(self.data_dict[self.activity].shape[0]/20)): print('.', end='')
+            for n in range(N):
+                if not np.mod(n,round(N/20)): print('.', end='')
                 sys.stdout.flush()
                 r_sq, stat, cc, _ = self.evaluate_model_for_one_cell(n, 
                     model_fit=model_fit, reg_labels=reg_labels, shifted=shifted, regs_prepped=True, refit_model=refit_model)
@@ -498,9 +493,9 @@ class reg_obj:
             self.get_regressors(shifted=shifted)
         if reg_labels is None:
             if self.params['use_beh_labels']:
-                reg_labels=['beta_0','gamma_0','delta_0']
+                reg_labels=['beta_0','delta_0'] # 'gamma_0',
             else:
-                reg_labels=['beta_0','gamma_0']
+                reg_labels=['beta_0'] #,'gamma_0'
         
         dFF = self.data_dict[self.activity][n,:].copy()
         coeff_list = self.dict_to_flat_list(model_fit[n])
