@@ -65,6 +65,7 @@ class reg_obj:
         self.exclude_regressors = None
         self.scaling_for_fit = 100 # temporarily adjust dynamic range for robustness in fitting
         self.num_cores = multiprocessing.cpu_count()
+        print('Number of cores: '+str(self.num_cores))
 
 
     def get_model(self, fit_coeffs, just_null_model=False):
