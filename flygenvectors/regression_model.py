@@ -190,8 +190,11 @@ class reg_obj:
     def get_one_cell_mle(self, cell_id=None, initial_conds=None, bounds=None, 
                         shifted=None, tau_inits=[5,20,40]):
         self.cell_id = cell_id
-        if not np.mod(cell_id,100): 
-            print(str(int(100*cell_id/self.data_dict[self.activity].shape[0]))+'%', end=' ')
+        if not np.mod(cell_id,20): 
+            if not np.mod(cell_id,100) and cell_id>0:
+                print(str(int(100*cell_id/self.data_dict[self.activity].shape[0]))+'%')
+            else:
+                print('.', end=' ')
             sys.stdout.flush()
         
         options={'maxiter': 500, 'ftol': 1e-06}
