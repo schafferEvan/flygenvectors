@@ -130,14 +130,14 @@ ro = model.reg_obj(activity=activity,
 #ro.is_downsampled = True
 ro.exclude_regressors = ['gamma_0']
 
-if (part_i==0) or (part_i==10):
+if (part_i==0) or (part_i==10) or (part_i==999):
     # ro.model_fit = ro.fit_and_eval_reg_model(shifted=None, exclude_regressors=['gamma_0'])
     tau_inits=[2,5,8,20,40]
     initial_conds = ro.get_default_inits()
     ro.model_fit = ro.get_model_mle(shifted=None, initial_conds=initial_conds.copy(), tau_inits=tau_inits)
     pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_3p0_all.pkl', "wb" ) )
 
-    if part_i==10:
+    if (part_i==10) or (part_i==999):
         ro.evaluate_model(model_fit=ro.model_fit, parallel=True, refit_model=True)
         pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_3p2_all.pkl', "wb" ) )
         ro.evaluate_model(model_fit=ro.model_fit, parallel=True, refit_model=False)
@@ -151,19 +151,21 @@ if part_i==1:
     ro.evaluate_model(model_fit=ro.model_fit, parallel=True, refit_model=False)
     pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_3p2_all.pkl', "wb" ) )
 
-    # ****** FINISH THIS WITH OPTIONS FOR PARTIAL EVAL ON ONLY ONE VARIABLE *******
 
 
-if part_i == -1:
+if (part_i==-1) or (part_i==999):
     print('Testing model on circshifted data')
-    ro.downsample_in_time()
+    tau_inits=[2,5,8,20,40]
+    initial_conds = ro.get_default_inits()
     ro.get_circshift_behav_data(n_perms=n_perms)
     ro.model_fit_shifted = [None]*n_perms
     for n in range(n_perms):
         print('Perm '+str(n))
-        # ro.model_fit_shifted[n] = ro.get_model_mle_with_many_inits(shifted=n, exclude_regressors=['gamma_0'])
-        ro.model_fit_shifted[n] = ro.fit_and_eval_reg_model(shifted=n, exclude_regressors=['gamma_0'])
-        pickle.dump( ro.model_fit_shifted, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_shifted_'+part+'_3p0_all.pkl', "wb" ) )
+        
+        #ro.model_fit_shifted[n] = ro.fit_and_eval_reg_model(shifted=n, exclude_regressors=['gamma_0'])
+        ro.model_fit_shifted[n] = ro.get_model_mle(shifted=n, initial_conds=initial_conds.copy(), tau_inits=tau_inits)
+        ro.evaluate_model(model_fit=ro.model_fit_shifted[n], parallel=True, refit_model=True)
+        pickle.dump( ro.model_fit_shifted, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_shifted_'+part+'_3p2_all.pkl', "wb" ) )
     
 
 
