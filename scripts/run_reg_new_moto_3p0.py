@@ -130,20 +130,20 @@ ro = model.reg_obj(activity=activity,
 #ro.is_downsampled = True
 ro.exclude_regressors = ['gamma_0']
 
-if (part_i=='fit') or (part_i=='fit_and_eval'):
+if (part_i==0) or (part_i==10):
     # ro.model_fit = ro.fit_and_eval_reg_model(shifted=None, exclude_regressors=['gamma_0'])
     tau_inits=[2,5,8,20,40]
     initial_conds = ro.get_default_inits()
     ro.model_fit = ro.get_model_mle(shifted=None, initial_conds=initial_conds.copy(), tau_inits=tau_inits)
     pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_3p0_all.pkl', "wb" ) )
 
-    if part_i=='fit_and_eval':
+    if part_i==10:
         ro.evaluate_model(model_fit=ro.model_fit, parallel=True, refit_model=True)
         pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_3p2_all.pkl', "wb" ) )
         ro.evaluate_model(model_fit=ro.model_fit, parallel=True, refit_model=False)
         pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_3p2_all.pkl', "wb" ) )
 
-if part_i='eval':
+if part_i=1:
     ro.model_fit = pickle.load( open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_3p0_all.pkl', "rb" ) )
     ro.downsample_in_time()
     ro.evaluate_model(model_fit=ro.model_fit, parallel=True, refit_model=True)
