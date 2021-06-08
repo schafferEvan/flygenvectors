@@ -20,7 +20,8 @@ import multiprocessing
 
 
 class reg_obj:
-    def __init__(self, activity='dFF', exp_id=None, data_dict={}, fig_dirs={}, split_behav=False, use_beh_labels=None, use_only_valid=False):
+    def __init__(self, activity='dFF', exp_id=None, data_dict={}, fig_dirs={}, 
+                    split_behav=False, use_beh_labels=None, use_only_valid=False, n_cores=None):
         """
         Model:
             'alpha_0': baseline (up to quadratic in time)
@@ -64,7 +65,10 @@ class reg_obj:
         self.model_fit = []
         self.exclude_regressors = None
         self.scaling_for_fit = 100 # temporarily adjust dynamic range for robustness in fitting
-        self.num_cores = multiprocessing.cpu_count()
+        if n_cores is None:
+            self.num_cores = multiprocessing.cpu_count()
+        else:
+            self.num_cores = n_cores
         print('Number of cores: '+str(self.num_cores))
 
 
@@ -140,7 +144,7 @@ class reg_obj:
         return obj
 
 
-    def get_model_mle(self, downsample=True, shifted=None, initial_conds=None, bounds=None, parallel=True):
+    def get_model_mle(self, downsample=True, shifted=None, initial_conds=None, bounds=None, parallel=True, tau_inits=None):
         """
         downsample: flag creates downsampled dict, or points to it if one is already made.
         shifted: if not None, uses circshifted dict instead of original
@@ -173,9 +177,12 @@ class reg_obj:
         N = self.data_dict[self.activity].shape[0]
         model_fit = [None]*N
         # pdb.set_trace()
+        if tau_inits is None:
+            tau_inits=[5,20,40]
+
         if parallel:
             model_fit = Parallel(n_jobs=self.num_cores)(delayed(
-                self.get_one_cell_mle)(cell_id=n, initial_conds=initial_conds, bounds=bounds, shifted=shifted) for n in range(N))
+                self.get_one_cell_mle)(cell_id=n, initial_conds=initial_conds, bounds=bounds, shifted=shifted, tau_inits=tau_inits) for n in range(N))
         else:
             for n in range(N):
                 if not np.mod(n,10): 
@@ -184,7 +191,7 @@ class reg_obj:
                 # self.cell_id = n
                 # res = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds)
                 # model_fit[n] = self.coeff_list_to_dict(res['x'])
-                model_fit[n] = self.get_one_cell_mle(cell_id=n, initial_conds=initial_conds, bounds=bounds, shifted=shifted)
+                model_fit[n] = self.get_one_cell_mle(cell_id=n, initial_conds=initial_conds, bounds=bounds, shifted=shifted, tau_inits=tau_inits)
         return model_fit
 
 
