@@ -1573,7 +1573,7 @@ def show_PC_residual_raster(data_dict):
 
 
 def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pval=0.01, sort_by=[], 
-                                    color_lims_scale=[-0.75,0.75], color_lims=None, title=None, use_cc=True):
+                                    color_lims_scale=[-0.75,0.75], color_lims=None, title=None, use_cc=True, point_size=2):
     """
     Plot map of cells for one dataset, all MIPs, colorcoded by desired quantity
 
@@ -1589,7 +1589,7 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
     import matplotlib.cm as cm
     from matplotlib.colors import ListedColormap
 
-    point_size = 2
+    
     dims_in_um = data_dict['dims_in_um']
     # template_dims = data_dict['template_dims']
     dims = data_dict['dims']
