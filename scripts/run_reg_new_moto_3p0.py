@@ -157,6 +157,7 @@ if (part_i==-1) or (part_i==999):
     print('Testing model on circshifted data')
     tau_inits=[2,5,8,20,40]
     initial_conds = ro.get_default_inits()
+    ro.downsample_in_time()
     ro.get_circshift_behav_data(n_perms=n_perms)
     ro.model_fit_shifted = [None]*n_perms
     for n in range(n_perms):
