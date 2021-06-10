@@ -490,7 +490,24 @@ class reg_obj:
         print(' Complete')
         sys.stdout.flush()
 
-    
+
+    def get_null_subtracted_fit_and_dFF(self, model_coeffs, dFF_input, reg_labels):
+        dFF = dFF_input.copy()
+        coeff_list = self.dict_to_flat_list(model_coeffs)
+        dFF_fit = self.get_model(coeff_list)
+        coeff_dict = model_coeffs
+        self.get_linear_regressors(coeff_dict)
+
+        # get linpart to subtract from everything
+        coeffs_null = copy.deepcopy(model_coeffs)
+        for label in reg_labels:
+            for j in range(len(coeffs_null[label])):
+                coeffs_null[label][j] = 0
+        coeff_list = self.dict_to_flat_list(coeffs_null)
+        dFF_fit_linpart = self.get_model(coeff_list) 
+        dFF -= dFF_fit_linpart
+        dFF_fit -= dFF_fit_linpart
+        return dFF_fit, dFF
     
     def evaluate_model_for_one_cell(self, n, model_fit, reg_labels=None, shifted=None, regs_prepped=False, refit_model=False):
         # regenerate fit from best parameters and evaluate model
@@ -508,21 +525,10 @@ class reg_obj:
             else:
                 reg_labels=['beta_0'] #,'gamma_0'
         
-        dFF = self.data_dict[self.activity][n,:].copy()
-        coeff_list = self.dict_to_flat_list(model_fit[n])
-        dFF_fit = self.get_model(coeff_list)
+        dFF_input = self.data_dict[self.activity][n,:].copy()
         coeff_dict = model_fit[n]
-        self.get_linear_regressors(coeff_dict)
+        dFF_fit, dFF = self.get_null_subtracted_fit_and_dFF(model_coeffs=model_fit[n], dFF_input=dFF_input, reg_labels=reg_labels)
 
-        # get linpart to subtract from everything
-        coeffs_null = copy.deepcopy(model_fit[n])
-        for label in reg_labels:
-            for j in range(len(coeffs_null[label])):
-                coeffs_null[label][j] = 0
-        coeff_list = self.dict_to_flat_list(coeffs_null)
-        dFF_fit_linpart = self.get_model(coeff_list) 
-        dFF -= dFF_fit_linpart
-        dFF_fit -= dFF_fit_linpart
         if self.params['use_only_valid']:
             dFF = dFF[self.data_dict['state_is_valid']]
             dFF_fit = dFF_fit[self.data_dict['state_is_valid']]
@@ -566,10 +572,10 @@ class reg_obj:
 
                     coeffs_null = self.get_one_cell_mle(cell_id=n, initial_conds=ics, bounds=bounds, shifted=shifted)
                 
-                coeff_list = self.dict_to_flat_list(coeffs_null)
-                dFF_fit_null = self.get_model(coeff_list) 
-
-                dFF_fit_null -= dFF_fit_linpart
+                # coeff_list = self.dict_to_flat_list(coeffs_null)
+                # dFF_fit_null = self.get_model(coeff_list) 
+                dFF_fit_null, dFF = self.get_null_subtracted_fit_and_dFF(model_coeffs=coeffs_null, dFF_input=dFF_input, reg_labels=reg_labels)
+                # dFF_fit_null -= dFF_fit_linpart
                 if self.params['use_only_valid']:
                     dFF_fit_null = dFF_fit_null[self.data_dict['state_is_valid']]
 
