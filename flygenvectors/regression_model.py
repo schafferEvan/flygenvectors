@@ -577,6 +577,7 @@ class reg_obj:
                         self.exclude_regressors.append( [label,j] )
                     else:
                         self.exclude_regressors.append( [label] )
+                    self.exclude_regressors.extend( ['alpha_0', 'trial_coeffs'] ) # remove null terms from refit, already subtracted
                     ics = self.dict_to_flat_list(model_fit[n])
 
                     bounds = self.get_default_bounds()
