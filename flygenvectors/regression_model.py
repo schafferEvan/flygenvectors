@@ -169,11 +169,11 @@ class reg_obj:
         self.get_regressors(shifted=shifted)
         if bounds is None:
             bounds = self.get_default_bounds()
-        if self.exclude_regressors is not None:
-            bounds = self.exclude_regressors_by_bounds(bounds)
         for i in range(self.n_trials-1):
             initial_conds.append(0)    # trial coeffs
             bounds.append([None,None]) # trial coeffs   
+        if self.exclude_regressors is not None:
+            bounds = self.exclude_regressors_by_bounds(bounds)
         N = self.data_dict[self.activity].shape[0]
         model_fit = [None]*N
         # pdb.set_trace()
@@ -464,6 +464,12 @@ class reg_obj:
                 reg_labels=['beta_0','delta_0'] #'gamma_0',
             else:
                 reg_labels=['beta_0'] #,'gamma_0'
+
+        # if refit_model, do it on null_subtracted data (so effective alpha regs are constant)
+        if refit_model:
+            self.data_dict['dFF_null_fit'], self.data_dict['dFF_null_sub'] = self.get_null_subtracted_raster(just_null_model=True)
+            activity_placeholder = self.activity.copy()
+            self.activity = 'dFF_null_sub'
         
         print('evaluating ', end='')
         N = len(model_fit)
@@ -489,9 +495,12 @@ class reg_obj:
                 model_fit[n]['cc'] = cc
         print(' Complete')
         sys.stdout.flush()
+        if refit_model: self.activity = activity_placeholder.copy()
 
 
     def get_null_subtracted_fit_and_dFF(self, model_coeffs, dFF_input, reg_labels):
+        # subtracts model fit EXCEPT FOR PARTS indicated by reg_labels 
+        # (leave reg_labels empty for full fit, set reg_labels to beh regs to get null subtracted fit)
         dFF = dFF_input.copy()
         coeff_list = self.dict_to_flat_list(model_coeffs)
         dFF_fit = self.get_model(coeff_list)
@@ -508,6 +517,7 @@ class reg_obj:
         dFF -= dFF_fit_linpart
         dFF_fit -= dFF_fit_linpart
         return dFF_fit, dFF
+    
     
     def evaluate_model_for_one_cell(self, n, model_fit, reg_labels=None, shifted=None, regs_prepped=False, refit_model=False):
         # regenerate fit from best parameters and evaluate model
@@ -527,7 +537,11 @@ class reg_obj:
         
         dFF_input = self.data_dict[self.activity][n,:].copy()
         coeff_dict = model_fit[n]
-        dFF_fit, dFF = self.get_null_subtracted_fit_and_dFF(model_coeffs=model_fit[n], dFF_input=dFF_input, reg_labels=reg_labels)
+        dFF_fit, dFF_out = self.get_null_subtracted_fit_and_dFF(model_coeffs=coeff_dict, dFF_input=dFF_input, reg_labels=reg_labels)
+        if refit_model:
+            dFF = dFF_input # null has already been subtracted from dFF, so don't do it again
+        else:
+            dFF = dFF_out   # using fit to original dFF, so need to subtract null
 
         if self.params['use_only_valid']:
             dFF = dFF[self.data_dict['state_is_valid']]
@@ -566,14 +580,17 @@ class reg_obj:
                     ics = self.dict_to_flat_list(model_fit[n])
 
                     bounds = self.get_default_bounds()
-                    bounds = self.exclude_regressors_by_bounds(bounds)
                     for i in range(self.n_trials-1):
                         bounds.append([None,None]) # trial coeffs   
+                    bounds = self.exclude_regressors_by_bounds(bounds)
 
                     coeffs_null = self.get_one_cell_mle(cell_id=n, initial_conds=ics, bounds=bounds, shifted=shifted)
                 
                 # coeff_list = self.dict_to_flat_list(coeffs_null)
                 # dFF_fit_null = self.get_model(coeff_list) 
+
+                # line below is ok as is. get_null_ with reg_labels input subtracts linear part from fit, which here is missing one reg by design.
+                # ... but in refit case, this should't really do anything
                 dFF_fit_null, dFF = self.get_null_subtracted_fit_and_dFF(model_coeffs=coeffs_null, dFF_input=dFF_input, reg_labels=reg_labels)
                 # dFF_fit_null -= dFF_fit_linpart
                 if self.params['use_only_valid']:
@@ -1021,7 +1038,11 @@ class reg_obj:
 
     def exclude_regressors_by_bounds(self, bounds):
         for reg in self.exclude_regressors:
-            if reg == ['beta_0']:
+            if reg == 'alpha_0':
+                bounds[0] = [-1e-12,1e-12]
+                bounds[1] = [-1e-12,1e-12]
+                bounds[2] = [-1e-12,1e-12]
+            elif reg == ['beta_0']:
                 bounds[3] = [-1e-12,1e-12]
             elif reg == 'gamma_0':
                 bounds[4] = [-1e-12,1e-12]
@@ -1030,6 +1051,9 @@ class reg_obj:
                 bounds[6] = [-1e-12,1e-12]
             elif reg == ['delta_0',1]:
                 bounds[7] = [-1e-12,1e-12]
+            elif reg == 'trial_coeffs':
+                for i in range(1,self.n_trials):
+                    bounds[-i] = [-1e-12,1e-12] #note: loop from 1:N instead of 0:N-1 is correct here  
         return bounds
 
 
