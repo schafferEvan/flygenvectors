@@ -468,7 +468,7 @@ class reg_obj:
         # if refit_model, do it on null_subtracted data (so effective alpha regs are constant)
         if refit_model:
             self.data_dict['dFF_null_fit'], self.data_dict['dFF_null_sub'] = self.get_null_subtracted_raster(just_null_model=True)
-            activity_placeholder = self.activity.copy()
+            activity_placeholder = self.activity
             self.activity = 'dFF_null_sub'
         
         print('evaluating ', end='')
@@ -495,7 +495,7 @@ class reg_obj:
                 model_fit[n]['cc'] = cc
         print(' Complete')
         sys.stdout.flush()
-        if refit_model: self.activity = activity_placeholder.copy()
+        if refit_model: self.activity = activity_placeholder
 
 
     def get_null_subtracted_fit_and_dFF(self, model_coeffs, dFF_input, reg_labels):
