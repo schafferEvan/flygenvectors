@@ -467,7 +467,7 @@ class reg_obj:
 
         # if refit_model, do it on null_subtracted data (so effective alpha regs are constant)
         if refit_model:
-            self.data_dict['dFF_null_fit'], self.data_dict['dFF_null_sub'] = self.get_null_subtracted_raster(just_null_model=True)
+            self.data_dict['dFF_null_fit'], self.data_dict['dFF_null_sub'] = self.get_null_subtracted_raster(just_null_model=True, model_fit=model_fit)
             activity_placeholder = self.activity
             self.activity = 'dFF_null_sub'
         
@@ -745,10 +745,12 @@ class reg_obj:
         return state_copy
 
 
-    def get_null_subtracted_raster(self, extra_regs_to_use=None, just_null_model=False):
+    def get_null_subtracted_raster(self, extra_regs_to_use=None, just_null_model=False, model_fit=None):
         """ default is to return fit with just alpha and trial regs. 
         Using extra_regs, option to return fit with any additional regs: [ ['partial_reg', idx], ['full_reg'] ] 
         extra_regs are the regressors TO SUBTRACT """
+        if model_fit is None:
+            model_fit = self.model_fit # this is needed for shifted case
         self.get_regressors(just_null_model=just_null_model)
         dFF = copy.deepcopy(self.data_dict[self.activity])
         dFF_fit = np.zeros(dFF.shape)
@@ -761,7 +763,7 @@ class reg_obj:
             #             coeffs_null[label][j] = 0
             #     coeff_list = self.dict_to_flat_list(coeffs_null)
             # else:
-            coeff_list = self.dict_to_flat_list(self.model_fit[n])
+            coeff_list = self.dict_to_flat_list(model_fit[n])
             
             dFF_fit[n,:] = self.get_model(coeff_list, just_null_model=just_null_model)
 
