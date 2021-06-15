@@ -297,8 +297,8 @@ class reg_obj:
         self.refresh_params()
         data_dict = self.data_dict # evaluate on orig, even if fit was done on downsampled data
         params = self.params
-        if just_null_model: params['split_behav'] = False
-        if just_null_model: params['use_beh_labels'] = False
+        # if just_null_model: params['split_behav'] = False     # NO
+        # if just_null_model: params['use_beh_labels'] = False  # NO
         # L = params['L']
         ts_full = data_dict['time']-data_dict['time'].mean() #data_dict['time'][0]
         ts = ts_full-ts_full.mean()
@@ -320,7 +320,7 @@ class reg_obj:
             trial_regressors[i,:] /= abs(trial_regressors[i,:]).max()
 
         # motion energy from ball
-        if params['split_behav']:
+        if params['split_behav'] and not just_null_model:
             if shifted is None:
                 ball = np.zeros((NT,len(data_dict['behavior'])))
                 for i in range(NT):
@@ -356,7 +356,7 @@ class reg_obj:
 
         # grooming (beh labels)
         grooming = np.zeros((2,len(data_dict['behavior'])))
-        if self.params['use_beh_labels']:
+        if self.params['use_beh_labels'] and not just_null_model:
             if shifted is None:
                 grooming[0,:] = data_dict['beh_labels'][:,3]
                 grooming[1,:] = data_dict['beh_labels'][:,4]
@@ -766,6 +766,8 @@ class reg_obj:
             dFF_fit[n,:] = self.get_model(coeff_list, just_null_model=just_null_model)
 
         dFF -= dFF_fit
+        self.get_regressors(just_null_model=False) # is returning regs to default always the right thing to do?
+
         return dFF_fit, dFF
 
 
