@@ -207,13 +207,18 @@ class reg_obj:
         
         options={'maxiter': 500, 'ftol': 1e-06}
         obj_fun_val = np.inf
+        success=False # catch rare case where fit fails for all inits
         for tau in tau_inits:
             initial_conds[8] = tau
             res_tmp = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds, options=options)
             if res_tmp.fun<obj_fun_val:
                 res = copy.deepcopy(res_tmp)
                 obj_fun_val = res.fun
-        res_scaled = self.fix_coeff_scaling(res['x'])
+                success=True
+        if success:
+            res_scaled = self.fix_coeff_scaling(res['x'])
+        else:
+            res_scaled = self.fix_coeff_scaling(res_tmp['x']) # nan
         cell_fit = self.coeff_list_to_dict(res_scaled)
         return cell_fit
         
