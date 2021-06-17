@@ -7,10 +7,12 @@
 #SBATCH --mem-per-cpu=8gb
 
 expID=0
+part=0 #['beg', 'mid', 'end']
+n_perms=2
 module load anaconda/3-5.3.1
 source activate flygenvectors
-python run_regression_model_moto.py $expID
-
+#python run_regression_model_moto.py $expID
+python run_reg_new_noDown.py $expID $part $n_perms
 
 
 

@@ -233,6 +233,76 @@ def plot_dlc_arhmm_states(
     return fig
 
 
+def plot_states_simple(
+        data_dict, slc=None, axes=None, restrict_xticks=True, valid_only=False, valid_thresh=0.75):
+    """
+    Args:
+        states (np array): length T
+        slc: length 2 list of slice indices
+    """
+    import matplotlib.cm as cm
+    # beh_labels = data_dict['beh_labels'].copy()
+    beh_labels = np.expand_dims(np.argmax(data_dict['beh_labels'],axis=1),axis=1).copy()
+    not_valid = data_dict['beh_labels'].max(axis=1)<valid_thresh
+    beh_labels[not_valid]=0 #assign points with low certainty to "other"
+
+
+    # beh_labels[beh_labels==4]=0
+    if valid_only:
+        beh_labels[np.logical_not(data_dict['state_is_valid'])] = 0
+
+    if axes is None:
+        fig, axes = plt.subplots(figsize=(12,3))
+        include_cbar = True
+    else:
+        include_cbar = False
+
+    # Accent = cm.get_cmap('Dark2', 4) #Accent
+    cmap = cm.get_cmap('Accent', 5)
+    tmp = cm.get_cmap('tab10', 8)
+    cmap.colors[0,:] = [1,1,1,1]
+    cmap.colors[1:4,:] = tmp.colors[:3,:]
+    cmap.colors[4,:] = [0,0,0,.4]
+    cmap.colors[2,:3] *= .85
+    # cmap.colors[1,:3] *= .75
+    cmap.colors = np.roll(cmap.colors,1,axis=0)
+
+    if slc is None:
+        im = axes.imshow(beh_labels.T,aspect='auto',cmap=cmap)#,cmap='Accent',vmin=0, vmax=3)
+    else:
+        im = axes.imshow(beh_labels[slc[0]:slc[1]].T,aspect='auto',cmap=cmap)#,cmap='Accent',vmin=0, vmax=3)
+
+    if restrict_xticks:
+        xtk_labels = np.array([i for i in range(100, int(data_dict['tPl'][-1,0]), 100)]) #[300,400,500,600]
+    else:
+        xtk_labels = np.array([i for i in range(100, int(data_dict['tPl'][-1,0]), 50)]) #[300,400,500,600]
+    if slc is not None:
+        val = (data_dict['tPl'][slc[0]]<xtk_labels)*(xtk_labels<data_dict['tPl'][slc[1]])
+        # val = (slc[0]/data_dict['scanRate']<xtk_labels)*(xtk_labels<slc[1]/data_dict['scanRate'])
+        xtk_labels = xtk_labels[val]
+    xtks = np.zeros(xtk_labels.shape)
+    for i in range(len(xtks)):
+        xtks[i] = np.argmin( abs(xtk_labels[i] - data_dict['tPl']) )
+    if slc is not None:
+        xtks -= slc[0]
+    # xtk_labels_adj = np.array(xtk_labels) #-xtk_labels[0]    
+    plt.xticks(ticks=xtks, labels=xtk_labels)
+    axes.set_xlabel('Time (s)')
+    axes.set_yticks([])
+    # axes.set_xlim(300*data_dict['scanRate'],600*data_dict['scanRate'])
+
+    if include_cbar:
+        cbar = plt.colorbar(im) #, ticks=np.arange(np.min(beh_labels),np.max(beh_labels)+1))
+        labels = ['other', 'still', 'run', 'front_groom', 'back_groom']
+        l = len(labels)
+        lp1 = (l-1)/(2*l)
+        cbar.set_ticks( np.linspace( lp1, l-1-lp1, l ) )
+        cbar.ax.set_yticklabels(labels)  # vertically oriented colorbar
+    plt.tight_layout()
+    #return fig
+
+
+
 #############################
 # SSM-specific plotting utils
 #############################
@@ -926,9 +996,11 @@ def get_model_fit_as_dict(model_fit):
 def array_of_dicts_to_dict_of_arrays(a):
     # takes 2D array of dicts and returns dict of 2D arrays
     # similar to one-dimensional version above, "get_model_fit_as_dict"
+    labels_to_exclude = ['trial_coeffs']
     reg_labels = list(a[0][0].keys())
     d = {}
     for label in reg_labels:
+        if label in labels_to_exclude: continue
         if isinstance(a[0][0][label],dict):
             d[label] = []
             for i in range(len(a)):
@@ -984,32 +1056,106 @@ def unroll_model_fit_stats(model_fit):
     return model_fit_un
 
 
-def show_param_scatter(model_fit, data_dict, param_name, pval=.01):
+def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, xlim=None, param2_input=None, 
+                        use_cc=False, alphas=[.4,.15], s = 100, n_xbins=40, n_ybins=40, sig_clr='#01386a'):
+    """
+    Default is to plot scatter of a parameter vs residual r^2 of that parameter
+    param2_input: plot scatter vs another parameter instead of vs r^2
+    """
+    from matplotlib.ticker import ScalarFormatter
+
     f = get_model_fit_as_dict(model_fit)
     rsq_dict = get_model_fit_as_dict(f['r_sq'])
-    param = f[param_name]
-    rsq = rsq_dict['tot']
-    stat = np.zeros(len(param))
-    for i in range(len(param)):
-        stat[i] = f['stat'][i][param_name][0][1]
-    success = f['success']
+    cc_dict = get_model_fit_as_dict(f['cc'])
+    if isinstance(param_input,str):
+        param_name = param_input
+        param_idx = None
+        if use_cc:
+            param = cc_dict[param_name]
+        else:
+            param = f[param_name]
+        rsq = rsq_dict[param_name]
+        stat = np.zeros(len(param))
+        for i in range(len(param)):
+            stat[i] = f['stat'][i][param_name][0][1]
+    elif isinstance(param_input,list):
+        param_name = param_input[0]
+        param_idx = param_input[1]
+        if use_cc:
+            param = cc_dict[param_name][:,param_idx]
+        else:
+            param = f[param_name][:,param_idx]
+        rsq = rsq_dict[param_name][:,param_idx]
+        stat = np.zeros(len(param))
+        for i in range(len(param)):
+            stat[i] = f['stat'][i][param_name][param_idx][1]
+    if param2_input is not None:
+        if isinstance(param2_input,str):
+            param2_name = param2_input
+            param2_idx = None
+            if use_cc:
+                param2 = cc_dict[param2_name]
+            else:
+                param2 = f[param2_name]
+            # rsq = rsq_dict[param2_name]
+            stat2 = np.zeros(len(param2))
+            for i in range(len(param2)):
+                stat2[i] = f['stat'][i][param2_name][0][1]
+        elif isinstance(param2_input,list):
+            param2_name = param2_input[0]
+            param2_idx = param2_input[1]
+            if use_cc:
+                param2 = cc_dict[param2_name][:,param2_idx]
+            else:
+                param2 = f[param2_name][:,param2_idx]
+            # rsq = rsq_dict[param2_name][:,param2_idx]
+            stat2 = np.zeros(len(param2))
+            for i in range(len(param2)):
+                stat2[i] = f['stat'][i][param2_name][param2_idx][1]
+        if(param2_name=='phi'): 
+            # param2 = param2 /data_dict['scanRate'] # this is now absorbed into model
+            label2 = 'Temporal Shift (s)'
+        elif(param2_name=='beta_0'): 
+            label2 = r'$\beta_1$'
+        elif(param2_name=='gamma_0'): 
+            label2 = r'$\gamma_0$'
+        elif(param2_name=='delta_0'): 
+            label2 = r'$\delta_0$'
+        elif(param2_name=='tau_feed'):
+            label2 = r'$\tau_{feed}$'
+        else:
+            label2=param2_name
+    # success = True #f['success']
 
     if(param_name=='phi'): 
-        param = param/data_dict['scanRate']
-        label = 'Phase (s)'
+        # param = param/data_dict['scanRate'] # this is now absorbed into model
+        label = 'Temporal Shift (s)'
+    elif(param_name=='tau'):
+        label = r'$\tau$ (s)'
     elif(param_name=='beta_0'): 
         label = r'$\beta_0$'
+    elif(param_name=='gamma_0'): 
+        label = r'$\gamma_0$'
+    elif(param_name=='delta_0'): 
+        label = r'$\delta_0$'
     elif(param_name=='tau_feed'):
         label = r'$\tau_{feed}$'
     else:
         label=param_name
 
     pval_text = pval #0.01
-    sig = (stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
-    param_sig = param[success*sig]
-    param_notsig = param[np.logical_not(success*sig)]
-    rsq_sig = rsq[success*sig]
-    rsq_notsig = rsq[np.logical_not(success*sig)]
+    sig = list(stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
+    if param2_input is None:
+        param_sig = param[sig] #param[success*sig]
+        param_notsig = param[np.logical_not(sig)] #param[np.logical_not(success*sig)]
+        rsq_sig = rsq[sig] #rsq[success*sig]
+        rsq_notsig = rsq[np.logical_not(sig)] #rsq[np.logical_not(success*sig)]
+    else:
+        sig2 = list(stat2<pval)
+        param_sig = param[sig and sig2] #param[success*sig]
+        param_notsig = param[np.logical_not(sig and sig2)]
+        param2_sig = param2[sig and sig2] #param[success*sig]
+        param2_notsig = param2[np.logical_not(sig and sig2)]
 
     plt.figure(figsize=(5, 5))
     left, width = 0.1, 0.65
@@ -1023,41 +1169,91 @@ def show_param_scatter(model_fit, data_dict, param_name, pval=.01):
     ax_scatter.tick_params(direction='in', top=True, right=True)
     ax_histx = plt.axes(rect_histx)
     ax_histx.tick_params(direction='in', labelbottom=False)
-    # ax_histx.set_xscale('log')
     ax_histx.axis('off')
     ax_histy = plt.axes(rect_histy)
     ax_histy.tick_params(direction='in', labelleft=False)
     ax_histy.axis('off')
+    if param_name=='tau':
+        ax_histx.set_xscale('log')
+        ax_scatter.set_xscale('log')
+    if param2_name=='phi':
+        ax_histy.set_yscale('symlog', linthreshy=.1, linscaley=.2/120)
+        ax_scatter.set_yscale('symlog', linthreshy=.1, linscaley=.2/120)
 
+    if xlim is None:
+        xmin = param.min() #np.floor(param.min()) #4/scanRate
+        xmax = param.max() #np.ceil(param.max()) #30 #1000/scanRate #6000
+    else:
+        xmin = xlim[0]
+        xmax = xlim[1]
+    if ylim is None:
+        if param2_input is None:
+            ymin = 0
+            ymax = 1
+        else:
+            ymin = param2.min() #np.floor(param2.min()) #4/scanRate
+            ymax = param2.max() #np.ceil(param2.max())
+    else:
+        ymin = ylim[0]
+        ymax = ylim[1]
 
-    xmin = np.floor(param.min()) #4/scanRate
-    xmax = np.ceil(param.max()) #30 #1000/scanRate #6000
-    ymin = 0
-    ymax = 1
-
-    # ax_scatter.scatter(param_notsig,rsq_notsig,c='tab:gray',marker='o',alpha=0.3)
-    ax_scatter.scatter(param_sig,rsq_sig,c='tab:gray',marker='.',alpha=0.3,linewidths=0.75,edgecolors='k') #'#1f77b4'
+    if param2_input is None:
+        ax_scatter.scatter(param_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=alphas[1], linewidths=0.75, edgecolors='k', s=s)
+        ax_scatter.scatter(param_sig,rsq_sig,c=sig_clr,marker='.',alpha=alphas[0],linewidths=0.75,edgecolors=sig_clr, s=s) #'#1f77b4'
+    else:
+        ax_scatter.scatter(param_notsig,param2_notsig,c='tab:gray',marker='.',alpha=alphas[1], linewidths=0.75, edgecolors='k', s=s)
+        ax_scatter.scatter(param_sig,param2_sig,c=sig_clr,marker='.',alpha=alphas[0],linewidths=0.75,edgecolors=sig_clr, s=s) #'#1f77b4'
     # ax_scatter.scatter(tau_sig[tau_is_neg_sig],rsq_sig[tau_is_neg_sig],c='tab:red',marker='.',alpha=0.3)
     # ax_scatter.set_xscale('log')
     ax_scatter.set_xlim((xmin,xmax))
     ax_scatter.set_ylim((ymin,ymax))
     ax_scatter.set_xlabel(label)
-    ax_scatter.set_ylabel(r'$r^2$')
+    
+    if param_name=='tau':
+        ax_scatter.set_xscale('log')
+        ax_scatter.set_xticks((1,3,10,30))
+        ax_scatter.set_xticklabels(('1','3','10','30'))
+        ax_scatter.get_xaxis().set_major_formatter(ScalarFormatter())
+    if param2_input is None:
+        ax_scatter.set_ylabel(r'$r^2$')
+    else:
+        ax_scatter.set_ylabel(label2)
 
-    xbinwidth = (xmax-xmin)/40
-    ybinwidth = 0.025
-    ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
-    xbins = np.arange(xmin, xmax+xbinwidth, xbinwidth) #np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
-    ax_histx.hist(param, bins=xbins,color='#929591') #log=True,
+    xbinwidth = (xmax-xmin)/n_xbins
+    ybinwidth = (ymax-ymin)/n_ybins
+    if param2_name=='phi':
+        tmp = np.logspace(-1,np.log10(59),num=12)
+        ybins = np.array( (-tmp[::-1]).tolist() + [0] + tmp.tolist() )
+        # ybins = np.array( (-tmp[::-1]).tolist() + [-.7,-.3,0,.3,.7] + tmp.tolist() )
+        ax_scatter.set_yticks([-30,-3,-1,1,3,30])
+        ax_scatter.get_yaxis().set_major_formatter(ScalarFormatter())
+    else:
+        ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
+    if param_name=='tau':
+        xbins = np.logspace(np.log10(xmin), np.log10(xmax),num=len(ybins), base=10) #np.exp(1))
+    else:
+        xbins = np.arange(xmin, xmax+xbinwidth, xbinwidth) #np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
+    ax_histx.hist(param_notsig, bins=xbins,color='tab:gray') #'#929591')
+    ax_histx.hist(param_sig, bins=xbins,color=sig_clr,alpha=.7) #'#929591')
     ax_histx.set_xlim((xmin,xmax))
-    ax_histy.hist(rsq, bins=ybins, orientation='horizontal',color='#929591')
+    if param2_input is None:
+        ax_histy.hist(rsq_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
+        ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7) #''#929591')
+    else:
+        ax_histy.hist(param2_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
+        ax_histy.hist(param2_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7) #''#929591')
     ax_histy.set_ylim((ymin,ymax))
 
 
-def show_tau_scatter(model_fit, pval=.01):
+
+
+def show_tau_scatter(model_fit, pval=.01, idx=None, sig_clr='#01386a', s=100, alphas=[.15,.4]):
     f = get_model_fit_as_dict(model_fit)
     rsq_dict = get_model_fit_as_dict(f['r_sq'])
-    rsq = rsq_dict['tau'] #['tot']
+    if idx is None:
+        rsq = rsq_dict['tau'] #['tot']
+    else:
+        rsq = rsq_dict['tau'][:,idx]
     tau = abs(f['tau'])
     tau_is_pos = (f['tau']>=0)
     # rsq_null = f['rsq_null']
@@ -1107,10 +1303,9 @@ def show_tau_scatter(model_fit, pval=.01):
     xmax = 60 #1000/scanRate #6000
     ymin = 0
     ymax = 1
-    s = 100
 
-    ax_scatter.scatter(tau_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=0.15, linewidths=0.75, edgecolors='k', s=s)
-    ax_scatter.scatter(tau_sig[tau_is_pos_sig],rsq_sig[tau_is_pos_sig],c='#01386a',marker='.',alpha=0.4,linewidths=0.75,edgecolors='#01386a', s=s) #'#1f77b4'
+    ax_scatter.scatter(tau_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=alphas[0], linewidths=0.75, edgecolors='k', s=s)
+    ax_scatter.scatter(tau_sig[tau_is_pos_sig],rsq_sig[tau_is_pos_sig],c=sig_clr,marker='.',alpha=alphas[1],linewidths=0.75,edgecolors=sig_clr, s=s) #'#1f77b4'
     # ax_scatter.scatter(tau_sig[tau_is_neg_sig],rsq_sig[tau_is_neg_sig],c='tab:red',marker='.',alpha=0.3)
     ax_scatter.set_xscale('log')
     ax_scatter.set_xlim((xmin,xmax))
@@ -1125,10 +1320,10 @@ def show_tau_scatter(model_fit, pval=.01):
     ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
     xbins = np.logspace(np.log10(xmin), np.log10(xmax),num=len(ybins), base=10) #np.exp(1))
     ax_histx.hist(tau_notsig, bins=xbins,log=True,color='tab:gray') #'#929591')
-    ax_histx.hist(tau_sig, bins=xbins,log=True,color='#01386a',alpha=.7) #'#929591')
+    ax_histx.hist(tau_sig, bins=xbins,log=True,color=sig_clr,alpha=.7) #'#929591')
     ax_histx.set_xlim((xmin,xmax))
     ax_histy.hist(rsq_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
-    ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color='#01386a',alpha=.7) #''#929591')
+    ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7) #''#929591')
     ax_histy.set_ylim((ymin,ymax))
 
 
@@ -1401,7 +1596,8 @@ def show_PC_residual_raster(data_dict):
 
 
 
-def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pval=0.01, sort_by=[], color_lims_scale=[-0.75,0.75], color_lims=None):
+def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pval=0.01, sort_by=[], 
+                                    color_lims_scale=[-0.75,0.75], color_lims=None, title=None, use_cc=True, point_size=2):
     """
     Plot map of cells for one dataset, all MIPs, colorcoded by desired quantity
 
@@ -1411,12 +1607,13 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
         plot_param (string or list): if string, param to use for color code. If list, pair of param to use (str) and index (int)
         color_lims_scale (list): bounds for min and max.  If _scale[0]<0, enforces symmetry of colormap
         color_lims: if None, created by color_lims_scale and data range
+        use_cc: plot corr coeff of chosen regressor with residual fit, rather than the raw parameter value
     """
     from matplotlib import colors
     import matplotlib.cm as cm
     from matplotlib.colors import ListedColormap
 
-    point_size = 2
+    
     dims_in_um = data_dict['dims_in_um']
     # template_dims = data_dict['template_dims']
     dims = data_dict['dims']
@@ -1441,10 +1638,16 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
             if plot_field is None:
                 color_data = np.array(model_fit)
             if np.isnan(plot_field_idx):
-                color_data[i] = model_fit[i][plot_field]
+                if use_cc:
+                    color_data[i] = model_fit[i]['cc'][plot_field][0]
+                else:
+                    color_data[i] = model_fit[i][plot_field]
                 sig.append( model_fit[i]['stat'][plot_field][0][1]<pval ) # 1-sided test that behavior model > null model
             else:
-                color_data[i] = model_fit[i][plot_field][plot_field_idx]
+                if use_cc:
+                    color_data[i] = model_fit[i]['cc'][plot_field][plot_field_idx]
+                else:
+                    color_data[i] = model_fit[i][plot_field][plot_field_idx]
                 sig.append( model_fit[i]['stat'][plot_field][plot_field_idx][1]<pval ) # 1-sided test that behavior model > null model
         if (plot_field=='tau') or (plot_field=='tau_feed'): color_data = np.log10(color_data)
 
@@ -1475,6 +1678,8 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
             sort_val = color_data[sig]
         elif sort_by=='inv_val':
             sort_val = -color_data[sig]
+        elif sort_by=='abs_val':
+            sort_val = np.abs(color_data[sig])
         sorted_order = np.argsort(sort_val)
         sig = (np.array(sig)[sorted_order]).tolist()
 
@@ -1526,6 +1731,9 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
     # ax2.plot( template_dims[1]*.97-(scaleBar_um*ypx_per_um,0), (template_dims[0]*.93, template_dims[0]*.93),bar_color)
     ax2.plot( dims_in_um[1]*.97-(scaleBar_um,0), (dims_in_um[0]*.93, dims_in_um[0]*.93),bar_color)
 
+    if title is not None:
+        ax2.set_title(title)
+
     if(len(not_sig)):
         ax3.scatter(data_dict['aligned_centroids'][not_sig,0],
                     data_dict['aligned_centroids'][not_sig,2], c=.5*np.ones(len(not_sig)), cmap=gry, s=point_size)
@@ -1539,6 +1747,7 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
     # ax3.set_xlim(0,template_dims[1])
     # ax3.set_ylim(0,template_dims[2])
     ax3.invert_yaxis()
+    return color_lims
 
 
 def convert_plot_param_to_plot_field(plot_param, model_fit, data_dict):
@@ -1879,6 +2088,65 @@ def show_colorCoded_cellMap(R, mask_vol, color_lims, data_dict, cmap=''):
     # axes[1, 1].set_title('Front')
 
 
+def show_scaled_image(im, dims_in_um, c_range=None, title='', cmap=None):
+    """
+    Show projections of volume. Similar to show_colorCoded_cellMap and show_colorCoded_cellMap_points, but for images
+    """
+    plt.figure(figsize=(8, 8))
+    if c_range is None: c_range=[-im.max(), im.max()]
+    if cmap is None: cmap=cold_to_hot_cmap() 
+    
+    # dims_in_um = centroids_dict_flat['dims_in_um']
+    totWidth = 1.1*(dims_in_um[2] + dims_in_um[1])
+    zpx = dims_in_um[2]/totWidth
+    ypx = dims_in_um[1]/totWidth
+    xpx = dims_in_um[0]/totWidth
+
+    ax2 = plt.axes([.05+zpx,  .05+zpx,  ypx,  xpx])
+    ax1 = plt.axes([.04,      .05+zpx,  zpx,  xpx])
+    ax3 = plt.axes([.05+zpx,  .04,      ypx,  zpx])
+
+    # max abs val projection
+    idx_image = np.argmax(abs(im), axis=2)
+    im_proj_0 = np.zeros((im.shape[0],im.shape[1]))
+    for i in range(im.shape[0]):
+        for j in range(im.shape[1]):
+            im_proj_0[i,j] = im[i,j,idx_image[i,j]]
+    
+    idx_image = np.argmax(abs(im), axis=1)
+    im_proj_1 = np.zeros((im.shape[0],im.shape[2]))
+    for i in range(im.shape[0]):
+        for j in range(im.shape[2]):
+            im_proj_1[i,j] = im[i,idx_image[i,j],j]
+
+    idx_image = np.argmax(abs(im), axis=0)
+    im_proj_2 = np.zeros((im.shape[1],im.shape[2]))
+    for i in range(im.shape[1]):
+        for j in range(im.shape[2]):
+            im_proj_2[i,j] = im[idx_image[i,j],i,j]
+
+    ax1.imshow(im_proj_2, aspect='auto', cmap=cmap)
+    ax2.imshow(im_proj_0.T, aspect='auto', cmap=cmap)
+    ax3.imshow(im_proj_1.T, aspect='auto', cmap=cmap) #[::-1,:]
+    # ax1.imshow(im_proj_0, aspect='auto', cmap=cmap)
+    # ax2.imshow(im.mean(axis=2).T, aspect='auto', cmap=cmap)
+    # ax3.imshow(im.mean(axis=1).T, aspect='auto', cmap=cmap) #[::-1,:]
+    ax1.get_images()[0].set_clim(c_range[0],c_range[1])
+    ax2.get_images()[0].set_clim(c_range[0],c_range[1])
+    ax3.get_images()[0].set_clim(c_range[0],c_range[1])
+    ax1.axis('off')
+    ax2.axis('off')
+    ax3.axis('off')
+
+    ypx_per_um = im.shape[0]/dims_in_um[1]
+    scaleBar_um = 50 #50 um
+    bar_color = 'w'
+    ax2.plot( im.shape[0]*.97-np.array([scaleBar_um*ypx_per_um,0]), (im.shape[1]*.93, im.shape[1]*.93), bar_color)
+    ax2.set_title(title)
+    # plt.show()
+
+
+
 def trim_dynamic_range(data,q_min,q_max):
     bmin = np.quantile(data, q_min)
     bmax = np.quantile(data, q_max)
@@ -1888,7 +2156,14 @@ def trim_dynamic_range(data,q_min,q_max):
     return data
 
 
-def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,include_dlc=False,num_cells=[],time_lims=[],slice_time=None,title='Raw'):
+def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,split_behavior=False,
+                            include_dlc=False,include_beh_labels=False,num_cells=[],time_lims=None,
+                            slice_time=None,title='Raw',activity='std',sort=False,valid_only=False,restrict_xticks=True):
+    """
+    activity: version of neural activity to show: {'raw' (unnormalized), 'std' (units of std)}
+    valid_only: if include_beh_labels, dictates whether to show raw labels or pruned (>1s)
+    restrict_xticks: if include_beh_labels, dictates density of xticks
+    """
     if(include_dlc):
         import matplotlib.pylab as pl
         f, axes = plt.subplots(10,1,gridspec_kw={'height_ratios':[12,1,1,1,1,1,1,1,1,2]},figsize=(10.5, 9))
@@ -1896,12 +2171,28 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
     else:
         f, axes = plt.subplots(2,1,gridspec_kw={'height_ratios':[8,1]},figsize=(10.5, 6))
 
+    if activity=='raw':
+        neural_data = data_dict['dFF'].copy()
+    elif activity=='nobase':
+        neural_data = data_dict['dFF'].copy()
+        for i in range(neural_data.shape[0]):
+            neural_data[i,:] -= neural_data[i,:].min() #np.quantile(neural_data[i,:],.01)
+    elif activity=='resid':
+        neural_data = data_dict['dFF_resid'].copy()*np.sqrt(data_dict['dFF'].shape[1])
+    elif activity=='resid_dFF':
+        neural_data = data_dict['dFF_resid_base'].copy()
+    elif activity=='std':
+        neural_data = data_dict['dFF'].copy()*np.sqrt(data_dict['dFF'].shape[1])
+    
     if(color_range=='auto'):
-        dFF = trim_dynamic_range(data_dict['dFF'], 0.01, 0.95)
+        dFF = trim_dynamic_range(neural_data, 0.01, 0.95)
         cmin, cmax = (0,1)
     else:
-        dFF = data_dict['dFF'] #data_dict['dFF_unnormalized']
+        dFF = neural_data #data_dict['dFF_unnormalized']
         cmin, cmax = color_range
+    if sort:
+        norder = np.argsort(dFF.max(axis=1))
+        dFF = dFF[norder,:]
 
     tPl = data_dict['tPl']
     behavior = data_dict['behavior']
@@ -1927,7 +2218,7 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
     if num_cells:
         dFF = dFF[:num_cells,:]
 
-    if time_lims:
+    if time_lims is not None:
         dFF = dFF[:,time_lims[0]:time_lims[1]]
         tPl = tPl[time_lims[0]:time_lims[1]]
         behavior = behavior[time_lims[0]:time_lims[1]]
@@ -1967,7 +2258,9 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
     
 
     plt.sca(axes[-1])
-    if(include_feeding):
+    if include_beh_labels:
+        plot_states_simple(data_dict, slc=time_lims, axes=axes[-1], restrict_xticks=restrict_xticks, valid_only=valid_only)
+    elif(include_feeding or split_behavior):
         for i in range(NT):
             is_this_trial = np.squeeze(trial_flag==U[i])
             behav_this_trial = behavior[is_this_trial]
@@ -1980,22 +2273,26 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,i
                 axes[-1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'k')
 
         axes[-1].set_xlim([min(tPl),max(tPl)])
-        axes[-1].plot(tPl, stim, color='darkviolet', alpha=0.7)
-        axes[-1].plot(tPl, feed, color='royalblue',alpha=0.8)
+        if include_feeding:
+            axes[-1].plot(tPl, stim, color='darkviolet', alpha=0.7)
+            axes[-1].plot(tPl, feed, color='royalblue',alpha=0.8)
         # axes[-1].plot(tPl,stim,'c:',alpha=0.6)
         # axes[-1].plot(tPl,feed,'c',alpha=0.7)
-        axes[-1].set_ylabel('feeding\nlocomotion')
+        axes[-1].set_ylabel('Running\nFlailing') #axes[-1].set_ylabel('feeding\nlocomotion')
     else:
         axes[-1].plot(tPl,behavior,'k')
         axes[-1].set_xlim([min(tPl),max(tPl)])
-        axes[-1].set_ylabel('ball\n')
+        axes[-1].set_ylabel('Running\n')
     axes[-1].set_yticks([])
     plt.xlabel('Time (s)')
 
     plt.subplots_adjust(right=0.8)
     cbar_ax = f.add_axes([0.85, 0.4, 0.03, 0.4])
     f.colorbar(im, cax=cbar_ax, ticks=[cmin,cmin+.5*(cmax-cmin),cmax])
-    cbar_ax.set_title(r'$\Delta R/R$')
+    if (activity=='raw') or (activity=='nobase') or (activity=='dFF_resid_base'):
+        cbar_ax.set_title(r'$\Delta R/R$')
+    elif (activity=='std') or (activity=='resid'):
+        cbar_ax.set_title(r'$\sigma_{\Delta R/R}$')
     return axes
 
     
@@ -2139,14 +2436,18 @@ def show_maps_for_avg_traces(dict_tot, example_array_tot):
 
 
 
-def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding=False, slice_time=None):
+def show_activity_traces(model_fit, data_dict, plot_param, n_ex=1, show_fit=False, 
+                        include_feeding=False, slice_time=None, sup_ttl=None, include_beh_labels=False, valid_only=False):
     """
     plot_param: param for sorting, in format [['partial_reg', idx]] or  'full_reg'
     n_ex: number of examples.  n_ex>0 gives largest, n_ex<0 gives smallest, n_ex=0 GIVES AVG of everything
+    include_beh_labels: show beh_labels ethogram instead of simple running trace
+    valid_only: if include_beh_labels, dictates whether to show raw labels or curated (bouts>1s)
     """
     from matplotlib.gridspec import GridSpec
     scanRate = data_dict['scanRate']
     dFF = data_dict['dFF'] #trim_dynamic_range(data_dict['dFF'], 0.01, 0.95)
+    if show_fit: n_ex=1
 
     if model_fit is not None:
         f = get_model_fit_as_dict(model_fit)
@@ -2163,7 +2464,8 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding
         ttl = ' Ex:'+str(plot_param)
         if n_ex is None: n_ex = len(plot_param)
     
-
+    if sup_ttl is not None:
+        ttl += sup_ttl 
     # pdb.set_trace()
     if isinstance(n_ex, list):
         num_ex = n_ex[1]
@@ -2173,6 +2475,8 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding
         start_ex = 0
     if num_ex>0:
         traces = dFF[s[start_ex:start_ex+num_ex],:]
+        if show_fit:
+            fits = data_dict['dFF_fit'][s[start_ex:start_ex+num_ex],:]
         print(s[:num_ex])
     elif num_ex<0:
         if not start_ex:
@@ -2204,44 +2508,88 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex, include_feeding
     fig = plt.figure(figsize=(14,5))
     gs = GridSpec(2,1, height_ratios=[3.,1.],hspace=.05)
 
-    axes = fig.add_subplot(gs[0])
-    axes.plot(tPl, traces.T)
-    axes.set_xlim([min(tPl),max(tPl)])
-    axes.spines['top'].set_visible(False)
-    axes.spines['bottom'].set_visible(False)
-    axes.spines['right'].set_visible(False)
-    axes.set_ylabel(r'$\Delta F/F$')
-    axes.set_title(ttl)
-    
-    axes = fig.add_subplot(gs[1])
-
-    if not include_feeding:
-        axes.plot(tPl, behavior, 'k')
+    axes=[]
+    axes.append( fig.add_subplot(gs[0]) )
+    if show_fit:
+        axes[0].plot(tPl, traces.T, linewidth=3, color='tab:blue')
+        axes[0].plot(tPl, fits.T, '--', color='#95d0fc', linewidth=3)
     else:
-        U = np.unique(trial_flag)
-        NT = len(U)
-        for i in range(NT):
-            is_this_trial = np.squeeze(trial_flag==U[i])
-            behav_this_trial = behavior[is_this_trial]
-            time_this_trial = tPl[is_this_trial]
-            if i==1:
-                axes.plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
-            elif (i==2) and (NT==4):
-                axes.plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
-            else:
-                axes.plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'k')
-        if 'sucrose_touch' in data_dict:
-            axes.plot(tPl, sucrose_touch, '--', color='darkgreen', alpha=0.7)
-        axes.plot(tPl, stim, color='darkviolet', alpha=0.7)
-        axes.plot(tPl, feed, color='royalblue',alpha=0.8)
+        axes[0].plot(tPl, traces.T)
+    axes[0].set_xlim([min(tPl),max(tPl)])
+    axes[0].spines['top'].set_visible(False)
+    axes[0].spines['bottom'].set_visible(False)
+    axes[0].spines['right'].set_visible(False)
+    axes[0].set_ylabel(r'$\Delta R/R$')
+    axes[0].set_title(ttl)
     
-    axes.set_xlim([min(tPl),max(tPl)])
-    axes.set_ylabel('feeding\nlocomotion')
-    axes.spines['top'].set_visible(False)
-    axes.spines['right'].set_visible(False)
-    axes.set_yticks([])
-    axes.set_xlabel('Time (s)')
+    axes.append( fig.add_subplot(gs[1]) )
+    if include_beh_labels:
+        plot_states_simple(data_dict, slc=slice_time, axes=axes[-1], restrict_xticks=True, valid_only=valid_only)
+    else:
+        if not include_feeding:
+            axes[1].plot(tPl, behavior, 'k')
+        else:
+            U = np.unique(trial_flag)
+            NT = len(U)
+            for i in range(NT):
+                is_this_trial = np.squeeze(trial_flag==U[i])
+                behav_this_trial = behavior[is_this_trial]
+                time_this_trial = tPl[is_this_trial]
+                if i==1:
+                    axes[1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
+                elif (i==2) and (NT==4):
+                    axes[1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'gray')
+                else:
+                    axes[1].plot(time_this_trial,behav_this_trial/behav_this_trial.max(),'k')
+            if 'sucrose_touch' in data_dict:
+                axes.plot(tPl, sucrose_touch, '--', color='darkgreen', alpha=0.7)
+            axes[1].plot(tPl, stim, color='darkviolet', alpha=0.7)
+            axes[1].plot(tPl, feed, color='royalblue',alpha=0.8)
+        
+        axes[1].set_xlim([min(tPl),max(tPl)])
+        axes[1].set_ylabel('Running')
+        axes[1].spines['top'].set_visible(False)
+        axes[1].spines['right'].set_visible(False)
+        axes[1].set_yticks([])
+        axes[1].set_xlabel('Time (s)')
+    return axes
 
+
+def get_model_as_dist(centroids, vals, sig=15, grid_points=None):
+    """
+    centroids: location of every cell
+    vals: value of that cell (e.g. a model parameter)
+    sig: standard deviation of gaussian blur for each point (in microns)
+    """
+    from scipy.stats import multivariate_normal
+    # define grid
+    mx = centroids['dims_in_um'][[1,0,2]]
+    if grid_points is None:
+        grid_points = np.round(mx/8).astype(int)
+        
+    pos_new = []
+    pos_new.append( np.linspace(0,mx[0],grid_points[0]) )
+    pos_new.append( np.linspace(0,mx[1],grid_points[1]) )
+    pos_new.append( np.linspace(0,mx[2],grid_points[2]) )
+
+    N = centroids['aligned_centroids'].shape[0]
+    
+    # for each cell, add to grid_image
+    grid_image = np.zeros((grid_points[0],grid_points[1],grid_points[2]))
+    idx_image = np.zeros((grid_points[0],grid_points[1],grid_points[2]))
+    for n in range(N):
+        if(np.mod(n,200)==0): print(n,end=' ')
+            
+        m = [None]*3
+        for i in range(len(pos_new)):
+            m[i] = int(np.argmin( abs( centroids['aligned_centroids'][n,i]-pos_new[i] ) ))
+
+        grid_image[m[0],m[1],m[2]] += vals[n]
+        idx_image[m[0],m[1],m[2]] += 1
+    
+    idx_image[idx_image==0]=1
+    grid_image /= idx_image
+    return grid_image
 
 
 
@@ -2253,24 +2601,46 @@ def make_hot_without_black(clrs=100, low_bnd=0.15, show_map=False):
     newcmp = ListedColormap(hot(np.linspace(low_bnd, .9, clrs)))
     if show_map:
         display_cmap(newcmp)
-        plt.show()
+        # plt.show()
     return newcmp
 
-def cold_to_hot_cmap(show_map=False):
+def cold_to_hot_cmap(show_map=False, tks=None, tk_labels=None):
     from matplotlib.colors import LinearSegmentedColormap
     basic_cols=['#95d0fc', (.2,.2,.2), '#ff474c'] #   #03012d, #363737
     my_cmap=LinearSegmentedColormap.from_list('mycmap', basic_cols)
     if show_map:
-        display_cmap(my_cmap)
-        plt.show()
+        if tks is None:
+            display_cmap(my_cmap=my_cmap)
+        elif tk_labels is None:
+            display_cmap(my_cmap=my_cmap, tks=tks)
+        else:
+            display_cmap(my_cmap=my_cmap, tks=tks, tk_labels=tk_labels)
+        # plt.show()
     return my_cmap
 
 
-def display_cmap(my_cmap, mx=100, tks=[0,50,100], tk_labels=['zero','fiddy','100']):
+def cmap_from_dendrogram(R, color_idx=None):
+    # convert colors from a dencrogram into usable colormap
+    # import matplotlib.cm as cm
+    from matplotlib.colors import LinearSegmentedColormap
+    basic_cols=np.unique(R['leaves_color_list'])
+    if color_idx is None:
+        map_cols = basic_cols
+    else:
+        # gry = cm.get_cmap('Greys', 15)
+        map_cols = ['#363737', basic_cols[color_idx]]
+    my_cmap=LinearSegmentedColormap.from_list('mycmap', map_cols)
+    return my_cmap
+
+
+def display_cmap(my_cmap, mx=100, tks=[0,50,100], tk_labels=None):
     plt.figure(figsize=(5,0.25))
     sprange = 100
     plt.imshow(np.linspace(0, mx, sprange)[None, :], interpolation='nearest', cmap=my_cmap, aspect='auto')
-    plt.xticks(ticks=(np.array(tks)/mx)*sprange, labels=tk_labels)
+    if tk_labels is None:
+        plt.xticks(ticks=(np.array(tks)/mx)*sprange)
+    else:
+        plt.xticks(ticks=(np.array(tks)/mx)*sprange, labels=tk_labels)
     plt.yticks([])
     # plt.axis('off')
     # plt.show()

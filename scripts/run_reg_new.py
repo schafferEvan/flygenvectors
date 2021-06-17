@@ -1,5 +1,5 @@
 import sys
-sys.path.insert(0, '../../flygenvectors/')
+sys.path.insert(0, '../flygenvectors/')
 
 import os
 import numpy as np
@@ -52,10 +52,10 @@ reload(dataUtils)
 pickle_output = False
 
 exp_list = ['2019_07_01_fly2',
-            '2018_08_24_fly3_run1',
-            '2018_08_24_fly2_run2',
             '2019_06_28_fly2',
-            '2019_10_14_fly3'] 
+            '2019_10_14_fly3',
+            '2018_08_24_fly3_run1',
+            '2018_08_24_fly2_run2'] 
 
 for expt_id in exp_list:
     dirs = futils.get_dirs()
@@ -63,10 +63,12 @@ for expt_id in exp_list:
     data_dict = pickle.load( open( fig_dirs['pkl_dir'] + expt_id +'_dict.pkl', "rb" ) )
 
     # rerun smooth_behavior (this is a hack)
-    if (expt_id=='2018_08_24_fly3_run1') or (expt_id=='2018_08_24_fly2_run2'):
-        ro = model.reg_obj(activity=activity, data_dict=copy.deepcopy(data_dict))
-        ro.get_smooth_behavior()
-        data_dict['behavior'] = ro.data_dict['behavior']
+    # if (expt_id=='2018_08_24_fly3_run1') or (expt_id=='2018_08_24_fly2_run2'):
+    #     ro = model.reg_obj(activity=activity, 
+    #                         data_dict=copy.deepcopy(data_dict),
+    #                         exp_id=expt_id)
+    #     ro.get_smooth_behavior()
+    #     data_dict['behavior'] = ro.data_dict['behavior']
 
     # crop time (crude bootstrapping)
     for part in ['beg', 'mid', 'end']:
@@ -78,24 +80,27 @@ for expt_id in exp_list:
             dict_crop['time'] = dict_crop['time'][:-2*b]
             dict_crop['trialFlag'] = dict_crop['trialFlag'][:-2*b]
             dict_crop['behavior'] = dict_crop['behavior'][:-2*b]
+            dict_crop['beh_labels'] = dict_crop['beh_labels'][:-2*b]
         if part=='mid':
             dict_crop['dFF'] = dict_crop['dFF'][:,b:-b]
             dict_crop['time'] = dict_crop['time'][b:-b]
             dict_crop['trialFlag'] = dict_crop['trialFlag'][b:-b]
             dict_crop['behavior'] = dict_crop['behavior'][b:-b]
+            dict_crop['beh_labels'] = dict_crop['beh_labels'][b:-b]
         if part=='end':
             dict_crop['dFF'] = dict_crop['dFF'][:,2*b:]
             dict_crop['time'] = dict_crop['time'][2*b:]
             dict_crop['trialFlag'] = dict_crop['trialFlag'][2*b:]
             dict_crop['behavior'] = dict_crop['behavior'][2*b:]
+            dict_crop['beh_labels'] = dict_crop['beh_labels'][2*b:]
 
 
-        ro = model.reg_obj(activity=activity, data_dict=copy.deepcopy(dict_crop))
-        ro.params['split_behav'] = False
-        ro.elasticNet = False
-        ro.fit_and_eval_reg_model_extended()
-        pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'.pkl', "wb" ) )
-        pickle.dump( ro.model_fit_shifted, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_shifted_'+part+'.pkl', "wb" ) )
+        ro = model.reg_obj(activity=activity, 
+                            data_dict=copy.deepcopy(dict_crop),
+                            exp_id=expt_id)
+        ro.fit_and_eval_reg_model_extended(n_perms=10)
+        pickle.dump( ro.model_fit, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_'+part+'_1p0.pkl', "wb" ) )
+        pickle.dump( ro.model_fit_shifted, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_shifted_'+part+'_1p0.pkl', "wb" ) )
 
 
     

@@ -271,3 +271,36 @@ class lr_obj:
         model_fit['V'] = V_hat.T
         return model_fit
 
+    def get_model_driftres(self, nf, M, data_tot):
+        data_dict = data_tot[nf]['data_dict']
+        model_fit = data_tot[nf]['model_fit']
+        dFF_drift_res = data_dict['dFF'].copy()
+        a1 = model_fit['a1']
+        t = np.arange(0,dFF_drift_res.shape[1],1)/dFF_drift_res.shape[1]
+        atime = np.array([np.ones(t.shape), t, t**2])
+        for i in range(dFF_drift_res.shape[0]):
+            P1i = a1[i,:]@atime
+            dFF_drift_res[i,:] -= P1i
+        return dFF_drift_res
+        
+        
+    def get_model_loglikelihood(self, nf, M, data_tot, dFF_drift_res):
+        data_dict = data_tot[nf]['data_dict']
+        model_fit = data_tot[nf]['model_fit']
+
+        # Data Cov (Bishop 12.3)
+        D, N = dFF_drift_res.shape
+        S = (1/N)*dFF_drift_res@dFF_drift_res.T
+
+        # Model Cov (Bishop 12.36)
+        WWT = cellmap_aligned[nf][:,:M+1]@cellmap_aligned[nf][:,:M+1].T
+        WZ = cellmap_aligned[nf][:,:M+1]@tseries_aligned[nf][:,:M+1].T
+        ssq = (dFF_drift_res - WZ).var()
+        C = WWT + ssq*np.eye(WWT.shape[0])
+        C_inv = np.linalg.inv(C)
+
+        # LL (Bishop 12.44) - temporarily omitting log(det(C))~0 but causing numerical issues
+        # ll = -N/2* ( D*np.log(2*np.pi) + np.log(det(C)) + np.trace(C_inv@S) )
+        ll = -N/2* ( D*np.log(2*np.pi) + np.trace(C_inv@S) )
+        return ll
+

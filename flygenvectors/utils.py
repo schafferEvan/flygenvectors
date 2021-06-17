@@ -20,6 +20,11 @@ def get_dirs():
             'data': '/media/mattw/fly/',  # base data dir
             'results': '/media/mattw/fly/behavior/classifiers'  # base results dir
         }
+    elif username == 'ess2129':
+        dirs = {
+            'data': '/moto/axs/projects/traces/flygenvectors/',  # base data dir
+            'results': '/moto/axs/projects/traces/flygenvectors/'  # base results dir
+        }
     else:
         raise ValueError(
             'must update flygenvectors.utils.get_dirs() to include user %s' % username)
