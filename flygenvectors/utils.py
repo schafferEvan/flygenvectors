@@ -18,7 +18,7 @@ def get_dirs():
         dirs = {
             # 'data': '/media/mattw/data/_flygenvectors',  # base data dir
             'data': '/media/mattw/fly/',  # base data dir
-            'results': '/media/mattw/fly/arhmm_results'  # base results dir
+            'results': '/media/mattw/fly/behavior/classifiers'  # base results dir
         }
     else:
         raise ValueError(

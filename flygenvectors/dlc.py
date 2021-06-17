@@ -125,9 +125,7 @@ class Labels(object):
 
         if filename is None:
             filename = os.path.join(
-                self.base_data_dir, 'behavior', 'labels',
-                'resnet-50_ws=%1.1e_wt=%1.1e' % (0, 0),
-                self.expt_id + '_labeled.h5')
+                self.base_data_dir, 'behavior', 'markers', self.expt_id + '_labeled.h5')
 
         if self.verbose:
             print('loading labels from %s...' % filename, end='')

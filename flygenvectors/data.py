@@ -166,7 +166,7 @@ def load_video(expt_id, base_data_dir=None):
 
     # Check if file opened successfully
     if not cap.isOpened():
-        print('Error opening video stream or file')
+        print('Error opening video stream or file from %s' % file_path)
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))

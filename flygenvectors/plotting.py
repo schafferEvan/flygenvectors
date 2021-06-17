@@ -428,7 +428,7 @@ def make_syllable_plots(
 def make_syllable_movie(
         filename, states, frames, frame_indxs, min_threshold=5, n_buffer=5,
         n_pre_frames=3, framerate=20, plot_n_frames=1000, single_state=None,
-        start_box=False):
+        start_box=False, state_mapping=None, probs=None):
     """
     Adapted from Ella Batty
 
@@ -445,19 +445,13 @@ def make_syllable_movie(
         plot_n_frames (int): length of movie
         single_state (int or NoneType): choose only a single state for movie
         start_box (bool): include red box in each panel indicating state onset
+        state_mapping (dict): mapping from state number to state name
+        probs (np.ndarray): probability of each state
     """
 
     from matplotlib.patches import Rectangle
     import matplotlib.animation as animation
     from matplotlib.animation import FFMpegWriter
-
-    # hard coded params
-    im_kwargs = {'animated': True, 'vmin': 0, 'vmax': np.max(frames), 'cmap': 'gray'}
-    txt_kwargs = {
-        'fontsize': 16, 'color': [1, 1, 1], 'horizontalalignment': 'left',
-        'verticalalignment': 'top', 'fontname': 'monospace'}
-    txt_offset_x = 5
-    txt_offset_y = 5
 
     if len(frames.shape) == 3:
         [T, y_pix, x_pix] = frames.shape
@@ -472,11 +466,18 @@ def make_syllable_movie(
     K = len(state_indices)
 
     # get all example over threshold
+    np.random.seed(0)
     states_list = [[] for _ in range(K)]
     for curr_state in range(K):
         if state_indices[curr_state].shape[0] > 0:
-            states_list[curr_state] = state_indices[curr_state][
-                (np.diff(state_indices[curr_state][:, 1:3], 1) > min_threshold)[:, 0]]
+            # states_list[curr_state] = state_indices[curr_state][
+            #     (np.diff(state_indices[curr_state][:, 1:3], 1) > min_threshold)[:, 0]]
+            # only take bouts longer than desired min duration
+            good_bouts_idxs = np.where(
+                np.diff(state_indices[curr_state][:, 1:3], 1) > min_threshold)[0]
+            # randomize
+            np.random.shuffle(good_bouts_idxs)
+            states_list[curr_state] = state_indices[curr_state][good_bouts_idxs]
 
     if single_state is not None:
         K = 1
@@ -497,15 +498,27 @@ def make_syllable_movie(
         ax.set_xticks([])
         if i >= K:
             ax.set_axis_off()
-        # elif single_state is not None:
-        #     ax.set_title('Syllable %i' % single_state, fontsize=16)
-        # else:
-        #     ax.set_title('Syllable %i' % i, fontsize=16)
     fig.tight_layout(pad=0, h_pad=1.05)
 
-    ims = [[] for _ in range(plot_n_frames + 500)]
+    # hard-coded params
+    im_kwargs = {'animated': True, 'vmin': 0, 'vmax': np.max(frames), 'cmap': 'gray'}
+
+    txt_kwargs = {
+        'fontsize': 14, 'color': [1, 1, 1], 'horizontalalignment': 'left',
+        'verticalalignment': 'top', 'fontname': 'monospace',
+        'bbox': dict(facecolor='k', alpha=0.25, edgecolor='none')}
+    txt_offset_x = 5
+    txt_offset_y = 5
+
+    txt_fr_kwargs = {
+        'fontsize': 14, 'color': [1, 1, 1], 'horizontalalignment': 'left',
+        'verticalalignment': 'bottom', 'fontname': 'monospace',
+        'bbox': dict(facecolor='k', alpha=0.25, edgecolor='none')}
+    txt_offset_x_fr = 5
+    txt_offset_y_fr = y_pix - 5
 
     # loop through syllables
+    ims = [[] for _ in range(plot_n_frames + 500)]
     for i_k, ax in enumerate(fig.axes):
 
         # skip if no syllable in this axis
@@ -521,19 +534,23 @@ def make_syllable_movie(
             continue
 
         if K < 10:
-            state_txt = '%i' % i_k
+            state_txt = '%i' % i_k if state_mapping is None else state_mapping[i_k]
         else:
-            state_txt = '%02i' % i_k
+            state_txt = '%02i' % i_k if state_mapping is None else state_mapping[i_k]
 
         i_chunk = 0
         i_frame = 0
         while i_frame < plot_n_frames:
 
             if i_chunk >= len(states_list[i_k]):
-                # plot black
-                im = ax.imshow(np.zeros((y_pix, x_pix)), **im_kwargs)
-                ims[i_frame].append(im)
-                i_frame += 1
+                if single_state is not None:
+                    # no more plotting
+                    break
+                else:
+                    # plot black
+                    im = ax.imshow(np.zeros((y_pix, x_pix)), **im_kwargs)
+                    ims[i_frame].append(im)
+                    i_frame += 1
             else:
                 # get indices into state chunk
                 i_idx = states_list[i_k][i_chunk, 0]
@@ -563,9 +580,6 @@ def make_syllable_movie(
                     if i_frame >= plot_n_frames:
                         continue
 
-                    if single_state is not None:
-                        state_txt = 'frame %i' % (m_beg + i)
-
                     im = ax.imshow(movie_chunk[i], **im_kwargs)
                     ims[i_frame].append(im)
 
@@ -577,7 +591,17 @@ def make_syllable_movie(
                             im = ax.add_patch(rect)
                             ims[i_frame].append(im)
 
-                    im = ax.text(txt_offset_x, txt_offset_y, state_txt, **txt_kwargs)
+                    # text on top: state
+                    if probs is not None:
+                        state_txt_tmp = '%s: %1.2f' % (state_txt, probs[m_beg + i, i_k])
+                    else:
+                        state_txt_tmp = state_txt
+                    im = ax.text(txt_offset_x, txt_offset_y, state_txt_tmp, **txt_kwargs)
+                    ims[i_frame].append(im)
+
+                    # text on top: frame
+                    frame_txt = 'frame %i' % (m_beg + i)
+                    im = ax.text(txt_offset_x_fr, txt_offset_y_fr, frame_txt, **txt_fr_kwargs)
                     ims[i_frame].append(im)
 
                     i_frame += 1
