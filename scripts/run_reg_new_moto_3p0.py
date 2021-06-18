@@ -167,7 +167,6 @@ if (part_i==-1) or (part_i==999):
     ro.model_fit_shifted = [None]*n_perms
     for n in range(n_perms):
         print('Perm '+str(n))
-        
         #ro.model_fit_shifted[n] = ro.fit_and_eval_reg_model(shifted=n, exclude_regressors=['gamma_0'])
         ro.model_fit_shifted[n] = ro.get_model_mle(shifted=n, initial_conds=initial_conds.copy(), tau_inits=tau_inits)
         ro.evaluate_model(model_fit=ro.model_fit_shifted[n], parallel=False, 
