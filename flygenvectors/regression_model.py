@@ -459,7 +459,7 @@ class reg_obj:
 
         
 
-    def evaluate_model(self, model_fit, reg_labels=None, shifted=None, parallel=True, refit_model=True):
+    def evaluate_model(self, model_fit, reg_labels=None, shifted=None, parallel=True, refit_model=True, fields_to_save=None):
         # regenerate fit from best parameters and evaluate model
         # self.data_dict = self.data_dict_orig # don't do this
         self.refresh_params()
@@ -483,21 +483,41 @@ class reg_obj:
                 self.evaluate_model_for_one_cell)(n, 
                     model_fit=model_fit, reg_labels=reg_labels, shifted=shifted, regs_prepped=True, refit_model=refit_model) for n in range(N))
             for n in range(self.data_dict[self.activity].shape[0]):
-                if refit_model:
-                    # purely based on later utility, keep r_sq and stat from refit, keep cc from orig fit
-                    model_fit[n]['r_sq'] = out_tot[n][0]
-                    model_fit[n]['stat'] = out_tot[n][1]
+                if fields_to_save is None:
+                    # defaults to keep rsq and stat after refitting and cc otherwise
+                    if refit_model:
+                        # purely based on later utility, keep r_sq and stat from refit, keep cc from orig fit
+                        model_fit[n]['r_sq'] = out_tot[n][0]
+                        model_fit[n]['stat'] = out_tot[n][1]
+                    else:
+                        model_fit[n]['cc'] = out_tot[n][2]
                 else:
-                    model_fit[n]['cc'] = out_tot[n][2]
+                    for f in fields_to_save:
+                        if f=='r_sq':
+                            model_fit[n]['r_sq'] = out_tot[n][0]
+                        elif f=='stat':
+                            model_fit[n]['stat'] = out_tot[n][1]
+                        elif f=='cc':
+                            model_fit[n]['cc'] = out_tot[n][2]
         else:
             for n in range(N):
                 if not np.mod(n,round(N/20)): print('.', end='')
                 sys.stdout.flush()
                 r_sq, stat, cc, _ = self.evaluate_model_for_one_cell(n, 
                     model_fit=model_fit, reg_labels=reg_labels, shifted=shifted, regs_prepped=True, refit_model=refit_model)
-                model_fit[n]['r_sq'] = r_sq #1-SS_res.sum()/SS_tot.sum()
-                model_fit[n]['stat'] = stat
-                model_fit[n]['cc'] = cc
+                if fields_to_save is None:
+                    model_fit[n]['r_sq'] = r_sq #1-SS_res.sum()/SS_tot.sum()
+                    model_fit[n]['stat'] = stat
+                    model_fit[n]['cc'] = cc
+                else:
+                    for f in fields_to_save:
+                        if f=='r_sq':
+                            model_fit[n]['r_sq'] = r_sq
+                        elif f=='stat':
+                            model_fit[n]['stat'] = stat
+                        elif f=='cc':
+                            model_fit[n]['cc'] = cc
+
         print(' Complete')
         sys.stdout.flush()
         if refit_model: self.activity = activity_placeholder
@@ -723,6 +743,7 @@ class reg_obj:
         # rsq_shift = plotting.array_of_dicts_to_dict_of_arrays(fs['r_sq'])
         tot_shift = plotting.array_of_dicts_to_dict_of_arrays(self.model_fit_shifted)
         rsq_shift = plotting.array_of_dicts_to_dict_of_arrays(tot_shift['r_sq'])
+        if len(rsq_shift[param].shape)==2: rsq_shift[param] = np.expand_dims(rsq_shift[param],axis=2)
 
         p_vals = np.zeros(len(rsq[param]))
         for n in range(len(rsq[param])):
@@ -735,8 +756,15 @@ class reg_obj:
             # std_devs[n] = (rsq[param][n]-m)/s
         # is_sig = std_devs>sig_th
         if update_model_fit:
-            for n in range(len(self.model_fit)):
-                self.model_fit[n]['stat'][param][param_idx] = [None, p_vals[n]]
+            if param in self.model_fit[n]['stat']:
+                for n in range(len(self.model_fit)):
+                    self.model_fit[n]['stat'][param][param_idx] = [None, p_vals[n]]
+            else:
+                # this is to catch 'tot'
+                for n in range(len(self.model_fit)):
+                    self.model_fit[n]['stat'][param] = []
+                    self.model_fit[n]['stat'][param].append( [None, p_vals[n]] )
+
         return p_vals
 
 
