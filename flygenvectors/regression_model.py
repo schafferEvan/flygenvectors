@@ -731,9 +731,11 @@ class reg_obj:
         self.n_trials = len(self.U)
 
 
-    def get_model_sig_from_shifted_fit(self, param, param_idx=0, sig_th=0.05, update_model_fit=True):
+    def get_model_sig_from_shifted_fit(self, param, param_idx=0, sig_th=0.05, update_model_fit=True, verbose=True):
         # uses model_fit and model_fit_shifted to assess significance of fits
         # output is number of standard deviations real fit is away from shifted fit
+        if (param!='tot') and verbose: print('propagating shifted sig results from tot.')
+
         f = plotting.get_model_fit_as_dict(self.model_fit)
         rsq = plotting.get_model_fit_as_dict(f['r_sq'])
         # fs_ = []
@@ -741,22 +743,29 @@ class reg_obj:
         #     fs_.extend( plotting.get_model_fit_as_dict(self.model_fit_shifted[i]) )
         # fs = plotting.get_model_fit_as_dict(fs_)
         # rsq_shift = plotting.array_of_dicts_to_dict_of_arrays(fs['r_sq'])
-        tot_shift = plotting.array_of_dicts_to_dict_of_arrays(self.model_fit_shifted)
-        rsq_shift = plotting.array_of_dicts_to_dict_of_arrays(tot_shift['r_sq'])
-        if len(rsq_shift[param].shape)==2: rsq_shift[param] = np.expand_dims(rsq_shift[param],axis=2)
+        if param == 'tot': 
+            tot_shift = plotting.array_of_dicts_to_dict_of_arrays(self.model_fit_shifted)
+            rsq_shift = plotting.array_of_dicts_to_dict_of_arrays(tot_shift['r_sq'])
+            if len(rsq_shift[param].shape)==2: rsq_shift[param] = np.expand_dims(rsq_shift[param],axis=2) # if desired param is a scalar, add extra dim
 
-        p_vals = np.zeros(len(rsq[param]))
-        for n in range(len(rsq[param])):
-            if isinstance(rsq[param][n],np.float64):
-                p_vals[n] = 1 - (rsq[param][n]>rsq_shift[param][:,n,param_idx]).sum()/rsq_shift[param].shape[0]
-            else:
-                p_vals[n] = 1 - (rsq[param][n,param_idx]>rsq_shift[param][:,n,param_idx]).sum()/rsq_shift[param].shape[0]
-            # m=rsq_shift[param][:,n,param_idx].mean()
-            # s=rsq_shift[param][:,n,param_idx].std()
-            # std_devs[n] = (rsq[param][n]-m)/s
-        # is_sig = std_devs>sig_th
+            p_vals = np.zeros(len(rsq[param]))
+            for n in range(len(rsq[param])):
+                if isinstance(rsq[param][n],np.float64):
+                    p_vals[n] = 1 - (rsq[param][n]>rsq_shift[param][:,n,param_idx]).sum()/rsq_shift[param].shape[0]
+                else:
+                    p_vals[n] = 1 - (rsq[param][n,param_idx]>rsq_shift[param][:,n,param_idx]).sum()/rsq_shift[param].shape[0]
+                # m=rsq_shift[param][:,n,param_idx].mean()
+                # s=rsq_shift[param][:,n,param_idx].std()
+                # std_devs[n] = (rsq[param][n]-m)/s
+            # is_sig = std_devs>sig_th
         if update_model_fit:
-            if param in self.model_fit[n]['stat']:
+            if param != 'tot':
+                # this option requires that this method was already run on 'tot'
+                for n in range(len(self.model_fit)):
+                    if self.model_fit[n]['stat']['tot'][0][1] > sig_th:
+                        self.model_fit[n]['stat'][param][param_idx] = self.model_fit[n]['stat']['tot'][0]
+            elif param in self.model_fit[n]['stat']:
+                # this option is now deprecated
                 for n in range(len(self.model_fit)):
                     self.model_fit[n]['stat'][param][param_idx] = [None, p_vals[n]]
             else:
@@ -765,7 +774,7 @@ class reg_obj:
                     self.model_fit[n]['stat'][param] = []
                     self.model_fit[n]['stat'][param].append( [None, p_vals[n]] )
 
-        return p_vals
+        #return p_vals
 
 
     def remove_transient_behaviors(self, states, frame_th=35):
@@ -1145,7 +1154,7 @@ def get_summary_dict(expt_id, split_behav, data_dict, model_fit, model_fit_shift
     #pdb.set_trace()
     # get full and null-subtracted fit
     null_fit, dFF_tot = ro.get_null_subtracted_raster(just_null_model=True)
-    ro.params['use_beh_labels'] = True
+    ro.params['use_beh_labels'] = use_beh_labels
     dFF_fit, resid_tot = ro.get_null_subtracted_raster(just_null_model=False)
     #pdb.set_trace()
     
