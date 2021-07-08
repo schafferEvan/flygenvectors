@@ -7,6 +7,7 @@ from glob import glob
 import pickle
 import copy
 from importlib import reload
+import pdb
 
 import scipy.io as sio
 from scipy import sparse, signal
@@ -35,6 +36,9 @@ import plotting
 # import flygenvectors.utils as futils
 from sklearn.linear_model import ElasticNet
 
+from joblib import Parallel, delayed
+import multiprocessing
+
 import seaborn as sns
 sns.set_style("white")
 sns.set_context("talk")
@@ -45,9 +49,13 @@ sns.set_context("talk")
 
 
 class flyg_clust_obj:
-    def __init__(self, data_dict):
+    def __init__(self, data_dict, n_cores=None):
         self.data_dict = data_dict
         self.mvn_obj = mvn_obj(self.data_dict)
+        if n_cores is None:
+            self.num_cores = multiprocessing.cpu_count()
+        else:
+            self.num_cores = n_cores
 
 
     def get_clusters(self, n_neighbors=10, affinity='euclidean', linkage='ward', distance_threshold=0.5):
@@ -132,7 +140,7 @@ class flyg_clust_obj:
         self.simple_clust['C_ord'] = F_ord@F_ord.T
                         
 
-    def get_null_dist(self, n_samples=1000, mx_null=None, enforce_both_sides=False, behav_null=False):
+    def get_null_dist(self, n_samples=1000, mx_null=None, enforce_both_sides=False, behav_null=False, parallel=True):
         """
         behav_null: whether to use completely random pairs or pairs with similar behav corr
         mx_null: optional upper bound on clust size for which to compute null dist 
@@ -156,35 +164,50 @@ class flyg_clust_obj:
         print('Computing null up to size = '+str(mx_null))
         for i in range(2,mx_null):
             print(i,end=' ')
-            for j in range(n_samples):
-                if enforce_both_sides:
-                    # check if clust is on both sides
-                    self.mvn_obj.is_on_both_sides = False
-                    while not self.mvn_obj.is_on_both_sides:
-                        if behav_null:
-                            print('not yet implemented')
-                        else:
-                            self.mvn_obj.order = np.random.permutation(self.data_dict['val_all'].shape[1])
-                        self.mvn_obj.is_clust_on_both_sides(self.mvn_obj.order[:i])
-                else:
-                    if behav_null:
-                        self.mvn_obj.order = next(null_behav_samples)
-                    else:
-                        self.mvn_obj.order = np.random.permutation(self.data_dict['val_all'].shape[1])
-                
-                # variance of randomly defined clusters
-                samp = self.data_dict['val_all'][:,self.mvn_obj.order[:i]]
-                null_dist[i,j] = samp.var(axis=1).mean()
-                
-                # corresponding symmetry of randomly defined clusters
-                self.mvn_obj.get_img(idx=self.mvn_obj.order[:i])
-                self.mvn_obj.get_folded_cdf()
-                null_symmetry[i,j] = self.mvn_obj.folded_cdf
-
-                # distance score of randomly defined clusters
-                self.mvn_obj.get_folded_cdf_totprod(idx=self.mvn_obj.order[:i])
-                null_dist_score[i,j] = self.mvn_obj.folded_product_image.sum()
+            if parallel:
+                out_tot = Parallel(n_jobs=self.num_cores)(delayed(
+                    self.get_null_sample)(enforce_both_sides=enforce_both_sides, behav_null=behav_null, sz=i) for n in range(self.n_samples))
+                for j in range(self.n_samples):
+                    null_dist[i,j] = out_tot[j][0]
+                    null_symmetry[i,j] = out_tot[j][1]
+                    null_dist_score[i,j] = out_tot[j][2]
+            else:
+                for j in range(self.n_samples):
+                    null_dist[i,j], null_symmetry[i,j], null_dist_score[i,j] = self.get_null_sample(enforce_both_sides=enforce_both_sides, behav_null=behav_null, sz=i)
+            
         return null_dist, null_symmetry, null_dist_score
+
+
+    def get_null_sample(self, enforce_both_sides=None, behav_null=None, sz=None):
+        if enforce_both_sides:
+            # check if clust is on both sides
+            self.mvn_obj.is_on_both_sides = False
+            while not self.mvn_obj.is_on_both_sides:
+                if behav_null:
+                    print('not yet implemented')
+                else:
+                    self.mvn_obj.order = np.random.permutation(self.data_dict['val_all'].shape[1])
+                self.mvn_obj.is_clust_on_both_sides(self.mvn_obj.order[:sz])
+        else:
+            if behav_null:
+                self.mvn_obj.order = next(null_behav_samples)
+            else:
+                self.mvn_obj.order = np.random.permutation(self.data_dict['val_all'].shape[1])
+        
+        # variance of randomly defined clusters
+        samp = self.data_dict['val_all'][:,self.mvn_obj.order[:sz]]
+        null_dist_sample = samp.var(axis=1).mean()
+        
+        # corresponding symmetry of randomly defined clusters
+        self.mvn_obj.get_img(idx=self.mvn_obj.order[:sz])
+        self.mvn_obj.get_folded_cdf()
+        null_symmetry_sample = self.mvn_obj.folded_cdf
+
+        # distance score of randomly defined clusters
+        self.mvn_obj.get_folded_cdf_totprod(idx=self.mvn_obj.order[:sz])
+        null_dist_score_sample = self.mvn_obj.folded_product_image.sum()
+
+        return null_dist_sample, null_symmetry_sample, null_dist_score_sample
 
 
     def generate_behav_samples(self, behav_null_idx, behav_null_prob, N=3000, low_bound=.2):
@@ -196,12 +219,13 @@ class flyg_clust_obj:
             flips biased coin to decide whether to use that bucket (based on bucket size),
             if valid, returns random permutation of cells in that bucket.
         """
-        bucket_order_init = np.random.randint(0,len(behav_null_idx),10*N)
-        p = low_bound + (1-low_bound)*np.random.rand(10*N)
+        M = 20 #10 # to get N good samples, need M*N samples to choose from
+        bucket_order_init = np.random.randint(0,len(behav_null_idx),M*N)
+        p = low_bound + (1-low_bound)*np.random.rand(M*N)
         valid_bucket_order = [None]*N
         valid_samples = [None]*N
         ctr=0
-        for i in range(10*N):
+        for i in range(M*N):
             if p[i]<behav_null_prob[bucket_order_init[i]]:
                 valid_bucket_order[ctr]=bucket_order_init[i]
                 ctr += 1
@@ -209,7 +233,10 @@ class flyg_clust_obj:
 
         # genrate random permutations from selected buckets
         for i in range(N):
-            valid_samples[i] = np.random.permutation( behav_null_idx[valid_bucket_order[i]] )
+            try:
+                valid_samples[i] = np.random.permutation( behav_null_idx[valid_bucket_order[i]] )
+            except Exception:
+                pdb.set_trace()
 
         samples_iter = (i for i in valid_samples)
         return samples_iter
@@ -306,7 +333,7 @@ class flyg_clust_obj:
                 self.agg_clusters[self.agg_clusters==i] = -1
 
 
-    def make_summary_plot(self, size_list = [2,3,4]):
+    def make_summary_plot(self, size_list = [2,3,4], behav_null=True):
         plt.figure(figsize=(14,4)) 
         for i in range(len(size_list)):
             to_plot = []
@@ -324,8 +351,12 @@ class flyg_clust_obj:
             # null_weights = np.ones_like(self.null_dist_score[size_list[i]]) * len(clusts_to_plot)/len(self.null_dist_score[size_list[i]])
             # plt.hist(self.null_dist_score[size_list[i]],25,(0,ulm),weights=null_weights,color='g',alpha=.5,label='shuffled')
 
-            null_weights_beh = np.ones_like(self.null_dist_score_beh[size_list[i]]) * len(clusts_to_plot)/len(self.null_dist_score_beh[size_list[i]])
-            plt.hist(self.null_dist_score_beh[size_list[i]],25,(0,ulm),weights=null_weights_beh,color='k',alpha=.7,label='beh. matched shuffled')
+            if behav_null:
+                null_weights = np.ones_like(self.null_dist_score_beh[size_list[i]]) * len(clusts_to_plot)/len(self.null_dist_score_beh[size_list[i]])
+                plt.hist(self.null_dist_score_beh[size_list[i]],25,(0,ulm),weights=null_weights,color='k',alpha=.7,label='beh. matched shuffled')
+            else:
+                null_weights = np.ones_like(self.null_dist_score[size_list[i]]) * len(clusts_to_plot)/len(self.null_dist_score[size_list[i]])
+                plt.hist(self.null_dist_score[size_list[i]],25,(0,ulm),weights=null_weights,color='k',alpha=.7,label='shuffled')
 
             plt.xlabel('Spatial Order Score') 
             plt.xlim(0,ulm)
