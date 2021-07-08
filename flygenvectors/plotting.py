@@ -85,10 +85,15 @@ def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10, include_feedin
     return R
 
 
-def plot_pcs(pcs, color, cmap='inferno'):
-    plt.scatter(pcs[:, 0], pcs[:, 1], c=color, cmap=cmap, s=5, linewidths=0)
-    plt.xlabel('PC 1')
-    plt.ylabel('PC 2')
+def plot_pcs(pcs, color, cmap='inferno', idx=[0,1], s=5):
+    if len(idx)==2:
+        plt.scatter(pcs[:, idx[0]], pcs[:, idx[1]], c=color, cmap=cmap, s=s, linewidths=0)
+    else:
+        plt.scatter(pcs[:, idx[0]], pcs[:, idx[1]], pcs[:, idx[2]], c=color, cmap=cmap, s=s, linewidths=0)
+    plt.xlabel('PC '+str(idx[0]+1))
+    plt.ylabel('PC '+str(idx[1]+1))
+    if len(idx)==3:
+        plt.zlabel('PC '+str(idx[2]+1))
 
 
 def plot_neural_activity(
@@ -2840,9 +2845,14 @@ def cmap_from_dendrogram(R, color_idx=None):
     basic_cols=np.unique(R['leaves_color_list'])
     if color_idx is None:
         map_cols = basic_cols
-    else:
+    elif type(color_idx) is int:
         # gry = cm.get_cmap('Greys', 15)
         map_cols = ['#363737', basic_cols[color_idx]]
+    else:
+        # assumes list of indices
+        map_cols = ['#363737']
+        for i in color_idx:
+            map_cols.append( basic_cols[i] )
     my_cmap=LinearSegmentedColormap.from_list('mycmap', map_cols)
     return my_cmap
 
