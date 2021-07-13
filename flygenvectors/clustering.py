@@ -68,11 +68,11 @@ class flyg_clust_obj:
         print('N clusters: ' + str(self.nClust) )  
 
 
-    def get_simple_clusters(self):   
+    def get_simple_clusters(self, activity='dFF'):   
         # simple clustering looking for closed loops in correlation
         # compute pairwise correlations
-        N = self.data_dict['dFF'].shape[0]
-        C = self.data_dict['dFF']@self.data_dict['dFF'].T - np.eye(N)
+        N = self.data_dict[activity].shape[0]
+        C = self.data_dict[activity]@self.data_dict[activity].T - np.eye(N)
         accounted_for=[False]*N
         pairs=[]
 
@@ -87,7 +87,7 @@ class flyg_clust_obj:
         # C += np.eye(N)
         self.simple_clust = {'C':C, 'pairs':pairs, 'accounted_for':accounted_for}
         print('N clusters (simple): ' + str(len(pairs)) )
-        self.order_cells_by_simple_pairs()
+        self.order_cells_by_simple_pairs(activity=activity)
 
 
     def get_simple_clusters_euc(self):   
@@ -117,12 +117,12 @@ class flyg_clust_obj:
         # self.order_cells_by_simple_pairs()
 
 
-    def order_cells_by_simple_pairs(self):
+    def order_cells_by_simple_pairs(self, activity='dFF'):
         # order remaining cells by sequential similarity to previous seed
         pairs = self.simple_clust['pairs']
         accounted_for = self.simple_clust['accounted_for']
         C = self.simple_clust['C']
-        N = self.data_dict['dFF'].shape[0]
+        N = self.data_dict[activity].shape[0]
         flat_pairs = [item for sublist in pairs for item in sublist]
         order_from_pairs = np.zeros(N, dtype=int)
         order_from_pairs[:len(flat_pairs)] = flat_pairs
@@ -136,9 +136,29 @@ class flyg_clust_obj:
             unaccounted_for.remove(unaccounted_for[new_seed])
             seed = new_seed
         self.simple_clust['order_from_pairs'] = order_from_pairs #.astype(int)
-        F_ord = self.data_dict['dFF'][self.simple_clust['order_from_pairs'],:]
+        F_ord = self.data_dict[activity][self.simple_clust['order_from_pairs'],:]
         self.simple_clust['C_ord'] = F_ord@F_ord.T
-                        
+                 
+
+    def normalize_rows_euc(self,input_mat,fix_nans=True): 
+        output_mat = np.zeros(input_mat.shape)
+        mu = np.zeros(input_mat.shape[0])
+        sig = np.zeros(input_mat.shape[0])
+        for i in range(input_mat.shape[0]):
+            mu[i] = input_mat[i,:].mean()
+            sig[i] = input_mat[i,:].std()*np.sqrt(input_mat.shape[1])
+            output_mat[i,:] = (input_mat[i,:]-mu[i])/sig[i]
+            if fix_nans:
+                output_mat[i,:][np.isnan(output_mat[i,:])]=0
+        return output_mat, mu, sig
+
+
+    def unnormalize_rows_euc(self,input_mat,mu,sig): 
+        output_mat = np.zeros(input_mat.shape)
+        for i in range(input_mat.shape[0]):
+            output_mat[i,:] = input_mat[i,:]*sig[i] + mu[i] #(input_mat[i,:]-mu[i])/sig[i]
+        return output_mat
+
 
     def get_null_dist(self, n_samples=1000, mx_null=None, enforce_both_sides=False, behav_null=False, parallel=True):
         """
