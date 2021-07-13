@@ -346,7 +346,7 @@ class reg_obj:
 
         # running state transitions
         # start with binary timeseries of behavioral state starts & stops (ignoring brief states)
-        if (self.exp_id=='2018_08_24_fly3_run1') or (self.exp_id=='2018_08_24_fly2_run2'):
+        if (self.exp_id=='2018_08_24_fly3_run1') or (self.exp_id=='2018_08_24_fly2_run2') or (self.params['use_beh_labels']==False):
             if shifted is None:
                 is_running = 1*(data_dict['behavior']>.0005)
             else:
