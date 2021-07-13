@@ -278,21 +278,32 @@ def plot_states_simple(
     if slc is None:
         im = axes.imshow(beh_labels.T,aspect='auto',cmap=cmap)#,cmap='Accent',vmin=0, vmax=3)
     else:
-        im = axes.imshow(beh_labels[slc[0]:slc[1]].T,aspect='auto',cmap=cmap)#,cmap='Accent',vmin=0, vmax=3)
+        if type(slc) is list:
+            im = axes.imshow(beh_labels[slc[0]:slc[1]].T,aspect='auto',cmap=cmap)#,cmap='Accent',vmin=0, vmax=3)
+        else:
+            #assume slice object
+            im = axes.imshow(beh_labels[slc].T,aspect='auto',cmap=cmap)#,cmap='Accent',vmin=0, vmax=3)
 
     if restrict_xticks:
         xtk_labels = np.array([i for i in range(100, int(data_dict['tPl'][-1,0]), 100)]) #[300,400,500,600]
     else:
         xtk_labels = np.array([i for i in range(100, int(data_dict['tPl'][-1,0]), 50)]) #[300,400,500,600]
     if slc is not None:
-        val = (data_dict['tPl'][slc[0]]<xtk_labels)*(xtk_labels<data_dict['tPl'][slc[1]])
+        if type(slc) is list: 
+            val = (data_dict['tPl'][slc[0]]<xtk_labels)*(xtk_labels<data_dict['tPl'][slc[1]])
+        else:
+            tmp = data_dict['tPl'][slc]
+            val = (tmp[0]<xtk_labels)*(xtk_labels<tmp[-1])
         # val = (slc[0]/data_dict['scanRate']<xtk_labels)*(xtk_labels<slc[1]/data_dict['scanRate'])
         xtk_labels = xtk_labels[val]
     xtks = np.zeros(xtk_labels.shape)
     for i in range(len(xtks)):
         xtks[i] = np.argmin( abs(xtk_labels[i] - data_dict['tPl']) )
     if slc is not None:
-        xtks -= slc[0]
+        if type(slc) is list:
+            xtks -= slc[0]
+        else:
+            xtks -= slc.start
     # xtk_labels_adj = np.array(xtk_labels) #-xtk_labels[0]    
     plt.xticks(ticks=xtks, labels=xtk_labels)
     axes.set_xlabel('Time (s)')
@@ -1070,60 +1081,66 @@ def unroll_model_fit_stats(model_fit):
     return model_fit_un
 
 
-def show_param_hist(model_fit, data_dict, param_input, pval=.01, ylim=None, xlim=None, 
-                        use_cc=False, n_xbins=40, sig_clr='#01386a', show_sum_line=False):
+def show_param_hist(model_fit=None, data_dict=None, param_input=None, param_input2=None, pval=.01, xlim=None, 
+                        use_cc=False, n_xbins=40, sig_clr='#01386a', show_sum_line=False, legend=None, hatch=None):
     """
-    Default is to plot scatter of a parameter vs residual r^2 of that parameter
     """
-    from matplotlib.ticker import ScalarFormatter
+    #from matplotlib.ticker import ScalarFormatter
+    if model_fit is not None:
+        f = get_model_fit_as_dict(model_fit)
+        rsq_dict = get_model_fit_as_dict(f['r_sq'])
+        cc_dict = get_model_fit_as_dict(f['cc'])
+        if isinstance(param_input,str):
+            param_name = param_input
+            param_idx = None
+            if use_cc:
+                param = cc_dict[param_name]
+            else:
+                param = f[param_name]
+            rsq = rsq_dict[param_name]
+            stat = np.zeros(len(param))
+            for i in range(len(param)):
+                stat[i] = f['stat'][i][param_name][0][1]
+        elif isinstance(param_input,list):
+            param_name = param_input[0]
+            param_idx = param_input[1]
+            if use_cc:
+                param = cc_dict[param_name][:,param_idx]
+            else:
+                param = f[param_name][:,param_idx]
+            rsq = rsq_dict[param_name][:,param_idx]
+            stat = np.zeros(len(param))
+            for i in range(len(param)):
+                stat[i] = f['stat'][i][param_name][param_idx][1]
 
-    f = get_model_fit_as_dict(model_fit)
-    rsq_dict = get_model_fit_as_dict(f['r_sq'])
-    cc_dict = get_model_fit_as_dict(f['cc'])
-    if isinstance(param_input,str):
-        param_name = param_input
-        param_idx = None
-        if use_cc:
-            param = cc_dict[param_name]
+        if(param_name=='phi'): 
+            # param = param/data_dict['scanRate'] # this is now absorbed into model
+            label = 'Temporal Shift (s)'
+        elif(param_name=='tau'):
+            label = r'$\tau$ (s)'
+        elif(param_name=='beta_0'): 
+            label = 'Running'
+        elif(param_name=='gamma_0'): 
+            label = r'$\gamma_0$'
+        elif(param_name=='delta_0'): 
+            label = 'Grooming'
+        elif(param_name=='tau_feed'):
+            label = r'$\tau_{feed}$'
         else:
-            param = f[param_name]
-        rsq = rsq_dict[param_name]
-        stat = np.zeros(len(param))
-        for i in range(len(param)):
-            stat[i] = f['stat'][i][param_name][0][1]
-    elif isinstance(param_input,list):
-        param_name = param_input[0]
-        param_idx = param_input[1]
-        if use_cc:
-            param = cc_dict[param_name][:,param_idx]
-        else:
-            param = f[param_name][:,param_idx]
-        rsq = rsq_dict[param_name][:,param_idx]
-        stat = np.zeros(len(param))
-        for i in range(len(param)):
-            stat[i] = f['stat'][i][param_name][param_idx][1]
+            label=param_name
+        if use_cc: label+=' Correlation'
 
-    if(param_name=='phi'): 
-        # param = param/data_dict['scanRate'] # this is now absorbed into model
-        label = 'Temporal Shift (s)'
-    elif(param_name=='tau'):
-        label = r'$\tau$ (s)'
-    elif(param_name=='beta_0'): 
-        label = 'Running'
-    elif(param_name=='gamma_0'): 
-        label = r'$\gamma_0$'
-    elif(param_name=='delta_0'): 
-        label = 'Grooming'
-    elif(param_name=='tau_feed'):
-        label = r'$\tau_{feed}$'
+        pval_text = pval #0.01
+        sig = list(stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
+        param_sig = param[sig]
+        param_notsig = param[np.logical_not(sig)] #param[np.logical_not(success*sig)]
     else:
-        label=param_name
-    if use_cc: label+=' Correlation'
-
-    pval_text = pval #0.01
-    sig = list(stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
-    param_sig = param[sig]
-    param_notsig = param[np.logical_not(sig)] #param[np.logical_not(success*sig)]
+        # manually pass list of form [param_name, param_input]
+        param_name = param_input[0]
+        param_sig = param_input[1]
+        label = param_name
+        if param_input2 is not None:
+            param_notsig = param_input2[1]
 
     plt.figure(figsize=(4, 2))
     # left, width = 0.1, 0.65
@@ -1149,10 +1166,20 @@ def show_param_hist(model_fit, data_dict, param_input, pval=.01, ylim=None, xlim
         xbins = np.logspace(np.log10(xmin), np.log10(xmax),num=len(ybins), base=10) #np.exp(1))
     else:
         xbins = np.arange(xmin, xmax+xbinwidth, xbinwidth) #np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
-    v0,_,_ = ax_histx.hist(param_notsig, bins=xbins,color='tab:gray') #'#929591')
-    v1,_,_ = ax_histx.hist(param_sig, bins=xbins,color=sig_clr,alpha=.7) #'#929591')
+    if legend is None:
+        v0,_,_ = ax_histx.hist(param_notsig, bins=xbins,color='tab:gray') #'#929591')
+        v1,_,_ = ax_histx.hist(param_sig, bins=xbins,color=sig_clr,alpha=.7) #'#929591')
+    else:
+        if hatch is None:
+            v0,_,_ = ax_histx.hist(param_notsig, bins=xbins,color='tab:gray',label=legend[1]) #'#929591')
+            v1,_,_ = ax_histx.hist(param_sig, bins=xbins,color=sig_clr,alpha=.7,label=legend[0]) #'#929591')
+        else:
+            v0,_,_ = ax_histx.hist(param_notsig, bins=xbins,color='tab:gray',label=legend[1], hatch=hatch) #'#929591')
+            v1,_,_ = ax_histx.hist(param_sig, bins=xbins,color=sig_clr,alpha=.7,label=legend[0]) #'#929591')
     if show_sum_line:
         ax_histx.plot(( xbins[:-1]+xbins[1:])/2, v0+v1,'k',linewidth=1)
+    if legend is not None:
+        plt.legend()
     ax_histx.set_xlim((xmin,xmax))
     ax_histx.set_xlabel(label)
     ax_histx.set_ylabel('Cell Count')
@@ -1168,114 +1195,126 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
     """
     from matplotlib.ticker import ScalarFormatter
 
-    f = get_model_fit_as_dict(model_fit)
-    rsq_dict = get_model_fit_as_dict(f['r_sq'])
-    cc_dict = get_model_fit_as_dict(f['cc'])
-    if isinstance(param_input,str):
-        param_name = param_input
-        param_idx = None
-        if use_cc:
-            param = cc_dict[param_name]
-        else:
-            param = f[param_name]
-        rsq = rsq_dict[param_name]
-        stat = np.zeros(len(param))
-        for i in range(len(param)):
-            stat[i] = f['stat'][i][param_name][0][1]
-    elif isinstance(param_input,list):
-        param_name = param_input[0]
-        param_idx = param_input[1]
-        if use_cc:
-            param = cc_dict[param_name][:,param_idx]
-        else:
-            param = f[param_name][:,param_idx]
-        rsq = rsq_dict[param_name][:,param_idx]
-        stat = np.zeros(len(param))
-        for i in range(len(param)):
-            if param_name in f['stat'][i]:
-                stat[i] = f['stat'][i][param_name][param_idx][1]
-            else:
-                stat[i] = np.nan
-    if param2_input is not None:
-        if isinstance(param2_input,str):
-            param2_name = param2_input
-            param2_idx = None
+    if model_fit is not None:
+        f = get_model_fit_as_dict(model_fit)
+        rsq_dict = get_model_fit_as_dict(f['r_sq'])
+        cc_dict = get_model_fit_as_dict(f['cc'])
+        if isinstance(param_input,str):
+            param_name = param_input
+            param_idx = None
             if use_cc:
-                param2 = cc_dict[param2_name]
+                param = cc_dict[param_name]
             else:
-                param2 = f[param2_name]
-            # rsq = rsq_dict[param2_name]
-            stat2 = np.zeros(len(param2))
-            for i in range(len(param2)):
-                stat2[i] = f['stat'][i][param2_name][0][1]
-        elif isinstance(param2_input,list):
-            param2_name = param2_input[0]
-            param2_idx = param2_input[1]
+                param = f[param_name]
+            rsq = rsq_dict[param_name]
+            stat = np.zeros(len(param))
+            for i in range(len(param)):
+                stat[i] = f['stat'][i][param_name][0][1]
+        elif isinstance(param_input,list):
+            param_name = param_input[0]
+            param_idx = param_input[1]
             if use_cc:
-                param2 = cc_dict[param2_name][:,param2_idx]
+                param = cc_dict[param_name][:,param_idx]
             else:
-                param2 = f[param2_name][:,param2_idx]
-            # rsq = rsq_dict[param2_name][:,param2_idx]
-            stat2 = np.zeros(len(param2))
-            for i in range(len(param2)):
-                if param2_name in f['stat'][i]:
-                    stat2[i] = f['stat'][i][param2_name][param2_idx][1]
+                param = f[param_name][:,param_idx]
+            rsq = rsq_dict[param_name][:,param_idx]
+            stat = np.zeros(len(param))
+            for i in range(len(param)):
+                if param_name in f['stat'][i]:
+                    stat[i] = f['stat'][i][param_name][param_idx][1]
                 else:
-                    stat2[i] = np.nan
-        if(param2_name=='phi'): 
-            # param2 = param2 /data_dict['scanRate'] # this is now absorbed into model
-            label2 = 'Temporal Shift (s)'
-        elif(param2_name=='beta_0'): 
-            label2 = 'Flailing' #r'$\beta_1$'
-        elif(param2_name=='gamma_0'): 
-            label2 = r'$\gamma_0$'
-        elif(param2_name=='delta_0'): 
-            if param2_idx==0:
-                label2 = 'Front Grooming' #r'$\delta_0$'
-            elif param2_idx==1:
-                label2 = 'Back Grooming' #r'$\delta_0$'
-        elif(param2_name=='tau_feed'):
-            label2 = r'$\tau_{feed}$'
+                    stat[i] = np.nan
+        if param2_input is not None:
+            if isinstance(param2_input,str):
+                param2_name = param2_input
+                param2_idx = None
+                if use_cc:
+                    param2 = cc_dict[param2_name]
+                else:
+                    param2 = f[param2_name]
+                # rsq = rsq_dict[param2_name]
+                stat2 = np.zeros(len(param2))
+                for i in range(len(param2)):
+                    stat2[i] = f['stat'][i][param2_name][0][1]
+            elif isinstance(param2_input,list):
+                param2_name = param2_input[0]
+                param2_idx = param2_input[1]
+                if use_cc:
+                    param2 = cc_dict[param2_name][:,param2_idx]
+                else:
+                    param2 = f[param2_name][:,param2_idx]
+                # rsq = rsq_dict[param2_name][:,param2_idx]
+                stat2 = np.zeros(len(param2))
+                for i in range(len(param2)):
+                    if param2_name in f['stat'][i]:
+                        stat2[i] = f['stat'][i][param2_name][param2_idx][1]
+                    else:
+                        stat2[i] = np.nan
+            if(param2_name=='phi'): 
+                # param2 = param2 /data_dict['scanRate'] # this is now absorbed into model
+                label2 = 'Temporal Shift (s)'
+            elif(param2_name=='beta_0'): 
+                label2 = 'Flailing' #r'$\beta_1$'
+            elif(param2_name=='gamma_0'): 
+                label2 = r'$\gamma_0$'
+            elif(param2_name=='delta_0'): 
+                if param2_idx==0:
+                    label2 = 'Front Grooming' #r'$\delta_0$'
+                elif param2_idx==1:
+                    label2 = 'Back Grooming' #r'$\delta_0$'
+            elif(param2_name=='tau_feed'):
+                label2 = r'$\tau_{feed}$'
+            else:
+                label2=param2_name
+        # success = True #f['success']
+
+        if(param_name=='phi'): 
+            # param = param/data_dict['scanRate'] # this is now absorbed into model
+            label = 'Temporal Shift (s)'
+        elif(param_name=='tau'):
+            label = r'$\tau$ (s)'
+        elif(param_name=='beta_0'): 
+            label = 'Running' #r'$\beta_0$'
+        elif(param_name=='gamma_0'): 
+            label = r'$\gamma_0$'
+        elif(param_name=='delta_0'): 
+            if param_idx==0:
+                label = 'Front Grooming' #r'$\delta_0$'
+            elif param_idx==1:
+                label = 'Back Grooming' #r'$\delta_0$'
+        elif(param_name=='tau_feed'):
+            label = r'$\tau_{feed}$'
         else:
-            label2=param2_name
-    # success = True #f['success']
+            label=param_name
 
-    if(param_name=='phi'): 
-        # param = param/data_dict['scanRate'] # this is now absorbed into model
-        label = 'Temporal Shift (s)'
-    elif(param_name=='tau'):
-        label = r'$\tau$ (s)'
-    elif(param_name=='beta_0'): 
-        label = 'Running' #r'$\beta_0$'
-    elif(param_name=='gamma_0'): 
-        label = r'$\gamma_0$'
-    elif(param_name=='delta_0'): 
-        if param_idx==0:
-            label = 'Front Grooming' #r'$\delta_0$'
-        elif param_idx==1:
-            label = 'Back Grooming' #r'$\delta_0$'
-    elif(param_name=='tau_feed'):
-        label = r'$\tau_{feed}$'
+        if use_cc:
+            label += ' Correlation'
+            label2 += ' Correlation'
+
+        pval_text = pval #0.01
+        sig = list(stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
+        if param2_input is None:
+            param_sig = param[sig] #param[success*sig]
+            param_notsig = param[np.logical_not(sig)] #param[np.logical_not(success*sig)]
+            rsq_sig = rsq[sig] #rsq[success*sig]
+            rsq_notsig = rsq[np.logical_not(sig)] #rsq[np.logical_not(success*sig)]
+        else:
+            sig2 = list(stat2<pval)
+            param_sig = param[sig and sig2] #param[success*sig]
+            param_notsig = param[np.logical_not(sig and sig2)]
+            param2_sig = param2[sig and sig2] #param[success*sig]
+            param2_notsig = param2[np.logical_not(sig and sig2)]
     else:
-        label=param_name
-
-    if use_cc:
-        label += ' Correlation'
-        label2 += ' Correlation'
-
-    pval_text = pval #0.01
-    sig = list(stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
-    if param2_input is None:
-        param_sig = param[sig] #param[success*sig]
-        param_notsig = param[np.logical_not(sig)] #param[np.logical_not(success*sig)]
-        rsq_sig = rsq[sig] #rsq[success*sig]
-        rsq_notsig = rsq[np.logical_not(sig)] #rsq[np.logical_not(success*sig)]
-    else:
-        sig2 = list(stat2<pval)
-        param_sig = param[sig and sig2] #param[success*sig]
-        param_notsig = param[np.logical_not(sig and sig2)]
-        param2_sig = param2[sig and sig2] #param[success*sig]
-        param2_notsig = param2[np.logical_not(sig and sig2)]
+        # manually pass list of form [param_name, param_input]
+        param_name = param_input[0]
+        param_sig = param_input[1]
+        param_notsig = []
+        label = param_name
+        if param2_input is not None:
+            param2_name = param2_input[0]
+            param2_sig = param2_input[1]
+            param2_notsig = []
+            label2 = param2_name
 
     plt.figure(figsize=(5, 5))
     left, width = 0.1, 0.65
@@ -2689,6 +2728,7 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex=1, show_fit=Fals
         sucrose_touch = np.zeros(data_dict['sucrose_touch'].shape)
         sucrose_touch[s1:s1+10] = 1
     if slice_time:
+        traces = traces[:,slice_time]
         tPl = tPl[slice_time]
         behavior = behavior[slice_time]
         feed = feed[slice_time]
