@@ -263,7 +263,7 @@ class reg_obj:
             s = self.regressors_dict['alpha_0'].shape[0]
         elif label=='beta_0':
             if self.params['split_behav']:
-                s = self.regressors_dict['beta_0'].shape[0]
+                s = self.regressors_dict['beta_0'].shape[0] ### xxx
             else:
                 s = 1
         elif label=='gamma_0':
@@ -325,14 +325,14 @@ class reg_obj:
             trial_regressors[i,:] /= abs(trial_regressors[i,:]).max()
 
         # motion energy from ball
-        if params['split_behav'] and not just_null_model:
+        if params['split_behav']:
+            #and not just_null_model
+            ball = np.zeros((NT,len(data_dict['behavior'])))
             if shifted is None:
-                ball = np.zeros((NT,len(data_dict['behavior'])))
                 for i in range(NT):
                     is_this_trial = np.squeeze(data_dict['trialFlag']==self.U[i])
                     ball[i,is_this_trial] = data_dict['behavior'][is_this_trial]-data_dict['behavior'][is_this_trial].mean()
             else:
-                ball = np.zeros((NT,len(data_dict['behavior'])))
                 for i in range(NT):
                     is_this_trial = np.squeeze(data_dict['trialFlag']==self.U[i])
                     ball[i,is_this_trial] = data_dict['circshift_behav'][shifted][is_this_trial]-data_dict['circshift_behav'][shifted][is_this_trial].mean()
