@@ -1470,6 +1470,7 @@ def show_tau_scatter(model_fit, pval=.01, idx=None, sig_clr='#01386a', s=100,
     # print('sum of neg post is '+str( sum( np.logical_not(tau_is_pos)[success*sig] ) ))
 
     print('median tau of significant cells = '+str(np.nanmedian(tau_sig)))
+    print('frac of significant cells w/ tau below 4s = '+str( np.sum(tau_sig<4)/len(tau_sig) ))
     print('frac of significant cells w/ tau above 20s = '+str( np.sum(tau_sig>20)/len(tau_sig) ))
     print('fraction of cells with p<'+str(pval)+' = '+str( (success*sig).sum()/len(sig) ))
 
