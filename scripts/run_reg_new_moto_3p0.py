@@ -72,10 +72,13 @@ exp_list = ['2019_07_01_fly2',
 
 i = int(sys.argv[1]) # DATASET TO LOAD
 part_i = int(sys.argv[2])
-n_perms = int(sys.argv[3]) # DATASET TO LOAD
+n_perms = int(sys.argv[3])
 # for expt_id in exp_list:
 expt_id = exp_list[i] #[0] + '_' + exp_list[i][1]
 print(expt_id)
+
+# n_perms = 5
+# print('Manually setting n_perms to 5')
 
 dirs = futils.get_dirs()
 fig_dirs = futils.get_fig_dirs(expt_id)
