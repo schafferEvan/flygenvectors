@@ -1050,7 +1050,9 @@ class reg_obj:
             U = np.unique(self.data_dict['trialFlag']) # beta
             for i in range(len(U)):
                 initial_conds.append(.0001)
-            initial_conds.extend([0,0.5,5,0]) # gamma, tau, phi
+            initial_conds.extend([0,0.5])        # gamma
+            initial_conds.extend([.0001,.0001])  # delta
+            initial_conds.extend([5,0])          # tau, phi
         else:
             # elif self.params['use_beh_labels']:
             initial_conds=[0,.0001,.0001]        # alpha
@@ -1069,7 +1071,9 @@ class reg_obj:
             U = np.unique(self.data_dict['trialFlag'])   # beta
             for i in range(len(U)):
                 bounds.append([None,None])
-            bounds.extend([[None,None],[-.05,.05],[1,59],[-59,59]]) # gamma, tau, phi
+            bounds.extend([[None,None],[-.05,.05]])         # gamma
+            bounds.extend([[None,None],[None,None]])        # delta
+            bounds.extend([[1,59],[-59,59]])                # tau, phi
         else:
             # elif self.params['use_beh_labels']:
             bounds=[[None,None],[None,None],[None,None]]    # alpha
