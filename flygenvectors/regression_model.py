@@ -1135,6 +1135,33 @@ class reg_obj:
         return model_fit
             
 
+def trim_before_stim(data_dict, buffer_in_sec=30):
+    """ 
+    cut datasets with a stimulus to only include period prior to stim minus buffer
+    """
+    frames_to_cut = np.round(data_dict['scanRate']*buffer_in_sec).astype(int)
+    first_stim = np.flatnonzero(data_dict['stim'])[0]
+    cut_frame = first_stim-frames_to_cut
+
+    data_dict['dFF'] = data_dict['dFF'][:,:cut_frame]
+    data_dict['dYY'] = data_dict['dYY'][:,:cut_frame]
+    data_dict['dRR'] = data_dict['dRR'][:,:cut_frame]
+    data_dict['time'] = data_dict['time'][:cut_frame]
+    if 'tPl' in data_dict:
+        data_dict['tPl'] = data_dict['tPl'][:cut_frame]
+    if 'behavior' in data_dict:
+        data_dict['behavior'] = data_dict['behavior'][:cut_frame]
+    data_dict['ball'] = data_dict['ball'][:cut_frame,:]
+    if ('beh_labels' in data_dict) and (len(data_dict['beh_labels'])>1):
+        if data_dict['beh_labels'].shape[1]==1:
+            data_dict['beh_labels'] = data_dict['beh_labels'][:cut_frame, :]
+        else:
+            data_dict['beh_labels'] = data_dict['beh_labels'][:cut_frame, :]
+    data_dict['trialFlag'] = data_dict['trialFlag'][:cut_frame]
+    if 'state_is_valid' in data_dict:
+        data_dict['state_is_valid'] = data_dict['state_is_valid'][:cut_frame]
+
+
 def get_summary_dict(expt_id, split_behav, data_dict, model_fit, model_fit_shifted, use_beh_labels):
     """
     summary preprocessing step to either plot regression output or feed it into other analyses
