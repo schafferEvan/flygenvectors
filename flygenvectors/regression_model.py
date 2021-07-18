@@ -339,6 +339,8 @@ class reg_obj:
                 for i in range(NT):
                     is_this_trial = np.squeeze(data_dict['trialFlag']==self.U[i])
                     ball[i,is_this_trial] = data_dict['circshift_behav'][shifted][is_this_trial]-data_dict['circshift_behav'][shifted][is_this_trial].mean()
+                    not_this_trial = np.squeeze(data_dict['trialFlag']!=self.U[i])
+                    ball[i,not_this_trial] = -data_dict['circshift_behav'][shifted][is_this_trial].mean()
         # elif just_null_model:
         #     ball = []
         else:
