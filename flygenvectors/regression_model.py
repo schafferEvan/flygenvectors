@@ -327,11 +327,14 @@ class reg_obj:
         # motion energy from ball
         if params['split_behav']:
             #and not just_null_model
-            ball = np.zeros((NT,len(data_dict['behavior'])))
+            ball = -data_dict['behavior'].mean()*np.ones((NT,len(data_dict['behavior'])))
             if shifted is None:
                 for i in range(NT):
                     is_this_trial = np.squeeze(data_dict['trialFlag']==self.U[i])
                     ball[i,is_this_trial] = data_dict['behavior'][is_this_trial]-data_dict['behavior'][is_this_trial].mean()
+                    not_this_trial = np.squeeze(data_dict['trialFlag']!=self.U[i])
+                    ball[i,not_this_trial] = -data_dict['behavior'][is_this_trial].mean()
+                    # ball[i,is_this_trial] = data_dict['behavior'][is_this_trial]-data_dict['behavior'].mean()
             else:
                 for i in range(NT):
                     is_this_trial = np.squeeze(data_dict['trialFlag']==self.U[i])
@@ -866,6 +869,10 @@ class reg_obj:
             [] #ok
         elif self.exp_id=='2019_04_24_fly1':
             [] #ok
+        elif self.exp_id=='2019_04_26_fly1':
+            [] #ok
+        elif self.exp_id=='2019_04_29_fly1':
+            [] #ok
         elif self.exp_id=='2019_04_25_fly3':
             tv_params[2]=[.05, .01, .01]
         elif self.exp_id=='2019_05_07_fly1':
@@ -1096,12 +1103,22 @@ class reg_obj:
             elif reg == ['beta_0']:
                 bounds[3] = [-1e-12,1e-12]
             elif reg == 'gamma_0':
-                bounds[4] = [-1e-12,1e-12]
-                bounds[5] = [-1e-12,1e-12]
+                if self.params['split_behav']:
+                    bounds[5] = [-1e-12,1e-12]
+                    bounds[6] = [-1e-12,1e-12]
+                else:
+                    bounds[4] = [-1e-12,1e-12]
+                    bounds[5] = [-1e-12,1e-12]
             elif reg == ['delta_0',0]:
-                bounds[6] = [-1e-12,1e-12]
+                if self.params['split_behav']:
+                    bounds[7] = [-1e-12,1e-12]
+                else:
+                    bounds[6] = [-1e-12,1e-12]
             elif reg == ['delta_0',1]:
-                bounds[7] = [-1e-12,1e-12]
+                if self.params['split_behav']:
+                    bounds[8] = [-1e-12,1e-12]
+                else:
+                    bounds[7] = [-1e-12,1e-12]
             elif reg == 'trial_coeffs':
                 for i in range(1,self.n_trials):
                     bounds[-i] = [-1e-12,1e-12] #note: loop from 1:N instead of 0:N-1 is correct here  
