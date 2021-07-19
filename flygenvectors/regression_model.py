@@ -1103,6 +1103,10 @@ class reg_obj:
                 bounds[2] = [-1e-12,1e-12]
             elif reg == ['beta_0']:
                 bounds[3] = [-1e-12,1e-12]
+            elif reg == ['beta_0',0]:
+                bounds[3] = [-1e-12,1e-12]
+            elif reg == ['beta_0',1]:
+                bounds[4] = [-1e-12,1e-12]
             elif reg == 'gamma_0':
                 if self.params['split_behav']:
                     bounds[5] = [-1e-12,1e-12]
