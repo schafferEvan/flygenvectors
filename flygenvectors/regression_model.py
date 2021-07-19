@@ -327,20 +327,19 @@ class reg_obj:
         # motion energy from ball
         if params['split_behav']:
             #and not just_null_model
-            ball = -data_dict['behavior'].mean()*np.ones((NT,len(data_dict['behavior'])))
+            ball = np.zeros((NT,len(data_dict['behavior'])))
             if shifted is None:
                 for i in range(NT):
                     is_this_trial = np.squeeze(data_dict['trialFlag']==self.U[i])
                     ball[i,is_this_trial] = data_dict['behavior'][is_this_trial]-data_dict['behavior'][is_this_trial].mean()
-                    not_this_trial = np.squeeze(data_dict['trialFlag']!=self.U[i])
-                    ball[i,not_this_trial] = -data_dict['behavior'][is_this_trial].mean()
-                    # ball[i,is_this_trial] = data_dict['behavior'][is_this_trial]-data_dict['behavior'].mean()
+                    # not_this_trial = np.squeeze(data_dict['trialFlag']!=self.U[i])
+                    # ball[i,not_this_trial] = -data_dict['behavior'][is_this_trial].mean()
             else:
                 for i in range(NT):
                     is_this_trial = np.squeeze(data_dict['trialFlag']==self.U[i])
                     ball[i,is_this_trial] = data_dict['circshift_behav'][shifted][is_this_trial]-data_dict['circshift_behav'][shifted][is_this_trial].mean()
-                    not_this_trial = np.squeeze(data_dict['trialFlag']!=self.U[i])
-                    ball[i,not_this_trial] = -data_dict['circshift_behav'][shifted][is_this_trial].mean()
+                    # not_this_trial = np.squeeze(data_dict['trialFlag']!=self.U[i])
+                    # ball[i,not_this_trial] = -data_dict['circshift_behav'][shifted][is_this_trial].mean()
         # elif just_null_model:
         #     ball = []
         else:
