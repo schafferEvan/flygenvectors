@@ -21,7 +21,7 @@ import multiprocessing
 
 class reg_obj:
     def __init__(self, activity='dFF', exp_id=None, data_dict={}, fig_dirs={}, 
-                    split_behav=False, use_beh_labels=None, use_only_valid=False, n_cores=None):
+                    split_behav=False, use_beh_labels=None, use_only_valid=False, n_cores=None, exclude_regressors=None):
         """
         Model:
             'alpha_0': baseline (up to quadratic in time)
@@ -63,7 +63,7 @@ class reg_obj:
         self.options = {'make_motion_hist':False}
         self.cell_id = 0
         self.model_fit = []
-        self.exclude_regressors = None
+        self.exclude_regressors = exclude_regressors
         self.scaling_for_fit = 100 # temporarily adjust dynamic range for robustness in fitting
         if n_cores is None:
             self.num_cores = multiprocessing.cpu_count()
@@ -1227,4 +1227,77 @@ def get_summary_dict(expt_id, split_behav, data_dict, model_fit, model_fit_shift
     
     summary_dict = {'expt_id':expt_id, 'ro':ro, 'data_dict':dict_tmp, 'f':f, 'rsq':rsq, 'cc':cc}
     return summary_dict
+
+
+def get_behav_durations(data_dict, split_behav=False):
+    """
+    get total time in which fly exhibited each behavior (for normalization)
+    """
+    if split_behav:
+        u = data_dict['trialFlag'][:,0]==1
+        frac_run = data_dict['behavior'][u].sum()/len(data_dict['scanRate'])
+        u = data_dict['trialFlag'][:,0]==2
+        frac_flail = data_dict['behavior'][u].sum()/len(data_dict['behavior'])
+        behav_fracs = {'run':frac_run, 'flail':frac_flail}
+    else:
+        if data_dict['beh_labels'].shape[1]>1:
+            frac_undef = data_dict['beh_labels'][:,0].sum()/data_dict['beh_labels'].shape[0]
+            frac_run = data_dict['beh_labels'][:,2].sum()/data_dict['beh_labels'].shape[0]
+            frac_fgroom = data_dict['beh_labels'][:,3].sum()/data_dict['beh_labels'].shape[0]
+            frac_bgroom = data_dict['beh_labels'][:,4].sum()/data_dict['beh_labels'].shape[0]
+            behav_fracs = {'undef':frac_undef, 'run':frac_run, 'fgroom':frac_fgroom, 'bgroom':frac_bgroom}
+        else:
+            behav_fracs = {'undef':np.nan, 'run':np.nan, 'fgroom':np.nan, 'bgroom':np.nan}
+    return behav_fracs
+
+
+def get_flattened_summary(data_tot=[], model_tot=[], model_tot_shifted=[], use_beh_labels=True, split_behav=False):
+    """
+    takes list of summary dicts for all flies and compiles flat dict for summary plots
+    data_tot = list of data dicts
+    model_tot = list of model fit dicts
+    """
+    ro = reg_obj(split_behav=split_behav,
+                 use_beh_labels=use_beh_labels)
+    # ro.refresh_params()
+    ro.is_downsampled=True
+
+    # make flattened centroid list
+    centroids_dict_flat_full = {'aligned_centroids': data_tot[0]['data_dict']['aligned_centroids'].copy(),
+                      'dims_in_um':data_tot[0]['data_dict']['dims_in_um'].copy(),
+                      'dims':data_tot[0]['data_dict']['dims'].copy()}
+    for nf in range(1,len(data_tot)):
+        new_c = data_tot[nf]['data_dict']['aligned_centroids'].copy()
+        centroids_dict_flat_full['aligned_centroids'] = np.concatenate((centroids_dict_flat_full['aligned_centroids'],new_c),axis=0)
+
+    # make flattened parameter dictionary
+    model_fit_flat = copy.deepcopy(model_tot[0])
+    for nf in range(1,len(model_tot)):
+        model_fit_flat.extend( copy.deepcopy(model_tot[nf]) )
+
+    # make flattened list of behavior fractions
+    behav_fracs = get_behav_durations(data_tot[0]['data_dict'], split_behav=split_behav)
+    behav_fracs_flat = [behav_fracs]*len(model_tot[0])
+    for nf in range(1,len(model_tot)):
+        behav_fracs = get_behav_durations(data_tot[nf]['data_dict'], split_behav=split_behav)
+        behav_fracs_flat.extend( [behav_fracs]*len(model_tot[nf]) )
+
+    # make flattened *shifted* parameter dictionary
+    model_fit_shifted_flat = copy.deepcopy(model_tot_shifted[0])
+    for nf in range(1,len(model_tot_shifted)):
+        for i in range(len(model_fit_shifted_flat)):
+            model_fit_shifted_flat[i].extend( copy.deepcopy(model_tot_shifted[nf][i]) )
+    
+    ro.model_fit = model_fit_flat
+    ro.model_fit_shifted = model_fit_shifted_flat
+    ro.behav_fracs_flat = behav_fracs_flat
+    ro.data_dict = {'aligned_centroids':centroids_dict_flat_full['aligned_centroids'],
+                    'dims_in_um':centroids_dict_flat_full['dims_in_um'],
+                    'dims':centroids_dict_flat_full['dims']}
+    return ro
+
+
+
+
+
 
