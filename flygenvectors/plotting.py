@@ -2414,6 +2414,12 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,s
         neural_data = data_dict['dFF_resid_base'].copy()
     elif activity=='std':
         neural_data = data_dict['dFF'].copy()*np.sqrt(data_dict['dFF'].shape[1])
+    elif activity=='dRR_nobase':
+        neural_data = data_dict['dRR'].copy()
+        for i in range(neural_data.shape[0]):
+            neural_data[i,:] -= neural_data[i,:].min() #np.quantile(neural_data[i,:],.01)
+    elif activity in data_dict:
+        neural_data = data_dict[activity]
     
     if(color_range=='auto'):
         dFF = trim_dynamic_range(neural_data, 0.01, 0.95)
