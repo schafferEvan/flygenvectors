@@ -92,10 +92,10 @@ class reg_obj:
         return dFF_fit
 
 
-    def get_linear_regressors(self, d):
+    def get_linear_regressors(self, d, normalize_kern=True):
         # apply all nonlinearities to self.regressors_dict, so that output regs are linear
         # d is a dictionary of regression coefficients
-        kern = self.get_kern(d['phi'], d['tau']) #(1/np.sqrt(tau))*np.exp(-t_exp/tau)
+        kern = self.get_kern(phi=d['phi'], tau=d['tau'], normalize_kern=normalize_kern) #(1/np.sqrt(tau))*np.exp(-t_exp/tau)
         ball = self.regressors_dict['beta_0']
         
         # ball
@@ -117,14 +117,17 @@ class reg_obj:
                     self.linear_regressors_dict['delta_0'][i,:] -= self.linear_regressors_dict['delta_0'][i,:].mean()
     
 
-    def get_kern(self, phi, tau):
-        '''make kernel''' 
+    def get_kern(self, phi, tau, normalize_kern=True):
+        '''make kernel.
+        normalize_kern: normalize integral of kernel to 1''' 
         t_exp = self.t_exp
         kern = np.zeros(len(t_exp))
         p = t_exp>=phi
         n = t_exp<phi
         kern[p] = np.exp(-(t_exp[p]-phi)/tau)
         kern[n] = np.exp((t_exp[n]-phi)/tau)
+        if normalize_kern:
+            kern /= kern.sum() # already corrected for self.data_dict['scanRate']
         return kern
 
 
@@ -629,7 +632,8 @@ class reg_obj:
                 null_fit_list[j] = dFF_fit_null
                 SS_res_0 = ( (dFF-dFF_fit_null)**2 )
                 # res_var_0 = (dFF-dFF_fit_null).var()
-                stat_list.append( stats.wilcoxon(np.squeeze(SS_res_0),np.squeeze(SS_res)) )
+                # stat_list.append( stats.wilcoxon(np.squeeze(SS_res_0),np.squeeze(SS_res)) )
+                stat_list.append( stats.mannwhitneyu(np.squeeze(SS_res_0),np.squeeze(SS_res)), alternative='greater' )
                 r_sq_list.append( (SS_res_0.sum()-SS_res.sum())/SS_tot.sum() )
                 
                 # cc between a regressor and fit leaving out regressor
