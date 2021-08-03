@@ -1300,10 +1300,10 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
             rsq_notsig = rsq[np.logical_not(sig)] #rsq[np.logical_not(success*sig)]
         else:
             sig2 = list(stat2<pval)
-            param_sig = param[sig and sig2] #param[success*sig]
-            param_notsig = param[np.logical_not(sig and sig2)]
-            param2_sig = param2[sig and sig2] #param[success*sig]
-            param2_notsig = param2[np.logical_not(sig and sig2)]
+            param_sig = param[ np.logical_and(sig,sig2) ] #param[success*sig]
+            param_notsig = param[ np.logical_not(np.logical_and(sig,sig2)) ]
+            param2_sig = param2[ np.logical_and(sig,sig2) ] #param[success*sig]
+            param2_notsig = param2[ np.logical_not(np.logical_and(sig,sig2)) ]
     else:
         # manually pass list of form [param_name, param_input]
         param_name = param_input[0]
@@ -1359,7 +1359,7 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
     if color_param is not None:
         if color_param=='tau':
             cmap = make_hot_without_black()
-            colors = cmap( np.log10(f['tau'][sig and sig2]) )
+            colors = cmap( np.log10(f['tau'][ np.logical_and(sig,sig2) ]) )
         else:
             print('undefined param palette')
 
