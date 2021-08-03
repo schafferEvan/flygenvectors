@@ -735,7 +735,7 @@ class reg_obj:
         self.n_trials = len(self.U)
 
 
-    def get_model_sig_from_shifted_fit(self, param, param_idx=0, sig_th=0.05, update_model_fit=True, verbose=True):
+    def get_model_sig_from_shifted_fit(self, param, param_idx=0, sig_th=0.01, update_model_fit=True, verbose=True):
         # uses model_fit and model_fit_shifted to assess significance of fits
         # output is number of standard deviations real fit is away from shifted fit
         if (param!='tot') and verbose: print('propagating shifted sig results from tot.')
@@ -766,19 +766,13 @@ class reg_obj:
             if param != 'tot':
                 # this option requires that this method was already run on 'tot'
                 for n in range(len(self.model_fit)):
-                    if self.model_fit[n]['stat']['tot'][0][1] > sig_th:
+                    if self.model_fit[n]['stat']['tot'][0][1] > sig_th: # if tot is not significant (by circ), update param of choice accordingly
                         self.model_fit[n]['stat'][param][param_idx] = self.model_fit[n]['stat']['tot'][0]
-            elif param in self.model_fit[n]['stat']:
-                # this option is now deprecated
-                for n in range(len(self.model_fit)):
-                    self.model_fit[n]['stat'][param][param_idx] = [None, p_vals[n]]
             else:
                 # this is to catch 'tot'
                 for n in range(len(self.model_fit)):
                     self.model_fit[n]['stat'][param] = []
                     self.model_fit[n]['stat'][param].append( [None, p_vals[n]] )
-
-        #return p_vals
 
 
     def remove_transient_behaviors(self, states, frame_th=35):
@@ -1188,6 +1182,27 @@ def trim_before_stim(data_dict, buffer_in_sec=30):
         data_dict['state_is_valid'] = data_dict['state_is_valid'][:cut_frame]
 
 
+def get_sig_filter(model_fit, param_input, th=0.1):
+    is_sig = np.zeros(len(model_fit))
+    f = plotting.get_model_fit_as_dict(model_fit)
+    if isinstance(param_input,str):
+        param_name = param_input
+        param_idx = None
+        for i in range(len(is_sig)):
+            is_sig[i] = f['stat'][i][param_name][0][1]<th
+    
+    elif isinstance(param_input,list):
+        param_name = param_input[0]
+        param_idx = param_input[1]
+        
+        for i in range(len(is_sig)):
+            if param_name in f['stat'][i]:
+                is_sig[i] = f['stat'][i][param_name][param_idx][1]<th
+            else:
+                is_sig[i] = False
+    return is_sig
+
+
 def get_summary_dict(expt_id, split_behav, data_dict, model_fit, model_fit_shifted, use_beh_labels):
     """
     summary preprocessing step to either plot regression output or feed it into other analyses
@@ -1235,7 +1250,7 @@ def get_behav_durations(data_dict, split_behav=False):
     """
     if split_behav:
         u = data_dict['trialFlag'][:,0]==1
-        frac_run = data_dict['behavior'][u].sum()/len(data_dict['scanRate'])
+        frac_run = data_dict['behavior'][u].sum()/len(data_dict['behavior'])
         u = data_dict['trialFlag'][:,0]==2
         frac_flail = data_dict['behavior'][u].sum()/len(data_dict['behavior'])
         behav_fracs = {'run':frac_run, 'flail':frac_flail}
