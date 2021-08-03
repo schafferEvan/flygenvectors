@@ -58,14 +58,19 @@ class flyg_clust_obj:
             self.num_cores = n_cores
 
 
-    def get_clusters(self, n_neighbors=10, affinity='euclidean', linkage='ward', distance_threshold=0.5):
+    def get_clusters(self, n_neighbors=10, affinity='euclidean', linkage='ward', distance_threshold=0.5, n_clusters=None, quiet=False):
         # hierarchical clustering
         connectivity_orig = kneighbors_graph(self.data_dict['train_all'].T, n_neighbors=n_neighbors, include_self=False)
-        self.cluster = AgglomerativeClustering(n_clusters=None, connectivity=connectivity_orig,
-                                          affinity=affinity, linkage=linkage,distance_threshold=distance_threshold)  
+        if n_clusters is None:
+            self.cluster = AgglomerativeClustering(n_clusters=None, connectivity=connectivity_orig,
+                                              affinity=affinity, linkage=linkage,distance_threshold=distance_threshold) 
+        else:
+            self.cluster = AgglomerativeClustering(n_clusters=n_clusters, connectivity=connectivity_orig,
+                                              affinity=affinity, linkage=linkage)  
         self.cluster.fit_predict(self.data_dict['train_all'].T)
         self.nClust = len(np.unique(self.cluster.labels_))
-        print('N clusters: ' + str(self.nClust) )  
+        if not quiet:
+            print('N clusters: ' + str(self.nClust) )  
 
 
     def get_simple_clusters(self, activity='dFF'):   
@@ -88,6 +93,16 @@ class flyg_clust_obj:
         self.simple_clust = {'C':C, 'pairs':pairs, 'accounted_for':accounted_for}
         print('N clusters (simple): ' + str(len(pairs)) )
         self.order_cells_by_simple_pairs(activity=activity)
+
+
+    def get_simple_clust_popularity(self):
+        C = self.simple_clust['C']
+        N = C.shape[0]
+        popularity = np.zeros(N)
+        for i in range(N):
+            j = np.argmax(C[i,:])
+            popularity[j] += 1
+        return popularity
 
 
     def get_simple_clusters_euc(self):   
@@ -292,11 +307,12 @@ class flyg_clust_obj:
     def cross_validate_clusters(self, clust_p_thresh=0.05):
         self.clust_p_val = np.zeros(self.nClust)
         self.clust_is_sig = np.zeros(self.nClust)
+        self.clust_val_var = np.zeros(self.nClust)
         for k in range(self.nClust):
             cIds = [i for i,j in enumerate(self.cluster.labels_) if j==k]
             l = len(cIds)
-            samp_var = self.data_dict['val_all'][:,cIds].var(axis=1).mean()
-            self.clust_p_val[k] = (self.null_dist[l,:]<samp_var).sum()/self.null_dist.shape[1]
+            self.clust_val_var[k] = self.data_dict['val_all'][:,cIds].var(axis=1).mean()
+            self.clust_p_val[k] = (self.null_dist[l,:]<self.clust_val_var[k]).sum()/self.null_dist.shape[1]
             if l==1: self.clust_p_val[k]=1
             self.clust_is_sig[k] = self.clust_p_val[k]<clust_p_thresh
 
