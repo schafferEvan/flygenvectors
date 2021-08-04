@@ -633,7 +633,7 @@ class reg_obj:
                 SS_res_0 = ( (dFF-dFF_fit_null)**2 )
                 # res_var_0 = (dFF-dFF_fit_null).var()
                 # stat_list.append( stats.wilcoxon(np.squeeze(SS_res_0),np.squeeze(SS_res)) )
-                stat_list.append( stats.mannwhitneyu(np.squeeze(SS_res_0),np.squeeze(SS_res)), alternative='greater' )
+                stat_list.append( stats.mannwhitneyu(np.squeeze(SS_res_0),np.squeeze(SS_res),alternative='greater') )
                 r_sq_list.append( (SS_res_0.sum()-SS_res.sum())/SS_tot.sum() )
                 
                 # cc between a regressor and fit leaving out regressor
