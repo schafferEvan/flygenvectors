@@ -1187,7 +1187,7 @@ def show_param_hist(model_fit=None, data_dict=None, param_input=None, param_inpu
 
 def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, xlim=None, param2_input=None, 
                         use_cc=False, alphas=[.4,.15], s = 100, n_xbins=40, n_ybins=40, sig_clr='#01386a',
-                        omit_last_bin=True, color_param=None):
+                        notsig_clr='tab:gray', omit_last_bin=True, color_param=None):
     """
     Default is to plot scatter of a parameter vs residual r^2 of that parameter
     param2_input: plot scatter vs another parameter instead of vs r^2
@@ -1364,13 +1364,13 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
             print('undefined param palette')
 
     if param2_input is None:
-        ax_scatter.scatter(param_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=alphas[1], linewidths=0.75, edgecolors='k', s=s)
+        ax_scatter.scatter(param_notsig,rsq_notsig,c=notsig_clr,marker='.',alpha=alphas[1], linewidths=0.75, edgecolors=notsig_clr, s=s)
         if color_param is None:
             ax_scatter.scatter(param_sig,rsq_sig,c=sig_clr,marker='.',alpha=alphas[0],linewidths=0.75,edgecolors=sig_clr, s=s) #'#1f77b4'
         else:
             ax_scatter.scatter(param_sig,rsq_sig,c=colors,marker='.',alpha=alphas[0],linewidths=0.75, s=s) #'#1f77b4'
     else:
-        ax_scatter.scatter(param_notsig,param2_notsig,c='tab:gray',marker='.',alpha=alphas[1], linewidths=0.75, edgecolors='k', s=s)
+        ax_scatter.scatter(param_notsig,param2_notsig,c=notsig_clr,marker='.',alpha=alphas[1], linewidths=0.75, edgecolors=notsig_clr, s=s)
         if color_param is None:
             ax_scatter.scatter(param_sig,param2_sig,c=sig_clr,marker='.',alpha=alphas[0],linewidths=0.75,edgecolors=sig_clr, s=s) #'#1f77b4'
         else:
@@ -1406,7 +1406,10 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
     else:
         xbins = np.arange(xmin, xmax+xbinwidth, xbinwidth) #np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
     if alphas[1]>0:
-        vx1,_,_=ax_histx.hist(param_notsig, bins=xbins,color='tab:gray') #'#929591')
+        if notsig_clr=='tab:gray':
+            vx1,_,_=ax_histx.hist(param_notsig, bins=xbins,color=notsig_clr) #'#929591')
+        else:
+            vx1,_,_=ax_histx.hist(param_notsig, bins=xbins,color=notsig_clr,edgecolor='k',linewidth=0.25) #'#929591')
     else:
         vx1=np.array([0,0])
     vx2,_,_=ax_histx.hist(param_sig, bins=xbins,color=sig_clr,alpha=.7) #'#929591')
@@ -1423,13 +1426,16 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
     ax_histx.set_ylim(0, np.max((m1,m2)) )
     if param2_input is None:
         if alphas[1]>0:
-            vy1,_,_=ax_histy.hist(rsq_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
+            vy1,_,_=ax_histy.hist(rsq_notsig, bins=ybins, orientation='horizontal',color=notsig_clr) #''#929591')
         else:
             vy1=np.array([0,0])
         vy2,_,_=ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7) #''#929591')
     else:
         if alphas[1]>0:
-            vy1,_,_=ax_histy.hist(param2_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
+            if notsig_clr=='tab:gray':
+                vy1,_,_=ax_histy.hist(param2_notsig, bins=ybins, orientation='horizontal',color=notsig_clr) #''#929591')
+            else:
+                vy1,_,_=ax_histy.hist(param2_notsig, bins=ybins, orientation='horizontal',color=notsig_clr,edgecolor='k',linewidth=0.25) #''#929591')
         else:
             vy1=np.array([0,0])
         vy2,_,_=ax_histy.hist(param2_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7) #''#929591')
