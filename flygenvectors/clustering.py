@@ -13,6 +13,9 @@ import scipy.io as sio
 from scipy import sparse, signal
 from scipy.stats import zscore
 from scipy.stats import multivariate_normal
+from scipy.cluster import hierarchy
+from scipy.special import comb
+from itertools import combinations
 
 from sklearn.decomposition import PCA, FastICA
 from sklearn.mixture import GaussianMixture
@@ -32,6 +35,7 @@ from matplotlib.colors import LinearSegmentedColormap
 import data as dataUtils
 import regression_model as model
 import plotting
+from matplotlib.colors import to_hex, to_rgba
 # import flygenvectors.ssmutils as utils
 # import flygenvectors.utils as futils
 from sklearn.linear_model import ElasticNet
@@ -50,6 +54,7 @@ sns.set_context("talk")
 
 class flyg_clust_obj:
     def __init__(self, data_dict, n_cores=None):
+        print('-------------- DEPRECATED ---------------')
         self.data_dict = data_dict
         self.mvn_obj = mvn_obj(self.data_dict)
         if n_cores is None:
@@ -478,5 +483,268 @@ class mvn_obj:
             R = tmp_img[self.mid_x:,:,:][::-1,:,:]
             self.folded_product_image *= (L+R) 
 
+
+class family_tree:
+    def __init__(self, data_dict=None, n_cores=None):
+        if n_cores is None:
+            self.num_cores = multiprocessing.cpu_count()
+        else:
+            self.num_cores = n_cores
+        self.data_dict = data_dict
+        if type(data_dict) is dict:
+            fit_data = self.data_dict['train_all'].T
+        else:
+            fit_data = data_dict # accepts array input for testing
+            
+        self.linkage_matrix = hierarchy.linkage(fit_data, 'ward')
+        self.parents = []
+        self.children = []
+        self.counts = []
+        self.clust_is_val = []
+        self.clust_p_val = []
+        self.p_thresh = None
+        self.root_node = None
+        self.max_xval_samples=100
+
+
+    def find_family(self, node):
+        # recursively build family tree. Called by find_full_family
+        self.counts[node.id] = node.count
+        if not node.is_leaf():
+            self.children[node.id] = (node.left.id, node.right.id)
+            self.parents[node.left.id] = node.id
+            self.parents[node.right.id] = node.id
+            self.find_family(node.left)
+            self.find_family(node.right)
+
+
+    def find_leaves(self, node):
+        # recursively gathers list of all leaves under given branch. Called by find_full_family. needed to sample from test data.
+        self.counts[node.id] = node.count
+        if node.is_leaf():
+            self.all_leaves[node.id] = [node.id]
+        else:
+            l = self.find_leaves(node.left)
+            r = self.find_leaves(node.right)
+            self.all_leaves[node.id] = l+r
+        return self.all_leaves[node.id]
+
+
+    def find_full_family(self):
+        """
+        build family tree using find_family
+        root_node: root of tree object from which full tree is accessed
+        parents: list of parent index for given branch
+        children: list of children of given branch
+        counts: number of leaves below given branch (size of cluster)
+        all_leaves: for each branch, list of all leaves underneath, regardless of intermediate branches
+        has_valid_child: True if any branch under given one is significant
+        """ 
+        self.root_node = hierarchy.to_tree(self.linkage_matrix)
+        self.tot_n_branches = self.root_node.id+1
+        self.parents = [None]*(self.tot_n_branches) # root is last, so number of children to find parents equals node.id
+        self.children = [None]*(self.tot_n_branches)
+        self.counts = [None]*(self.tot_n_branches) 
+        self.all_leaves = [None]*(self.tot_n_branches) 
+        self.has_valid_child = [False]*(self.tot_n_branches)
+        self.find_family(self.root_node)
+        self.find_leaves(self.root_node)
+
+
+    def validate_tree(self, p_thresh=.05, parallel=False, max_xval_samples=100):
+        # iterate through whole tree, as in find_family, cross-validating clusters.  Needs access to val data
+        self.p_thresh=p_thresh
+        self.max_xval_samples = max_xval_samples
+        self.clust_p_val  = np.ones(self.root_node.id+1)
+        if parallel:
+            print('OK! Running in parallel, but non-parallelized is faster')
+            self.clust_p_val = Parallel(n_jobs=self.num_cores)(delayed(
+                self.validate_node)(idx=n) for n in range(self.tot_n_branches))
+            self.clust_p_val = np.array(self.clust_p_val)
+        else:
+            for n in range(self.tot_n_branches):
+                self.clust_p_val[n] = self.validate_node(idx=n)
+        self.clust_is_val = self.clust_p_val<p_thresh
+        self.get_val_child(self.root_node)
+
+
+    def validate_node(self, idx):
+        # called by validate tree. calls get_branch_samples to validate
+        # leaves have no children and are valid by definition. Same for root node
+        if (self.children[idx] is not None) and (self.parents[idx] is not None): 
+            v = self.get_val_var( [self.all_leaves[idx]] )
+            null_samples = self.get_branch_samples(idx)
+            null_v = self.get_val_var(null_samples)
+            pval = (null_v<v).sum()/len(null_samples)
+        else:
+            pval = 1
+        return pval
+
+    
+    def get_branch_samples(self, idx):
+        parent_idx = self.parents[idx]
+        comb_opts = comb(self.counts[parent_idx], self.counts[idx]) # max possible samples is n_choose_k
+        if comb_opts < self.max_xval_samples+1:
+            n_samples = int(comb_opts-1)
+        else:
+            n_samples = self.max_xval_samples
+
+        samples = [None]*n_samples
+        s = sorted(self.all_leaves[idx])
+        n_valid_samples=0
+        if comb_opts<1.5*self.max_xval_samples:
+            # if options are smaller or barely larger than max, sample perms directly
+            coms = combinations(self.all_leaves[parent_idx], r=self.counts[idx])
+            for c in list(coms):
+                if sorted(c)!=s:
+                    samples[n_valid_samples] = c
+                    n_valid_samples+=1
+                    if n_valid_samples==n_samples:
+                        break
+        else:
+            # otherwise, sample using random numbers
+            while n_valid_samples<n_samples:
+                c = np.random.permutation(self.all_leaves[parent_idx])[:self.counts[idx]]
+                cs = sorted(c)
+                if cs!=s:
+                    previously_used=False
+                    for j in range(n_valid_samples):
+                        if cs==sorted(samples[j]):
+                            previously_used=True
+                            break
+                    if not previously_used:
+                        samples[n_valid_samples] = c.tolist()
+                        n_valid_samples+=1
+                        if n_valid_samples==n_samples:
+                            break
+        return samples
+
+
+    def get_val_var(self, cIds):
+        v = np.zeros(len(cIds))
+        for i in range( len(cIds) ):
+            v[i] = self.data_dict['val_all'][:,cIds[i]].var(axis=1).mean()
+        return v
+
+
+    def evaluate_dists_vs_parent_and_null(self, parallel=False, max_null_samples=100, mx_clust_size_null=2):
+        # iterate through whole tree, as in find_family, cross-validating clusters.  Needs access to val data
+        self.max_null_samples = max_null_samples
+        self.mean_dist  = np.nan*np.ones(self.root_node.id+1)
+        self.mean_dist_parent_samples = [None]*(self.root_node.id+1)
+        self.mean_dist_null_samples = [None]*mx_clust_size_null
+
+        val_idx = np.flatnonzero(self.clust_is_val)
+        if parallel:
+            out_tot = Parallel(n_jobs=self.num_cores)(delayed(
+                self.evaluate_dists_vs_parent)(idx=n) for n in val_idx)
+            for j,n in enumerate(val_idx):
+                self.mean_dist[n] = out_tot[j][0]
+                self.mean_dist_parent_samples[n] = out_tot[j][1]
+        else:
+            for n in val_idx:
+                self.mean_dist[n], self.mean_dist_parent_samples[n] = self.evaluate_dists_vs_parent(idx=n)
+        # null samples
+        for i in range(1,mx_clust_size_null):
+            if parallel:
+                self.mean_dist_null_samples[i] = Parallel(n_jobs=self.num_cores)(delayed(
+                    self.evaluate_dists_null)(clust_size=n) for n in range(max_null_samples))
+            else:
+                samples = [None]*max_null_samples
+                for n in range(max_null_samples):
+                    samples[n] = self.evaluate_dists_null(clust_size=n)
+                self.mean_dist_null_samples[i] = samples
+
+
+    def evaluate_dists_null(self, clust_size):
+        # get dist score for a sample of correct size
+        c = np.random.permutation(self.data_dict['dFF'].shape[0])[:clust_size]
+        sample = c.tolist()
+        mean_dist_null = self.get_dist_score_for_clusters(cIds=[sample])
+        return mean_dist_null
+                
+
+    def evaluate_dists_vs_parent(self, idx):
+        mean_dist = self.get_dist_score_for_clusters(cIds=[self.all_leaves[idx]])
+        null_samples = self.get_branch_samples(idx)
+        mean_dist_parent_samples = self.get_dist_score_for_clusters(cIds=null_samples)
+        return mean_dist, mean_dist_parent_samples
+
+
+    def get_dist_score_for_clusters(self, cIds):
+        d = np.zeros(len(cIds))
+        for i in range( len(cIds) ):
+            d[i] = self.get_dist_score_for_one_cluster(cIds[i])
+        return d
+
+
+    def get_dist_score_for_one_cluster(self, idx_list):
+        median_fold_point = 190 # hardcoded median based on template
+        D = np.nan*np.ones((len(idx_list),len(idx_list))) # matrix of pairwise distances
+        for i in range( len(idx_list) ):
+            cell_a = self.data_dict['aligned_centroids'][idx_list[i],:].copy()
+            cell_a[0] = np.abs(cell_a[0]-median_fold_point)
+            for j in range( i+1, len(idx_list) ):
+                cell_b = self.data_dict['aligned_centroids'][idx_list[j],:].copy()
+                cell_b[0] = np.abs(cell_b[0]-median_fold_point)
+                D[i,j] = np.sqrt( ( (cell_a-cell_b)**2 ).sum() )
+        return np.nanmean(D)
+
+
+    def get_val_child(self, node):
+        # recursively checks if children are significant
+        if node.is_leaf():
+            self.has_valid_child[node.id] = False
+        else:
+            L = self.get_val_child(node.left)
+            R = self.get_val_child(node.right)
+            self.has_valid_child[node.id] = L or R
+        if node.id!=self.root_node.id:
+            return (self.has_valid_child[node.id] or self.clust_is_val[node.id])
+
+
+    def make_dendrogram_color_fn(self, node, family_color):
+        # define color function for dendrogram
+        if self.clust_is_val[node.id]:            
+            family_color = self.get_novel_color(family_color)
+            self.branch_colors[node.id] = family_color
+        if not node.is_leaf():
+            if node.id == self.root_node.id:
+                self.make_dendrogram_color_fn(node.left, '#5170d7') # blue or #6488ea 
+                self.make_dendrogram_color_fn(node.right, '#e17701') # orange x
+            elif node.id == self.root_node.right.id:
+                self.make_dendrogram_color_fn(node.left, '#ff724c') # salmon
+                self.make_dendrogram_color_fn(node.right, '#fcc006') # gold
+            elif node.id == self.root_node.left.id:
+                self.make_dendrogram_color_fn(node.left, '#75bbfd') # cyan 
+                self.make_dendrogram_color_fn(node.right, '#665fd1') # purple 
+            else:
+                self.make_dendrogram_color_fn(node.left, family_color)
+                self.make_dendrogram_color_fn(node.right, family_color)
+
+
+    def get_novel_color(self, c):
+        sig = 0.075
+        gain = 1.025
+        noise = sig*( np.random.rand(4)-0.5 )
+        c_new = noise + gain*np.array(to_rgba(c))
+        c_new[c_new<0]=0
+        c_new[c_new>1]=1
+        return to_hex(c_new)
+
+
+    def dendrogram_color_fn(self, idx):
+        # define color function for dendrogram
+        c = self.branch_colors[idx]
+        return c
+
+
+    def show_dendrogram(self):
+        self.branch_colors = ['k']*(self.tot_n_branches) 
+        self.make_dendrogram_color_fn(self.root_node, family_color='tab:red')
+        plt.figure(figsize=(16,5))
+        R = hierarchy.dendrogram(self.linkage_matrix, link_color_func=self.dendrogram_color_fn)
+        plt.ylabel('Euclidean Distance')
+        return R
 
 
