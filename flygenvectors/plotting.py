@@ -4,13 +4,14 @@ import matplotlib.pyplot as plt
 import pdb
 
 
-def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10, include_feeding=False):
+def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10, include_feeding=False, 
+                    include_beh_labels=True, activity='dFF'):
     from matplotlib import colors
     from matplotlib import axes, gridspec
 
     plot_time = data_dict['tPl']
-    dFF = data_dict['dFF']
-    behavior = data_dict['ball']
+    dFF = data_dict[activity]
+    behavior = data_dict['behavior'] #data_dict['ball']
     dims = np.squeeze(data_dict['dims'])
     background_im = data_dict['im']
     A = data_dict['A']
@@ -47,11 +48,14 @@ def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10, include_feedin
     
     
     ax = plt.subplot2grid(grid_tuple, beh_subplot, colspan=1, rowspan=1)
-    plt.plot(plot_time, behavior,'k')
+    if include_beh_labels:
+        plot_states_simple(data_dict, axes=ax)
+    else:
+        plt.plot(plot_time, behavior,'k')
     plt.box()
     plt.xticks([])
     plt.yticks([])
-    plt.ylabel('locomotion')
+    plt.ylabel('Behavior')
     plt.tight_layout()
     if(not include_feeding):
         plt.title(expt_id+': Cluster '+str(k_id)+', nCells='+str(len(cIds)))
@@ -59,6 +63,7 @@ def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10, include_feedin
 
     ax = plt.subplot2grid(grid_tuple, dff_subplot, colspan=1, rowspan=3)
     plt.plot(plot_time, dFF[cIds[:plotMx],:].T)
+    ax.set_xlim([data_dict['tPl'].min(),data_dict['tPl'].max()])
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     plt.tight_layout()
@@ -70,17 +75,29 @@ def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10, include_feedin
     # show all cells belonging to current cluster
     nC = np.shape(A)[1]
     cIdVec = np.zeros((nC,1))
-    cIdVec[cIds]=1
+    for i,c in enumerate(cIds):
+        cIdVec[c]=(i+1)/len(cIds)
     Ar = A*cIdVec #np.sum( A[:,cIds], axis=1 )
     R = np.reshape(Ar,dims, order='F')
-    rIm = np.max(R,axis=2)
+
+    # get z range for partial MIP
+    tmp=R.max(axis=(0,1))
+    tmp2 = np.flatnonzero(tmp)[[0,-1]]
+    zlim = slice(tmp2[0],tmp2[1]+1)
+    background_slice = np.max(background_im[:,:,zlim],axis=2)
+    background_slice = 1.2*background_slice/background_slice.max()
+    background_slice[background_slice>1]=1.0
+
+    # make clust mask
+    rIm = R[:,:,zlim].max(axis=2)
     crs = colors.Normalize(0, 1, clip=True)(rIm)
     crs = cmap(crs)
-    crs[..., -1] = rIm #setting alpha for transparency
+    crs[..., -1] = .15*rIm #setting alpha for transparency
 
     ax = plt.subplot2grid(grid_tuple, roi_subplot, colspan=1, rowspan=4)
-    plt.imshow(np.max(background_im,axis=2),cmap=plt.get_cmap('gray'));
-    plt.imshow(crs); ax.axis('off')
+    plt.imshow(background_slice,cmap=plt.get_cmap('gray'))
+    plt.imshow(crs) 
+    ax.axis('off')
 
     return R
 
@@ -238,6 +255,17 @@ def plot_dlc_arhmm_states(
     return fig
 
 
+def get_state_colors():
+    import matplotlib.cm as cm
+    tmp = cm.get_cmap('tab10', 10) #cm.get_cmap('Accent', 6)
+    cmap = cm.get_cmap('tab10', 6)
+    cmap.colors = tmp.colors[:6]
+    cmap.colors[-1,:] = cmap.colors[1,:]
+    cmap.colors[1,:] = [1,1,1,1]
+    cmap.colors[0,:] = [0,0,0,.4]
+    return cmap
+
+
 def plot_states_simple(
         data_dict, slc=None, axes=None, restrict_xticks=True, valid_only=False, valid_thresh=0.75):
     """
@@ -262,18 +290,7 @@ def plot_states_simple(
     else:
         include_cbar = False
 
-    # Accent = cm.get_cmap('Dark2', 4) #Accent
-    tmp = cm.get_cmap('tab10', 10) #cm.get_cmap('Accent', 6)
-    cmap = cm.get_cmap('tab10', 6)
-    cmap.colors = tmp.colors[:6]
-    # tmp = cm.get_cmap('tab10', 8)
-    cmap.colors[-1,:] = cmap.colors[1,:]
-    cmap.colors[1,:] = [1,1,1,1]
-    # cmap.colors[1:4,:] = tmp.colors[:3,:]
-    cmap.colors[0,:] = [0,0,0,.4]
-    # cmap.colors[2,:3] *= .85
-    # # cmap.colors[1,:3] *= .75
-    # cmap.colors = np.roll(cmap.colors,1,axis=0)
+    cmap = get_state_colors()
 
     if slc is None:
         im = axes.imshow(beh_labels.T,aspect='auto',cmap=cmap)#,cmap='Accent',vmin=0, vmax=3)
@@ -312,7 +329,7 @@ def plot_states_simple(
 
     if include_cbar:
         cbar = plt.colorbar(im) #, ticks=np.arange(np.min(beh_labels),np.max(beh_labels)+1))
-        labels = ['Undefined', 'Still', 'Run', 'Front Groom', 'Back Groom', 'Abdomen Bend']
+        labels = ['Undefined', 'Stationary', 'Run', 'Front Groom', 'Back Groom', 'Abdomen Bend']
         l = len(labels)
         lp1 = (l-1)/(2*l)
         cbar.set_ticks( np.linspace( lp1, l-1-lp1, l ) )
@@ -1290,6 +1307,9 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
         if use_cc:
             label += ' Correlation'
             label2 += ' Correlation'
+        else:
+            label += ' Weight'
+            label2 += ' Weight'
 
         pval_text = pval #0.01
         sig = list(stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
@@ -1300,10 +1320,14 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
             rsq_notsig = rsq[np.logical_not(sig)] #rsq[np.logical_not(success*sig)]
         else:
             sig2 = list(stat2<pval)
-            param_sig = param[ np.logical_and(sig,sig2) ] #param[success*sig]
-            param_notsig = param[ np.logical_not(np.logical_and(sig,sig2)) ]
-            param2_sig = param2[ np.logical_and(sig,sig2) ] #param[success*sig]
-            param2_notsig = param2[ np.logical_not(np.logical_and(sig,sig2)) ]
+            # param_sig = param[ np.logical_and(sig,sig2) ] #param[success*sig]
+            # param_notsig = param[ np.logical_not( np.logical_and(sig,sig2) ) ]
+            # param2_sig = param2[ np.logical_and(sig,sig2) ] #param[success*sig]
+            # param2_notsig = param2[ np.logical_not(np.logical_and(sig,sig2)) ]
+            param_sig = param[ np.logical_or(sig,sig2) ] #param[success*sig]
+            param_notsig = param[ np.logical_not( np.logical_or(sig,sig2) ) ]
+            param2_sig = param2[ np.logical_or(sig,sig2) ] #param[success*sig]
+            param2_notsig = param2[ np.logical_not( np.logical_or(sig,sig2) ) ]
     else:
         # manually pass list of form [param_name, param_input]
         param_name = param_input[0]
@@ -1359,7 +1383,7 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
     if color_param is not None:
         if color_param=='tau':
             cmap = make_hot_without_black()
-            colors = cmap( np.log10(f['tau'][ np.logical_and(sig,sig2) ]) )
+            colors = cmap( np.log10(f['tau'][ np.logical_or(sig,sig2) ]) )
         else:
             print('undefined param palette')
 
@@ -1406,13 +1430,13 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
     else:
         xbins = np.arange(xmin, xmax+xbinwidth, xbinwidth) #np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
     if alphas[1]>0:
-        if notsig_clr=='tab:gray':
-            vx1,_,_=ax_histx.hist(param_notsig, bins=xbins,color=notsig_clr) #'#929591')
-        else:
-            vx1,_,_=ax_histx.hist(param_notsig, bins=xbins,color=notsig_clr,edgecolor='k',linewidth=0.25) #'#929591')
+        # if notsig_clr=='tab:gray':
+        #     vx1,_,_=ax_histx.hist(param_notsig, bins=xbins,color=notsig_clr) #'#929591')
+        # else:
+        vx1,_,_=ax_histx.hist(param_notsig, bins=xbins,color=notsig_clr,edgecolor='k',linewidth=0.25) #'#929591')
     else:
         vx1=np.array([0,0])
-    vx2,_,_=ax_histx.hist(param_sig, bins=xbins,color=sig_clr,alpha=.7) #'#929591')
+    vx2,_,_=ax_histx.hist(param_sig, bins=xbins,color=sig_clr,alpha=.7,edgecolor='k',linewidth=0.25) #'#929591')
     if omit_last_bin: 
         ax_histx.set_xlim(1,xbins[-2])
         ax_scatter.set_xlim(1,xbins[-2])
@@ -1426,19 +1450,19 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
     ax_histx.set_ylim(0, np.max((m1,m2)) )
     if param2_input is None:
         if alphas[1]>0:
-            vy1,_,_=ax_histy.hist(rsq_notsig, bins=ybins, orientation='horizontal',color=notsig_clr) #''#929591')
+            vy1,_,_=ax_histy.hist(rsq_notsig, bins=ybins, orientation='horizontal',color=notsig_clr,edgecolor='k',linewidth=0.25) #''#929591')
         else:
             vy1=np.array([0,0])
-        vy2,_,_=ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7) #''#929591')
+        vy2,_,_=ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7,edgecolor='k',linewidth=0.25) #''#929591')
     else:
         if alphas[1]>0:
-            if notsig_clr=='tab:gray':
-                vy1,_,_=ax_histy.hist(param2_notsig, bins=ybins, orientation='horizontal',color=notsig_clr) #''#929591')
-            else:
-                vy1,_,_=ax_histy.hist(param2_notsig, bins=ybins, orientation='horizontal',color=notsig_clr,edgecolor='k',linewidth=0.25) #''#929591')
+            # if notsig_clr=='tab:gray':
+            #     vy1,_,_=ax_histy.hist(param2_notsig, bins=ybins, orientation='horizontal',color=notsig_clr) #''#929591')
+            # else:
+            vy1,_,_=ax_histy.hist(param2_notsig, bins=ybins, orientation='horizontal',color=notsig_clr,edgecolor='k',linewidth=0.25) #''#929591')
         else:
             vy1=np.array([0,0])
-        vy2,_,_=ax_histy.hist(param2_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7) #''#929591')
+        vy2,_,_=ax_histy.hist(param2_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7,edgecolor='k',linewidth=0.25) #''#929591')
     ax_histy.set_ylim((ymin,ymax))
     ax_histy.set_xlim(0, np.max((vy1.max(),vy2.max())) )
 
@@ -2892,7 +2916,7 @@ def cold_to_hot_cmap(show_map=False, tks=None, tk_labels=None):
 
 
 def cmap_from_dendrogram(R, color_idx=None):
-    # convert colors from a dencrogram into usable colormap
+    # convert colors from a dendrogram into usable colormap
     # import matplotlib.cm as cm
     from matplotlib.colors import LinearSegmentedColormap
     basic_cols=np.unique(R['leaves_color_list'])
