@@ -868,6 +868,10 @@ class reg_obj:
             [] #ok
         elif self.exp_id=='2019_04_24_fly1':
             [] #ok
+        elif self.exp_id=='2019_04_25_fly1':
+            [] #ok
+        elif self.exp_id=='2019_04_25_fly2':
+            [] #ok
         elif self.exp_id=='2019_04_26_fly1':
             [] #ok
         elif self.exp_id=='2019_04_29_fly1':
