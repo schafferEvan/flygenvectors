@@ -1307,7 +1307,7 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
         if use_cc:
             label += ' Correlation'
             label2 += ' Correlation'
-        else:
+        elif 'Lag' not in label:
             label += ' Weight'
             label2 += ' Weight'
 
@@ -1360,8 +1360,8 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
         ax_histx.set_xscale('log')
         ax_scatter.set_xscale('log')
     if param2_name=='phi':
-        ax_histy.set_yscale('symlog', linthreshy=.1, linscaley=.2/120)
-        ax_scatter.set_yscale('symlog', linthreshy=.1, linscaley=.2/120)
+        ax_histy.set_yscale('symlog', linthreshy=.1, linscaley=.02/120)
+        ax_scatter.set_yscale('symlog', linthreshy=.1, linscaley=.02/120)
 
     if xlim is None:
         xmin = param.min() #np.floor(param.min()) #4/scanRate
@@ -1856,7 +1856,7 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
     dims = data_dict['dims']
     if(not cmap): cmap = make_hot_without_black()
     gry = cm.get_cmap('Greys', 15)
-    gry = ListedColormap(gry(np.linspace(.8, 1, 2)))
+    gry = ListedColormap(gry(np.linspace(.8, 1, 2))) #515151
  
     if type(plot_param) is list:
         plot_field = plot_param[0]
