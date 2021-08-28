@@ -1240,8 +1240,10 @@ def get_summary_dict(expt_id, split_behav, data_dict, model_fit, model_fit_shift
     dFF_resid_base = ro.unnormalize_rows_euc(resid_tot, 0*ro.data_dict['mu'], ro.data_dict['sig'])
 
     # show rescaled null-subtracted fit
-    #reload(plotting)
     dict_tmp = copy.deepcopy(ro.data_dict)
+    for i in ['dYY', 'dRR', 'A', 'train_all', 'val_all', 'dFF_unnormalized', 'dFF_mag_norm']:
+        del dict_tmp[i]
+
     dict_tmp['dFF'] = dFF_tot_base
     dict_tmp['dFF_fit'] = dFF_fit_base
     dict_tmp['dFF_resid_base'] = dFF_resid_base
