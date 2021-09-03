@@ -367,14 +367,16 @@ class reg_obj:
         run_diff_smooth = self.get_beh_diff(is_running)
 
         # grooming (beh labels)
-        grooming = np.zeros((2,len(data_dict['behavior'])))
+        grooming_and_ab = np.zeros((2,len(data_dict['behavior'])))
         if self.params['use_beh_labels'] and not just_null_model:
             if shifted is None:
-                grooming[0,:] = data_dict['beh_labels'][:,3]
-                grooming[1,:] = data_dict['beh_labels'][:,4]
+                grooming_and_ab[0,:] = data_dict['beh_labels'][:,3]
+                grooming_and_ab[1,:] = data_dict['beh_labels'][:,4]
+                grooming_and_ab[2,:] = data_dict['beh_labels'][:,5]
             else:
-                grooming[0,:] = data_dict['circshift_beh_labels'][shifted][:,3]
-                grooming[1,:] = data_dict['circshift_beh_labels'][shifted][:,4]
+                grooming_and_ab[0,:] = data_dict['circshift_beh_labels'][shifted][:,3]
+                grooming_and_ab[1,:] = data_dict['circshift_beh_labels'][shifted][:,4]
+                grooming_and_ab[2,:] = data_dict['circshift_beh_labels'][shifted][:,5]
 
         # if just_null_model:
         #     self.regressors_dict = {
@@ -390,7 +392,7 @@ class reg_obj:
             'trial':trial_regressors, 
             'beta_0':ball,
             'gamma_0':run_diff_smooth,
-            'delta_0':grooming 
+            'delta_0':grooming_and_ab 
         }
         self.linear_regressors_dict = copy.deepcopy(self.regressors_dict)
 
@@ -1060,16 +1062,16 @@ class reg_obj:
             U = np.unique(self.data_dict['trialFlag']) # beta
             for i in range(len(U)):
                 initial_conds.append(.0001)
-            initial_conds.extend([0,0.5])        # gamma
-            initial_conds.extend([.0001,.0001])  # delta
-            initial_conds.extend([5,0])          # tau, phi
+            initial_conds.extend([0,0.5])              # gamma
+            initial_conds.extend([.0001,.0001,.0001])  # delta
+            initial_conds.extend([5,0])                # tau, phi
         else:
             # elif self.params['use_beh_labels']:
-            initial_conds=[0,.0001,.0001]        # alpha
-            initial_conds.append(.0001)          # beta
-            initial_conds.extend([0,0.5])        # gamma
-            initial_conds.extend([.0001,.0001])  # delta
-            initial_conds.extend([5,0])          # tau, phi
+            initial_conds=[0,.0001,.0001]              # alpha
+            initial_conds.append(.0001)                # beta
+            initial_conds.extend([0,0.5])              # gamma
+            initial_conds.extend([.0001,.0001,.0001])  # delta
+            initial_conds.extend([5,0])                # tau, phi
         # else:
         #     initial_conds=[0,.0001,.0001,.0001,0,0.5,5,0]
         return initial_conds
@@ -1081,16 +1083,16 @@ class reg_obj:
             U = np.unique(self.data_dict['trialFlag'])   # beta
             for i in range(len(U)):
                 bounds.append([None,None])
-            bounds.extend([[None,None],[-.05,.05]])         # gamma
-            bounds.extend([[None,None],[None,None]])        # delta
-            bounds.extend([[1,59],[-59,59]])                # tau, phi
+            bounds.extend([[None,None],[-.05,.05]])                # gamma
+            bounds.extend([[None,None],[None,None],[None,None]])   # delta
+            bounds.extend([[1,59],[-59,59]])                       # tau, phi
         else:
             # elif self.params['use_beh_labels']:
             bounds=[[None,None],[None,None],[None,None]]    # alpha
             bounds.append([None,None])                      # beta
-            bounds.extend([[None,None],[-.05,.05]])         # gamma
-            bounds.extend([[None,None],[None,None]])        # delta
-            bounds.extend([[1,59],[-59,59]])                # tau, phi
+            bounds.extend([[None,None],[-.05,.05]])                     # gamma
+            bounds.extend([[None,None],[None,None],[None,None]])        # delta
+            bounds.extend([[1,59],[-59,59]])                            # tau, phi
         # else:
         #     # bound for gamma_1 = +/-.05
         #     bounds=[[None,None],[None,None],[None,None],[None,None],[None,None],[-.05,.05],[1,59],[-59,59]]
@@ -1126,6 +1128,11 @@ class reg_obj:
                     bounds[8] = [-1e-12,1e-12]
                 else:
                     bounds[7] = [-1e-12,1e-12]
+            elif reg == ['delta_0',2]:
+                if self.params['split_behav']:
+                    bounds[9] = [-1e-12,1e-12]
+                else:
+                    bounds[8] = [-1e-12,1e-12]
             elif reg == 'trial_coeffs':
                 for i in range(1,self.n_trials):
                     bounds[-i] = [-1e-12,1e-12] #note: loop from 1:N instead of 0:N-1 is correct here  
