@@ -367,7 +367,7 @@ class reg_obj:
         run_diff_smooth = self.get_beh_diff(is_running)
 
         # grooming (beh labels)
-        grooming_and_ab = np.zeros((2,len(data_dict['behavior'])))
+        grooming_and_ab = np.zeros((3,len(data_dict['behavior'])))
         if self.params['use_beh_labels'] and not just_null_model:
             if shifted is None:
                 grooming_and_ab[0,:] = data_dict['beh_labels'][:,3]
