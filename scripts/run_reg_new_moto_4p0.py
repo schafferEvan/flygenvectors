@@ -137,7 +137,7 @@ ro = model.reg_obj(activity=activity,
 #ro.is_downsampled = True
 ro.exclude_regressors = ['gamma_0']
 
-if part_i=='reg':
+if part_i==0:
     # ro.model_fit = ro.fit_and_eval_reg_model(shifted=None, exclude_regressors=['gamma_0'])
     tau_inits=[2,5,8,20,40]
     initial_conds = ro.get_default_inits()
@@ -156,7 +156,7 @@ if part_i=='reg':
 
 
 
-if part_i=='shift':
+if part_i==1:
     print('Testing model on circshifted data')
     tau_inits=[2,5,8,20,40]
     initial_conds = ro.get_default_inits()
