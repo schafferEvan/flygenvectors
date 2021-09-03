@@ -119,14 +119,14 @@ dict_crop['dFF'] = dict_crop['dFF'][:,b:-b]
 dict_crop['time'] = dict_crop['time'][b:-b]
 dict_crop['trialFlag'] = dict_crop['trialFlag'][b:-b]
 dict_crop['behavior'] = dict_crop['behavior'][b:-b]
-dict_crop['beh_labels'] = dict_crop['beh_labels'][b:-b]
+dict_crop['beh_labels'] = dict_crop['beh_labels'][b:-b,:]
 
 eval_idx = [i for i in range(b)] + [i for i in range(-b,-1)] + [-1]
 dict_eval['dFF'] = dict_eval['dFF'][:,eval_idx]
 dict_eval['time'] = dict_eval['time'][eval_idx]
 dict_eval['trialFlag'] = dict_eval['trialFlag'][eval_idx]
 dict_eval['behavior'] = dict_eval['behavior'][eval_idx]
-dict_eval['beh_labels'] = dict_eval['beh_labels'][eval_idx]
+dict_eval['beh_labels'] = dict_eval['beh_labels'][eval_idx,:]
 
 
 ro = model.reg_obj(activity=activity, 
