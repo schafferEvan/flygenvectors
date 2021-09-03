@@ -1098,7 +1098,7 @@ def unroll_model_fit_stats(model_fit):
     return model_fit_un
 
 
-def show_param_hist(model_fit=None, data_dict=None, param_input=None, param_input2=None, pval=.01, xlim=None, 
+def show_param_hist(model_fit=None, data_dict=None, param_input=None, param_input2=None, pval=.01, xlim=None, figsize=(4, 2),
                         use_cc=False, n_xbins=40, sig_clr='#01386a', show_sum_line=False, legend=None, hatch=None):
     """
     """
@@ -1159,7 +1159,7 @@ def show_param_hist(model_fit=None, data_dict=None, param_input=None, param_inpu
         if param_input2 is not None:
             param_notsig = param_input2[1]
 
-    plt.figure(figsize=(4, 2))
+    plt.figure(figsize=figsize)
     # left, width = 0.1, 0.65
     # bottom, height = 0.1, 0.65
     # spacing = 0.005
@@ -2821,6 +2821,45 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex=1, show_fit=Fals
         axes[1].set_yticks([])
         axes[1].set_xlabel('Time (s)')
     return axes
+
+
+def get_sample_indices_from_grid(centroids, vals, grid_points=None, max_per_grid=4):
+    """
+    centroids: location of every cell
+    vals: value of that cell (e.g. a model parameter)
+    """
+    # define grid
+    mx = centroids['dims_in_um'][[1,0,2]]
+    if grid_points is None:
+        grid_points = np.round(mx/8).astype(int)
+        
+    pos_new = []
+    pos_new.append( np.linspace(0,mx[0],grid_points[0]) )
+    pos_new.append( np.linspace(0,mx[1],grid_points[1]) )
+    pos_new.append( np.linspace(0,mx[2],grid_points[2]) )
+    N = centroids['aligned_centroids'].shape[0]
+    
+    # idx_image = np.zeros((grid_points[0],grid_points[1],grid_points[2]))
+    idx_image = [ [ [[]]*grid_points[2] for i in range(grid_points[1])] for j in range(grid_points[0])] # note dim order needs to be backwards from numpy equivalent
+    # for all cells, append to closest grid vertex
+    for n in range(N):            
+        m = [None]*3
+        for i in range(len(pos_new)):
+            m[i] = int(np.argmin( abs( centroids['aligned_centroids'][n,i]-pos_new[i] ) ))
+        idx_image[m[0]][m[1]][m[2]].append( n )
+
+    # for all grid vertices, downsample list as needed
+    sample_indices = []
+    for x in range(grid_points[0]):
+        for y in range(grid_points[1]):
+            for z in range(grid_points[2]):
+                l = np.array( idx_image[x][y][z] )
+                if len(l)>max_per_grid:
+                    # if length is greater than max_per_grid, choose those closest to median
+                    is_rep = np.argsort( np.abs( vals[l] - np.median(vals[l]) ) )
+                    l = l[is_rep[:max_per_grid]]
+                sample_indices.extend(l)
+    return sample_indices
 
 
 def get_model_as_dist(centroids, vals, sig=None, grid_points=None, flat=False):
