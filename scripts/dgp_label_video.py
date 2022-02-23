@@ -17,7 +17,9 @@ def run_main(args):
 
 
 if __name__ == '__main__':
+
     parser = argparse.ArgumentParser()
+
     # dgp project configuration file (.yaml)
     parser.add_argument('--proj_cfg_file', type=str)
     # dgp model file (no extension)
@@ -30,5 +32,9 @@ if __name__ == '__main__':
     parser.add_argument('--shuffle', default=2, type=str)
     # label sample video; if True, saves full labeled video
     parser.add_argument('--sample', action='store_true', default=False)
+    # gpu_id
+    parser.add_argument('--gpu_id', default=0, type=int)
+
     namespace, _ = parser.parse_known_args()
+
     run_main(namespace)

@@ -703,7 +703,7 @@ def make_syllable_movie(
     print('done')
 
 
-def make_labeled_movie(
+def make_labeled_movie_slow(
         filename, states, frames, frame_indxs, state_mapping, framerate=20):
     """
     Label frames with state names
@@ -772,6 +772,92 @@ def make_labeled_movie(
         os.makedirs(os.path.dirname(filename))
     ani.save(filename, writer=writer)
     print('done')
+
+
+def make_labeled_movie(
+        filename, states, frames, frame_indxs, state_mapping, height=3, framerate=20):
+    """
+    Label frames with state names
+
+    Args:
+        filename (str): absolute path
+        states (np array):
+        frames (np array): T x ypix x xpix
+        frame_indxs (list of array-like): indices into `frames` that correspond
+            to `states`
+        state_mapping (dict): keys are states (ints), values are labels (strs)
+        framerate (float): Hz
+    """
+
+    import cv2
+    import subprocess
+    import shutil
+
+    tmp_dir = os.path.join(os.path.dirname(filename), 'tmpZzZ')
+    if not os.path.exists(tmp_dir):
+        os.makedirs(tmp_dir)
+
+    n_frames = len(frame_indxs)
+    if isinstance(state_mapping[0], str):
+        plot_colors = False
+    else:
+        from matplotlib.patches import Rectangle
+        plot_colors = True
+
+    _, img_height, img_width = frames.shape
+
+    h = height
+    w = h * (img_width / img_height)
+    fig, ax = plt.subplots(1, 1, figsize=(w, h))
+    # fig.tight_layout(pad=0)
+    ax.set_yticks([])
+    ax.set_xticks([])
+    ax.set_xlim([0, img_width])
+    ax.set_ylim([img_height, 0])
+    plt.subplots_adjust(wspace=0, hspace=0, left=0, bottom=0, right=1, top=1)
+
+    im_kwargs = {'animated': True, 'vmin': 0, 'vmax': np.max(frames), 'cmap': 'gray'}
+    txt_kwargs = {
+        'fontsize': 16, 'color': [1, 1, 1], 'horizontalalignment': 'left', 'fontname': 'monospace',
+        'verticalalignment': 'top', 'transform': ax.transAxes}
+
+    # ims is a list of lists, each row is a list of artists to draw in the
+    # current frame; here we are just animating one artist, the image, in
+    # each frame
+    for i in range(n_frames):
+
+        idx = frame_indxs[i]
+
+        ax.clear()  # important!! otherwise each frame will plot on top of the last
+        ax.set_yticks([])
+        ax.set_xticks([])
+        # ax.set_xlim([0, img_width])
+        # ax.set_ylim([img_height, 0])
+
+        if i % 100 == 0:
+            print('processing frame %03i/%03i' % (i, n_frames))
+
+        ax.imshow(frames[idx, :, :], **im_kwargs)
+        if plot_colors:
+            rect = Rectangle(
+                (5, 5), 10, 10, linewidth=1,
+                edgecolor=state_mapping[states[idx]],
+                facecolor=state_mapping[states[idx]])
+            ax.add_patch(rect)
+        else:
+            ax.text(0.03, 0.97, state_mapping[states[idx]], **txt_kwargs)
+
+        plt.savefig(os.path.join(tmp_dir, 'frame_%06i.jpeg' % i))
+
+    # make mp4 from images using ffmpeg
+    call_str = \
+        'ffmpeg -r %f -i %s -c:v libx264 %s' % (
+            framerate, os.path.join(tmp_dir, 'frame_%06d.jpeg'), filename)
+    print(call_str)
+    subprocess.run(['/bin/bash', '-c', call_str], check=True)
+
+    # delete tmp directory
+    shutil.rmtree(tmp_dir)
 
 
 def make_labeled_movie_wmarkers(
