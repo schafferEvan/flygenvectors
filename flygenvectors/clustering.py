@@ -7,11 +7,15 @@ from glob import glob
 import pickle
 import copy
 from importlib import reload
+import pdb
 
 import scipy.io as sio
 from scipy import sparse, signal
 from scipy.stats import zscore
 from scipy.stats import multivariate_normal
+from scipy.cluster import hierarchy
+from scipy.special import comb
+from itertools import combinations
 
 from sklearn.decomposition import PCA, FastICA
 from sklearn.mixture import GaussianMixture
@@ -31,9 +35,13 @@ from matplotlib.colors import LinearSegmentedColormap
 import data as dataUtils
 import regression_model as model
 import plotting
+from matplotlib.colors import to_hex, to_rgba
 # import flygenvectors.ssmutils as utils
 # import flygenvectors.utils as futils
 from sklearn.linear_model import ElasticNet
+
+from joblib import Parallel, delayed
+import multiprocessing
 
 import seaborn as sns
 sns.set_style("white")
@@ -45,26 +53,36 @@ sns.set_context("talk")
 
 
 class flyg_clust_obj:
-    def __init__(self, data_dict):
+    def __init__(self, data_dict, n_cores=None):
+        print('-------------- DEPRECATED ---------------')
         self.data_dict = data_dict
         self.mvn_obj = mvn_obj(self.data_dict)
+        if n_cores is None:
+            self.num_cores = multiprocessing.cpu_count()
+        else:
+            self.num_cores = n_cores
 
 
-    def get_clusters(self, n_neighbors=10, affinity='euclidean', linkage='ward', distance_threshold=0.5):
+    def get_clusters(self, n_neighbors=10, affinity='euclidean', linkage='ward', distance_threshold=0.5, n_clusters=None, quiet=False):
         # hierarchical clustering
         connectivity_orig = kneighbors_graph(self.data_dict['train_all'].T, n_neighbors=n_neighbors, include_self=False)
-        self.cluster = AgglomerativeClustering(n_clusters=None, connectivity=connectivity_orig,
-                                          affinity=affinity, linkage=linkage,distance_threshold=distance_threshold)  
+        if n_clusters is None:
+            self.cluster = AgglomerativeClustering(n_clusters=None, connectivity=connectivity_orig,
+                                              affinity=affinity, linkage=linkage,distance_threshold=distance_threshold) 
+        else:
+            self.cluster = AgglomerativeClustering(n_clusters=n_clusters, connectivity=connectivity_orig,
+                                              affinity=affinity, linkage=linkage)  
         self.cluster.fit_predict(self.data_dict['train_all'].T)
         self.nClust = len(np.unique(self.cluster.labels_))
-        print('N clusters: ' + str(self.nClust) )  
+        if not quiet:
+            print('N clusters: ' + str(self.nClust) )  
 
 
-    def get_simple_clusters(self):   
+    def get_simple_clusters(self, activity='dFF'):   
         # simple clustering looking for closed loops in correlation
         # compute pairwise correlations
-        N = self.data_dict['dFF'].shape[0]
-        C = self.data_dict['dFF']@self.data_dict['dFF'].T - np.eye(N)
+        N = self.data_dict[activity].shape[0]
+        C = self.data_dict[activity]@self.data_dict[activity].T - np.eye(N)
         accounted_for=[False]*N
         pairs=[]
 
@@ -79,7 +97,17 @@ class flyg_clust_obj:
         # C += np.eye(N)
         self.simple_clust = {'C':C, 'pairs':pairs, 'accounted_for':accounted_for}
         print('N clusters (simple): ' + str(len(pairs)) )
-        self.order_cells_by_simple_pairs()
+        self.order_cells_by_simple_pairs(activity=activity)
+
+
+    def get_simple_clust_popularity(self):
+        C = self.simple_clust['C']
+        N = C.shape[0]
+        popularity = np.zeros(N)
+        for i in range(N):
+            j = np.argmax(C[i,:])
+            popularity[j] += 1
+        return popularity
 
 
     def get_simple_clusters_euc(self):   
@@ -109,12 +137,12 @@ class flyg_clust_obj:
         # self.order_cells_by_simple_pairs()
 
 
-    def order_cells_by_simple_pairs(self):
+    def order_cells_by_simple_pairs(self, activity='dFF'):
         # order remaining cells by sequential similarity to previous seed
         pairs = self.simple_clust['pairs']
         accounted_for = self.simple_clust['accounted_for']
         C = self.simple_clust['C']
-        N = self.data_dict['dFF'].shape[0]
+        N = self.data_dict[activity].shape[0]
         flat_pairs = [item for sublist in pairs for item in sublist]
         order_from_pairs = np.zeros(N, dtype=int)
         order_from_pairs[:len(flat_pairs)] = flat_pairs
@@ -128,11 +156,31 @@ class flyg_clust_obj:
             unaccounted_for.remove(unaccounted_for[new_seed])
             seed = new_seed
         self.simple_clust['order_from_pairs'] = order_from_pairs #.astype(int)
-        F_ord = self.data_dict['dFF'][self.simple_clust['order_from_pairs'],:]
+        F_ord = self.data_dict[activity][self.simple_clust['order_from_pairs'],:]
         self.simple_clust['C_ord'] = F_ord@F_ord.T
-                        
+                 
 
-    def get_null_dist(self, n_samples=1000, mx_null=None, enforce_both_sides=False, behav_null=False):
+    def normalize_rows_euc(self,input_mat,fix_nans=True): 
+        output_mat = np.zeros(input_mat.shape)
+        mu = np.zeros(input_mat.shape[0])
+        sig = np.zeros(input_mat.shape[0])
+        for i in range(input_mat.shape[0]):
+            mu[i] = input_mat[i,:].mean()
+            sig[i] = input_mat[i,:].std()*np.sqrt(input_mat.shape[1])
+            output_mat[i,:] = (input_mat[i,:]-mu[i])/sig[i]
+            if fix_nans:
+                output_mat[i,:][np.isnan(output_mat[i,:])]=0
+        return output_mat, mu, sig
+
+
+    def unnormalize_rows_euc(self,input_mat,mu,sig): 
+        output_mat = np.zeros(input_mat.shape)
+        for i in range(input_mat.shape[0]):
+            output_mat[i,:] = input_mat[i,:]*sig[i] + mu[i] #(input_mat[i,:]-mu[i])/sig[i]
+        return output_mat
+
+
+    def get_null_dist(self, n_samples=1000, mx_null=None, enforce_both_sides=False, behav_null=False, parallel=True):
         """
         behav_null: whether to use completely random pairs or pairs with similar behav corr
         mx_null: optional upper bound on clust size for which to compute null dist 
@@ -156,35 +204,50 @@ class flyg_clust_obj:
         print('Computing null up to size = '+str(mx_null))
         for i in range(2,mx_null):
             print(i,end=' ')
-            for j in range(n_samples):
-                if enforce_both_sides:
-                    # check if clust is on both sides
-                    self.mvn_obj.is_on_both_sides = False
-                    while not self.mvn_obj.is_on_both_sides:
-                        if behav_null:
-                            print('not yet implemented')
-                        else:
-                            self.mvn_obj.order = np.random.permutation(self.data_dict['val_all'].shape[1])
-                        self.mvn_obj.is_clust_on_both_sides(self.mvn_obj.order[:i])
-                else:
-                    if behav_null:
-                        self.mvn_obj.order = next(null_behav_samples)
-                    else:
-                        self.mvn_obj.order = np.random.permutation(self.data_dict['val_all'].shape[1])
-                
-                # variance of randomly defined clusters
-                samp = self.data_dict['val_all'][:,self.mvn_obj.order[:i]]
-                null_dist[i,j] = samp.var(axis=1).mean()
-                
-                # corresponding symmetry of randomly defined clusters
-                self.mvn_obj.get_img(idx=self.mvn_obj.order[:i])
-                self.mvn_obj.get_folded_cdf()
-                null_symmetry[i,j] = self.mvn_obj.folded_cdf
-
-                # distance score of randomly defined clusters
-                self.mvn_obj.get_folded_cdf_totprod(idx=self.mvn_obj.order[:i])
-                null_dist_score[i,j] = self.mvn_obj.folded_product_image.sum()
+            if parallel:
+                out_tot = Parallel(n_jobs=self.num_cores)(delayed(
+                    self.get_null_sample)(enforce_both_sides=enforce_both_sides, behav_null=behav_null, sz=i) for n in range(self.n_samples))
+                for j in range(self.n_samples):
+                    null_dist[i,j] = out_tot[j][0]
+                    null_symmetry[i,j] = out_tot[j][1]
+                    null_dist_score[i,j] = out_tot[j][2]
+            else:
+                for j in range(self.n_samples):
+                    null_dist[i,j], null_symmetry[i,j], null_dist_score[i,j] = self.get_null_sample(enforce_both_sides=enforce_both_sides, behav_null=behav_null, sz=i)
+            
         return null_dist, null_symmetry, null_dist_score
+
+
+    def get_null_sample(self, enforce_both_sides=None, behav_null=None, sz=None):
+        if enforce_both_sides:
+            # check if clust is on both sides
+            self.mvn_obj.is_on_both_sides = False
+            while not self.mvn_obj.is_on_both_sides:
+                if behav_null:
+                    print('not yet implemented')
+                else:
+                    self.mvn_obj.order = np.random.permutation(self.data_dict['val_all'].shape[1])
+                self.mvn_obj.is_clust_on_both_sides(self.mvn_obj.order[:sz])
+        else:
+            if behav_null:
+                self.mvn_obj.order = next(null_behav_samples)
+            else:
+                self.mvn_obj.order = np.random.permutation(self.data_dict['val_all'].shape[1])
+        
+        # variance of randomly defined clusters
+        samp = self.data_dict['val_all'][:,self.mvn_obj.order[:sz]]
+        null_dist_sample = samp.var(axis=1).mean()
+        
+        # corresponding symmetry of randomly defined clusters
+        self.mvn_obj.get_img(idx=self.mvn_obj.order[:sz])
+        self.mvn_obj.get_folded_cdf()
+        null_symmetry_sample = self.mvn_obj.folded_cdf
+
+        # distance score of randomly defined clusters
+        self.mvn_obj.get_folded_cdf_totprod(idx=self.mvn_obj.order[:sz])
+        null_dist_score_sample = self.mvn_obj.folded_product_image.sum()
+
+        return null_dist_sample, null_symmetry_sample, null_dist_score_sample
 
 
     def generate_behav_samples(self, behav_null_idx, behav_null_prob, N=3000, low_bound=.2):
@@ -196,12 +259,13 @@ class flyg_clust_obj:
             flips biased coin to decide whether to use that bucket (based on bucket size),
             if valid, returns random permutation of cells in that bucket.
         """
-        bucket_order_init = np.random.randint(0,len(behav_null_idx),10*N)
-        p = low_bound + (1-low_bound)*np.random.rand(10*N)
+        M = 20 #10 # to get N good samples, need M*N samples to choose from
+        bucket_order_init = np.random.randint(0,len(behav_null_idx),M*N)
+        p = low_bound + (1-low_bound)*np.random.rand(M*N)
         valid_bucket_order = [None]*N
         valid_samples = [None]*N
         ctr=0
-        for i in range(10*N):
+        for i in range(M*N):
             if p[i]<behav_null_prob[bucket_order_init[i]]:
                 valid_bucket_order[ctr]=bucket_order_init[i]
                 ctr += 1
@@ -209,7 +273,10 @@ class flyg_clust_obj:
 
         # genrate random permutations from selected buckets
         for i in range(N):
-            valid_samples[i] = np.random.permutation( behav_null_idx[valid_bucket_order[i]] )
+            try:
+                valid_samples[i] = np.random.permutation( behav_null_idx[valid_bucket_order[i]] )
+            except Exception:
+                pdb.set_trace()
 
         samples_iter = (i for i in valid_samples)
         return samples_iter
@@ -245,11 +312,12 @@ class flyg_clust_obj:
     def cross_validate_clusters(self, clust_p_thresh=0.05):
         self.clust_p_val = np.zeros(self.nClust)
         self.clust_is_sig = np.zeros(self.nClust)
+        self.clust_val_var = np.zeros(self.nClust)
         for k in range(self.nClust):
             cIds = [i for i,j in enumerate(self.cluster.labels_) if j==k]
             l = len(cIds)
-            samp_var = self.data_dict['val_all'][:,cIds].var(axis=1).mean()
-            self.clust_p_val[k] = (self.null_dist[l,:]<samp_var).sum()/self.null_dist.shape[1]
+            self.clust_val_var[k] = self.data_dict['val_all'][:,cIds].var(axis=1).mean()
+            self.clust_p_val[k] = (self.null_dist[l,:]<self.clust_val_var[k]).sum()/self.null_dist.shape[1]
             if l==1: self.clust_p_val[k]=1
             self.clust_is_sig[k] = self.clust_p_val[k]<clust_p_thresh
 
@@ -306,7 +374,7 @@ class flyg_clust_obj:
                 self.agg_clusters[self.agg_clusters==i] = -1
 
 
-    def make_summary_plot(self, size_list = [2,3,4]):
+    def make_summary_plot(self, size_list = [2,3,4], behav_null=True):
         plt.figure(figsize=(14,4)) 
         for i in range(len(size_list)):
             to_plot = []
@@ -324,8 +392,12 @@ class flyg_clust_obj:
             # null_weights = np.ones_like(self.null_dist_score[size_list[i]]) * len(clusts_to_plot)/len(self.null_dist_score[size_list[i]])
             # plt.hist(self.null_dist_score[size_list[i]],25,(0,ulm),weights=null_weights,color='g',alpha=.5,label='shuffled')
 
-            null_weights_beh = np.ones_like(self.null_dist_score_beh[size_list[i]]) * len(clusts_to_plot)/len(self.null_dist_score_beh[size_list[i]])
-            plt.hist(self.null_dist_score_beh[size_list[i]],25,(0,ulm),weights=null_weights_beh,color='k',alpha=.7,label='beh. matched shuffled')
+            if behav_null:
+                null_weights = np.ones_like(self.null_dist_score_beh[size_list[i]]) * len(clusts_to_plot)/len(self.null_dist_score_beh[size_list[i]])
+                plt.hist(self.null_dist_score_beh[size_list[i]],25,(0,ulm),weights=null_weights,color='k',alpha=.7,label='beh. matched shuffled')
+            else:
+                null_weights = np.ones_like(self.null_dist_score[size_list[i]]) * len(clusts_to_plot)/len(self.null_dist_score[size_list[i]])
+                plt.hist(self.null_dist_score[size_list[i]],25,(0,ulm),weights=null_weights,color='k',alpha=.7,label='shuffled')
 
             plt.xlabel('Spatial Order Score') 
             plt.xlim(0,ulm)
@@ -411,5 +483,268 @@ class mvn_obj:
             R = tmp_img[self.mid_x:,:,:][::-1,:,:]
             self.folded_product_image *= (L+R) 
 
+
+class family_tree:
+    def __init__(self, data_dict=None, n_cores=None):
+        if n_cores is None:
+            self.num_cores = multiprocessing.cpu_count()
+        else:
+            self.num_cores = n_cores
+        self.data_dict = data_dict
+        if type(data_dict) is dict:
+            fit_data = self.data_dict['train_all'].T
+        else:
+            fit_data = data_dict # accepts array input for testing
+            
+        self.linkage_matrix = hierarchy.linkage(fit_data, 'ward')
+        self.parents = []
+        self.children = []
+        self.counts = []
+        self.clust_is_val = []
+        self.clust_p_val = []
+        self.p_thresh = None
+        self.root_node = None
+        self.max_xval_samples=100
+
+
+    def find_family(self, node):
+        # recursively build family tree. Called by find_full_family
+        self.counts[node.id] = node.count
+        if not node.is_leaf():
+            self.children[node.id] = (node.left.id, node.right.id)
+            self.parents[node.left.id] = node.id
+            self.parents[node.right.id] = node.id
+            self.find_family(node.left)
+            self.find_family(node.right)
+
+
+    def find_leaves(self, node):
+        # recursively gathers list of all leaves under given branch. Called by find_full_family. needed to sample from test data.
+        self.counts[node.id] = node.count
+        if node.is_leaf():
+            self.all_leaves[node.id] = [node.id]
+        else:
+            l = self.find_leaves(node.left)
+            r = self.find_leaves(node.right)
+            self.all_leaves[node.id] = l+r
+        return self.all_leaves[node.id]
+
+
+    def find_full_family(self):
+        """
+        build family tree using find_family
+        root_node: root of tree object from which full tree is accessed
+        parents: list of parent index for given branch
+        children: list of children of given branch
+        counts: number of leaves below given branch (size of cluster)
+        all_leaves: for each branch, list of all leaves underneath, regardless of intermediate branches
+        has_valid_child: True if any branch under given one is significant
+        """ 
+        self.root_node = hierarchy.to_tree(self.linkage_matrix)
+        self.tot_n_branches = self.root_node.id+1
+        self.parents = [None]*(self.tot_n_branches) # root is last, so number of children to find parents equals node.id
+        self.children = [None]*(self.tot_n_branches)
+        self.counts = [None]*(self.tot_n_branches) 
+        self.all_leaves = [None]*(self.tot_n_branches) 
+        self.has_valid_child = [False]*(self.tot_n_branches)
+        self.find_family(self.root_node)
+        self.find_leaves(self.root_node)
+
+
+    def validate_tree(self, p_thresh=.05, parallel=False, max_xval_samples=100):
+        # iterate through whole tree, as in find_family, cross-validating clusters.  Needs access to val data
+        self.p_thresh=p_thresh
+        self.max_xval_samples = max_xval_samples
+        self.clust_p_val  = np.ones(self.root_node.id+1)
+        if parallel:
+            print('OK! Running in parallel, but non-parallelized is faster')
+            self.clust_p_val = Parallel(n_jobs=self.num_cores)(delayed(
+                self.validate_node)(idx=n) for n in range(self.tot_n_branches))
+            self.clust_p_val = np.array(self.clust_p_val)
+        else:
+            for n in range(self.tot_n_branches):
+                self.clust_p_val[n] = self.validate_node(idx=n)
+        self.clust_is_val = self.clust_p_val<p_thresh
+        self.get_val_child(self.root_node)
+
+
+    def validate_node(self, idx):
+        # called by validate tree. calls get_branch_samples to validate
+        # leaves have no children and are valid by definition. Same for root node
+        if (self.children[idx] is not None) and (self.parents[idx] is not None): 
+            v = self.get_val_var( [self.all_leaves[idx]] )
+            null_samples = self.get_branch_samples(idx)
+            null_v = self.get_val_var(null_samples)
+            pval = (null_v<v).sum()/len(null_samples)
+        else:
+            pval = 1
+        return pval
+
+    
+    def get_branch_samples(self, idx):
+        parent_idx = self.parents[idx]
+        comb_opts = comb(self.counts[parent_idx], self.counts[idx]) # max possible samples is n_choose_k
+        if comb_opts < self.max_xval_samples+1:
+            n_samples = int(comb_opts-1)
+        else:
+            n_samples = self.max_xval_samples
+
+        samples = [None]*n_samples
+        s = sorted(self.all_leaves[idx])
+        n_valid_samples=0
+        if comb_opts<1.5*self.max_xval_samples:
+            # if options are smaller or barely larger than max, sample perms directly
+            coms = combinations(self.all_leaves[parent_idx], r=self.counts[idx])
+            for c in list(coms):
+                if sorted(c)!=s:
+                    samples[n_valid_samples] = c
+                    n_valid_samples+=1
+                    if n_valid_samples==n_samples:
+                        break
+        else:
+            # otherwise, sample using random numbers
+            while n_valid_samples<n_samples:
+                c = np.random.permutation(self.all_leaves[parent_idx])[:self.counts[idx]]
+                cs = sorted(c)
+                if cs!=s:
+                    previously_used=False
+                    for j in range(n_valid_samples):
+                        if cs==sorted(samples[j]):
+                            previously_used=True
+                            break
+                    if not previously_used:
+                        samples[n_valid_samples] = c.tolist()
+                        n_valid_samples+=1
+                        if n_valid_samples==n_samples:
+                            break
+        return samples
+
+
+    def get_val_var(self, cIds):
+        v = np.zeros(len(cIds))
+        for i in range( len(cIds) ):
+            v[i] = self.data_dict['val_all'][:,cIds[i]].var(axis=1).mean()
+        return v
+
+
+    def evaluate_dists_vs_parent_and_null(self, parallel=False, max_null_samples=100, mx_clust_size_null=2):
+        # iterate through whole tree, as in find_family, cross-validating clusters.  Needs access to val data
+        self.max_null_samples = max_null_samples
+        self.mean_dist  = np.nan*np.ones(self.root_node.id+1)
+        self.mean_dist_parent_samples = [None]*(self.root_node.id+1)
+        self.mean_dist_null_samples = [None]*mx_clust_size_null
+
+        val_idx = np.flatnonzero(self.clust_is_val)
+        if parallel:
+            out_tot = Parallel(n_jobs=self.num_cores)(delayed(
+                self.evaluate_dists_vs_parent)(idx=n) for n in val_idx)
+            for j,n in enumerate(val_idx):
+                self.mean_dist[n] = out_tot[j][0]
+                self.mean_dist_parent_samples[n] = out_tot[j][1]
+        else:
+            for n in val_idx:
+                self.mean_dist[n], self.mean_dist_parent_samples[n] = self.evaluate_dists_vs_parent(idx=n)
+        # null samples
+        for i in range(1,mx_clust_size_null):
+            if parallel:
+                self.mean_dist_null_samples[i] = Parallel(n_jobs=self.num_cores)(delayed(
+                    self.evaluate_dists_null)(clust_size=n) for n in range(max_null_samples))
+            else:
+                samples = [None]*max_null_samples
+                for n in range(max_null_samples):
+                    samples[n] = self.evaluate_dists_null(clust_size=n)
+                self.mean_dist_null_samples[i] = samples
+
+
+    def evaluate_dists_null(self, clust_size):
+        # get dist score for a sample of correct size
+        c = np.random.permutation(self.data_dict['dFF'].shape[0])[:clust_size]
+        sample = c.tolist()
+        mean_dist_null = self.get_dist_score_for_clusters(cIds=[sample])
+        return mean_dist_null
+                
+
+    def evaluate_dists_vs_parent(self, idx):
+        mean_dist = self.get_dist_score_for_clusters(cIds=[self.all_leaves[idx]])
+        null_samples = self.get_branch_samples(idx)
+        mean_dist_parent_samples = self.get_dist_score_for_clusters(cIds=null_samples)
+        return mean_dist, mean_dist_parent_samples
+
+
+    def get_dist_score_for_clusters(self, cIds):
+        d = np.zeros(len(cIds))
+        for i in range( len(cIds) ):
+            d[i] = self.get_dist_score_for_one_cluster(cIds[i])
+        return d
+
+
+    def get_dist_score_for_one_cluster(self, idx_list):
+        median_fold_point = 190 # hardcoded median based on template
+        D = np.nan*np.ones((len(idx_list),len(idx_list))) # matrix of pairwise distances
+        for i in range( len(idx_list) ):
+            cell_a = self.data_dict['aligned_centroids'][idx_list[i],:].copy()
+            cell_a[0] = np.abs(cell_a[0]-median_fold_point)
+            for j in range( i+1, len(idx_list) ):
+                cell_b = self.data_dict['aligned_centroids'][idx_list[j],:].copy()
+                cell_b[0] = np.abs(cell_b[0]-median_fold_point)
+                D[i,j] = np.sqrt( ( (cell_a-cell_b)**2 ).sum() )
+        return np.nanmean(D)
+
+
+    def get_val_child(self, node):
+        # recursively checks if children are significant
+        if node.is_leaf():
+            self.has_valid_child[node.id] = False
+        else:
+            L = self.get_val_child(node.left)
+            R = self.get_val_child(node.right)
+            self.has_valid_child[node.id] = L or R
+        if node.id!=self.root_node.id:
+            return (self.has_valid_child[node.id] or self.clust_is_val[node.id])
+
+
+    def make_dendrogram_color_fn(self, node, family_color):
+        # define color function for dendrogram
+        if self.clust_is_val[node.id]:            
+            family_color = self.get_novel_color(family_color)
+            self.branch_colors[node.id] = family_color
+        if not node.is_leaf():
+            if node.id == self.root_node.id:
+                self.make_dendrogram_color_fn(node.left, '#5170d7') # blue or #6488ea 
+                self.make_dendrogram_color_fn(node.right, '#e17701') # orange x
+            elif node.id == self.root_node.right.id:
+                self.make_dendrogram_color_fn(node.left, '#ff724c') # salmon
+                self.make_dendrogram_color_fn(node.right, '#fcc006') # gold
+            elif node.id == self.root_node.left.id:
+                self.make_dendrogram_color_fn(node.left, '#75bbfd') # cyan 
+                self.make_dendrogram_color_fn(node.right, '#665fd1') # purple 
+            else:
+                self.make_dendrogram_color_fn(node.left, family_color)
+                self.make_dendrogram_color_fn(node.right, family_color)
+
+
+    def get_novel_color(self, c):
+        sig = 0.075
+        gain = 1.025
+        noise = sig*( np.random.rand(4)-0.5 )
+        c_new = noise + gain*np.array(to_rgba(c))
+        c_new[c_new<0]=0
+        c_new[c_new>1]=1
+        return to_hex(c_new)
+
+
+    def dendrogram_color_fn(self, idx):
+        # define color function for dendrogram
+        c = self.branch_colors[idx]
+        return c
+
+
+    def show_dendrogram(self):
+        self.branch_colors = ['k']*(self.tot_n_branches) 
+        self.make_dendrogram_color_fn(self.root_node, family_color='tab:red')
+        plt.figure(figsize=(16,5))
+        R = hierarchy.dendrogram(self.linkage_matrix, link_color_func=self.dendrogram_color_fn)
+        plt.ylabel('Euclidean Distance')
+        return R
 
 

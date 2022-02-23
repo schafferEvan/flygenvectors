@@ -21,7 +21,7 @@ import multiprocessing
 
 class reg_obj:
     def __init__(self, activity='dFF', exp_id=None, data_dict={}, fig_dirs={}, 
-                    split_behav=False, use_beh_labels=None, use_only_valid=False, n_cores=None):
+                    split_behav=False, use_beh_labels=None, use_only_valid=False, n_cores=None, exclude_regressors=None):
         """
         Model:
             'alpha_0': baseline (up to quadratic in time)
@@ -63,7 +63,7 @@ class reg_obj:
         self.options = {'make_motion_hist':False}
         self.cell_id = 0
         self.model_fit = []
-        self.exclude_regressors = None
+        self.exclude_regressors = exclude_regressors
         self.scaling_for_fit = 100 # temporarily adjust dynamic range for robustness in fitting
         if n_cores is None:
             self.num_cores = multiprocessing.cpu_count()
@@ -92,10 +92,10 @@ class reg_obj:
         return dFF_fit
 
 
-    def get_linear_regressors(self, d):
+    def get_linear_regressors(self, d, normalize_kern=True):
         # apply all nonlinearities to self.regressors_dict, so that output regs are linear
         # d is a dictionary of regression coefficients
-        kern = self.get_kern(d['phi'], d['tau']) #(1/np.sqrt(tau))*np.exp(-t_exp/tau)
+        kern = self.get_kern(phi=d['phi'], tau=d['tau'], normalize_kern=normalize_kern) #(1/np.sqrt(tau))*np.exp(-t_exp/tau)
         ball = self.regressors_dict['beta_0']
         
         # ball
@@ -117,14 +117,17 @@ class reg_obj:
                     self.linear_regressors_dict['delta_0'][i,:] -= self.linear_regressors_dict['delta_0'][i,:].mean()
     
 
-    def get_kern(self, phi, tau):
-        '''make kernel''' 
+    def get_kern(self, phi, tau, normalize_kern=True):
+        '''make kernel.
+        normalize_kern: normalize integral of kernel to 1''' 
         t_exp = self.t_exp
         kern = np.zeros(len(t_exp))
         p = t_exp>=phi
         n = t_exp<phi
         kern[p] = np.exp(-(t_exp[p]-phi)/tau)
         kern[n] = np.exp((t_exp[n]-phi)/tau)
+        if normalize_kern:
+            kern /= kern.sum() # already corrected for self.data_dict['scanRate']
         return kern
 
 
@@ -263,7 +266,7 @@ class reg_obj:
             s = self.regressors_dict['alpha_0'].shape[0]
         elif label=='beta_0':
             if self.params['split_behav']:
-                s = self.regressors_dict['beta_0'].shape[0]
+                s = self.regressors_dict['beta_0'].shape[0] ### xxx
             else:
                 s = 1
         elif label=='gamma_0':
@@ -325,17 +328,21 @@ class reg_obj:
             trial_regressors[i,:] /= abs(trial_regressors[i,:]).max()
 
         # motion energy from ball
-        if params['split_behav'] and not just_null_model:
+        if params['split_behav']:
+            #and not just_null_model
+            ball = np.zeros((NT,len(data_dict['behavior'])))
             if shifted is None:
-                ball = np.zeros((NT,len(data_dict['behavior'])))
                 for i in range(NT):
                     is_this_trial = np.squeeze(data_dict['trialFlag']==self.U[i])
                     ball[i,is_this_trial] = data_dict['behavior'][is_this_trial]-data_dict['behavior'][is_this_trial].mean()
+                    # not_this_trial = np.squeeze(data_dict['trialFlag']!=self.U[i])
+                    # ball[i,not_this_trial] = -data_dict['behavior'][is_this_trial].mean()
             else:
-                ball = np.zeros((NT,len(data_dict['behavior'])))
                 for i in range(NT):
                     is_this_trial = np.squeeze(data_dict['trialFlag']==self.U[i])
                     ball[i,is_this_trial] = data_dict['circshift_behav'][shifted][is_this_trial]-data_dict['circshift_behav'][shifted][is_this_trial].mean()
+                    # not_this_trial = np.squeeze(data_dict['trialFlag']!=self.U[i])
+                    # ball[i,not_this_trial] = -data_dict['circshift_behav'][shifted][is_this_trial].mean()
         # elif just_null_model:
         #     ball = []
         else:
@@ -346,7 +353,7 @@ class reg_obj:
 
         # running state transitions
         # start with binary timeseries of behavioral state starts & stops (ignoring brief states)
-        if (self.exp_id=='2018_08_24_fly3_run1') or (self.exp_id=='2018_08_24_fly2_run2'):
+        if (self.exp_id=='2018_08_24_fly3_run1') or (self.exp_id=='2018_08_24_fly2_run2') or (self.params['use_beh_labels']==False):
             if shifted is None:
                 is_running = 1*(data_dict['behavior']>.0005)
             else:
@@ -360,14 +367,16 @@ class reg_obj:
         run_diff_smooth = self.get_beh_diff(is_running)
 
         # grooming (beh labels)
-        grooming = np.zeros((2,len(data_dict['behavior'])))
+        grooming_and_ab = np.zeros((3,len(data_dict['behavior'])))
         if self.params['use_beh_labels'] and not just_null_model:
             if shifted is None:
-                grooming[0,:] = data_dict['beh_labels'][:,3]
-                grooming[1,:] = data_dict['beh_labels'][:,4]
+                grooming_and_ab[0,:] = data_dict['beh_labels'][:,3]
+                grooming_and_ab[1,:] = data_dict['beh_labels'][:,4]
+                grooming_and_ab[2,:] = data_dict['beh_labels'][:,5]
             else:
-                grooming[0,:] = data_dict['circshift_beh_labels'][shifted][:,3]
-                grooming[1,:] = data_dict['circshift_beh_labels'][shifted][:,4]
+                grooming_and_ab[0,:] = data_dict['circshift_beh_labels'][shifted][:,3]
+                grooming_and_ab[1,:] = data_dict['circshift_beh_labels'][shifted][:,4]
+                grooming_and_ab[2,:] = data_dict['circshift_beh_labels'][shifted][:,5]
 
         # if just_null_model:
         #     self.regressors_dict = {
@@ -383,7 +392,7 @@ class reg_obj:
             'trial':trial_regressors, 
             'beta_0':ball,
             'gamma_0':run_diff_smooth,
-            'delta_0':grooming 
+            'delta_0':grooming_and_ab 
         }
         self.linear_regressors_dict = copy.deepcopy(self.regressors_dict)
 
@@ -459,7 +468,7 @@ class reg_obj:
 
         
 
-    def evaluate_model(self, model_fit, reg_labels=None, shifted=None, parallel=True, refit_model=True):
+    def evaluate_model(self, model_fit, reg_labels=None, shifted=None, parallel=True, refit_model=True, fields_to_save=None):
         # regenerate fit from best parameters and evaluate model
         # self.data_dict = self.data_dict_orig # don't do this
         self.refresh_params()
@@ -483,21 +492,41 @@ class reg_obj:
                 self.evaluate_model_for_one_cell)(n, 
                     model_fit=model_fit, reg_labels=reg_labels, shifted=shifted, regs_prepped=True, refit_model=refit_model) for n in range(N))
             for n in range(self.data_dict[self.activity].shape[0]):
-                if refit_model:
-                    # purely based on later utility, keep r_sq and stat from refit, keep cc from orig fit
-                    model_fit[n]['r_sq'] = out_tot[n][0]
-                    model_fit[n]['stat'] = out_tot[n][1]
+                if fields_to_save is None:
+                    # defaults to keep rsq and stat after refitting and cc otherwise
+                    if refit_model:
+                        # purely based on later utility, keep r_sq and stat from refit, keep cc from orig fit
+                        model_fit[n]['r_sq'] = out_tot[n][0]
+                        model_fit[n]['stat'] = out_tot[n][1]
+                    else:
+                        model_fit[n]['cc'] = out_tot[n][2]
                 else:
-                    model_fit[n]['cc'] = out_tot[n][2]
+                    for f in fields_to_save:
+                        if f=='r_sq':
+                            model_fit[n]['r_sq'] = out_tot[n][0]
+                        elif f=='stat':
+                            model_fit[n]['stat'] = out_tot[n][1]
+                        elif f=='cc':
+                            model_fit[n]['cc'] = out_tot[n][2]
         else:
             for n in range(N):
                 if not np.mod(n,round(N/20)): print('.', end='')
                 sys.stdout.flush()
                 r_sq, stat, cc, _ = self.evaluate_model_for_one_cell(n, 
                     model_fit=model_fit, reg_labels=reg_labels, shifted=shifted, regs_prepped=True, refit_model=refit_model)
-                model_fit[n]['r_sq'] = r_sq #1-SS_res.sum()/SS_tot.sum()
-                model_fit[n]['stat'] = stat
-                model_fit[n]['cc'] = cc
+                if fields_to_save is None:
+                    model_fit[n]['r_sq'] = r_sq #1-SS_res.sum()/SS_tot.sum()
+                    model_fit[n]['stat'] = stat
+                    model_fit[n]['cc'] = cc
+                else:
+                    for f in fields_to_save:
+                        if f=='r_sq':
+                            model_fit[n]['r_sq'] = r_sq
+                        elif f=='stat':
+                            model_fit[n]['stat'] = stat
+                        elif f=='cc':
+                            model_fit[n]['cc'] = cc
+
         print(' Complete')
         sys.stdout.flush()
         if refit_model: self.activity = activity_placeholder
@@ -605,7 +634,8 @@ class reg_obj:
                 null_fit_list[j] = dFF_fit_null
                 SS_res_0 = ( (dFF-dFF_fit_null)**2 )
                 # res_var_0 = (dFF-dFF_fit_null).var()
-                stat_list.append( stats.wilcoxon(np.squeeze(SS_res_0),np.squeeze(SS_res)) )
+                # stat_list.append( stats.wilcoxon(np.squeeze(SS_res_0),np.squeeze(SS_res)) )
+                stat_list.append( stats.mannwhitneyu(np.squeeze(SS_res_0),np.squeeze(SS_res),alternative='greater') )
                 r_sq_list.append( (SS_res_0.sum()-SS_res.sum())/SS_tot.sum() )
                 
                 # cc between a regressor and fit leaving out regressor
@@ -711,9 +741,11 @@ class reg_obj:
         self.n_trials = len(self.U)
 
 
-    def get_model_sig_from_shifted_fit(self, param, param_idx=0, sig_th=0.05, update_model_fit=True):
+    def get_model_sig_from_shifted_fit(self, param, param_idx=0, sig_th=0.01, update_model_fit=True, verbose=True):
         # uses model_fit and model_fit_shifted to assess significance of fits
         # output is number of standard deviations real fit is away from shifted fit
+        if (param!='tot') and verbose: print('propagating shifted sig results from tot.')
+
         f = plotting.get_model_fit_as_dict(self.model_fit)
         rsq = plotting.get_model_fit_as_dict(f['r_sq'])
         # fs_ = []
@@ -721,23 +753,32 @@ class reg_obj:
         #     fs_.extend( plotting.get_model_fit_as_dict(self.model_fit_shifted[i]) )
         # fs = plotting.get_model_fit_as_dict(fs_)
         # rsq_shift = plotting.array_of_dicts_to_dict_of_arrays(fs['r_sq'])
-        tot_shift = plotting.array_of_dicts_to_dict_of_arrays(self.model_fit_shifted)
-        rsq_shift = plotting.array_of_dicts_to_dict_of_arrays(tot_shift['r_sq'])
+        if param == 'tot': 
+            tot_shift = plotting.array_of_dicts_to_dict_of_arrays(self.model_fit_shifted)
+            rsq_shift = plotting.array_of_dicts_to_dict_of_arrays(tot_shift['r_sq'])
+            if len(rsq_shift[param].shape)==2: rsq_shift[param] = np.expand_dims(rsq_shift[param],axis=2) # if desired param is a scalar, add extra dim
 
-        p_vals = np.zeros(len(rsq[param]))
-        for n in range(len(rsq[param])):
-            if isinstance(rsq[param][n],np.float64):
-                p_vals[n] = 1 - (rsq[param][n]>rsq_shift[param][:,n,param_idx]).sum()/rsq_shift[param].shape[0]
-            else:
-                p_vals[n] = 1 - (rsq[param][n,param_idx]>rsq_shift[param][:,n,param_idx]).sum()/rsq_shift[param].shape[0]
-            # m=rsq_shift[param][:,n,param_idx].mean()
-            # s=rsq_shift[param][:,n,param_idx].std()
-            # std_devs[n] = (rsq[param][n]-m)/s
-        # is_sig = std_devs>sig_th
+            p_vals = np.zeros(len(rsq[param]))
+            for n in range(len(rsq[param])):
+                if isinstance(rsq[param][n],np.float64):
+                    p_vals[n] = 1 - (rsq[param][n]>rsq_shift[param][:,n,param_idx]).sum()/rsq_shift[param].shape[0]
+                else:
+                    p_vals[n] = 1 - (rsq[param][n,param_idx]>rsq_shift[param][:,n,param_idx]).sum()/rsq_shift[param].shape[0]
+                # m=rsq_shift[param][:,n,param_idx].mean()
+                # s=rsq_shift[param][:,n,param_idx].std()
+                # std_devs[n] = (rsq[param][n]-m)/s
+            # is_sig = std_devs>sig_th
         if update_model_fit:
-            for n in range(len(self.model_fit)):
-                self.model_fit[n]['stat'][param][param_idx] = [None, p_vals[n]]
-        return p_vals
+            if param != 'tot':
+                # this option requires that this method was already run on 'tot'
+                for n in range(len(self.model_fit)):
+                    if self.model_fit[n]['stat']['tot'][0][1] > sig_th: # if tot is not significant (by circ), update param of choice accordingly
+                        self.model_fit[n]['stat'][param][param_idx] = self.model_fit[n]['stat']['tot'][0]
+            else:
+                # this is to catch 'tot'
+                for n in range(len(self.model_fit)):
+                    self.model_fit[n]['stat'][param] = []
+                    self.model_fit[n]['stat'][param].append( [None, p_vals[n]] )
 
 
     def remove_transient_behaviors(self, states, frame_th=35):
@@ -828,6 +869,14 @@ class reg_obj:
         elif self.exp_id=='2019_04_24_fly3':
             [] #ok
         elif self.exp_id=='2019_04_24_fly1':
+            [] #ok
+        elif self.exp_id=='2019_04_25_fly1':
+            [] #ok
+        elif self.exp_id=='2019_04_25_fly2':
+            [] #ok
+        elif self.exp_id=='2019_04_26_fly1':
+            [] #ok
+        elif self.exp_id=='2019_04_29_fly1':
             [] #ok
         elif self.exp_id=='2019_04_25_fly3':
             tv_params[2]=[.05, .01, .01]
@@ -1013,14 +1062,16 @@ class reg_obj:
             U = np.unique(self.data_dict['trialFlag']) # beta
             for i in range(len(U)):
                 initial_conds.append(.0001)
-            initial_conds.extend([0,0.5,5,0]) # gamma, tau, phi
+            initial_conds.extend([0,0.5])              # gamma
+            initial_conds.extend([.0001,.0001,.0001])  # delta
+            initial_conds.extend([5,0])                # tau, phi
         else:
             # elif self.params['use_beh_labels']:
-            initial_conds=[0,.0001,.0001]        # alpha
-            initial_conds.append(.0001)          # beta
-            initial_conds.extend([0,0.5])        # gamma
-            initial_conds.extend([.0001,.0001])  # delta
-            initial_conds.extend([5,0])          # tau, phi
+            initial_conds=[0,.0001,.0001]              # alpha
+            initial_conds.append(.0001)                # beta
+            initial_conds.extend([0,0.5])              # gamma
+            initial_conds.extend([.0001,.0001,.0001])  # delta
+            initial_conds.extend([5,0])                # tau, phi
         # else:
         #     initial_conds=[0,.0001,.0001,.0001,0,0.5,5,0]
         return initial_conds
@@ -1032,14 +1083,16 @@ class reg_obj:
             U = np.unique(self.data_dict['trialFlag'])   # beta
             for i in range(len(U)):
                 bounds.append([None,None])
-            bounds.extend([[None,None],[-.05,.05],[1,59],[-59,59]]) # gamma, tau, phi
+            bounds.extend([[None,None],[-.05,.05]])                # gamma
+            bounds.extend([[None,None],[None,None],[None,None]])   # delta
+            bounds.extend([[1,59],[-59,59]])                       # tau, phi
         else:
             # elif self.params['use_beh_labels']:
             bounds=[[None,None],[None,None],[None,None]]    # alpha
             bounds.append([None,None])                      # beta
-            bounds.extend([[None,None],[-.05,.05]])         # gamma
-            bounds.extend([[None,None],[None,None]])        # delta
-            bounds.extend([[1,59],[-59,59]])                # tau, phi
+            bounds.extend([[None,None],[-.05,.05]])                     # gamma
+            bounds.extend([[None,None],[None,None],[None,None]])        # delta
+            bounds.extend([[1,59],[-59,59]])                            # tau, phi
         # else:
         #     # bound for gamma_1 = +/-.05
         #     bounds=[[None,None],[None,None],[None,None],[None,None],[None,None],[-.05,.05],[1,59],[-59,59]]
@@ -1054,13 +1107,32 @@ class reg_obj:
                 bounds[2] = [-1e-12,1e-12]
             elif reg == ['beta_0']:
                 bounds[3] = [-1e-12,1e-12]
-            elif reg == 'gamma_0':
+            elif reg == ['beta_0',0]:
+                bounds[3] = [-1e-12,1e-12]
+            elif reg == ['beta_0',1]:
                 bounds[4] = [-1e-12,1e-12]
-                bounds[5] = [-1e-12,1e-12]
+            elif reg == 'gamma_0':
+                if self.params['split_behav']:
+                    bounds[5] = [-1e-12,1e-12]
+                    bounds[6] = [-1e-12,1e-12]
+                else:
+                    bounds[4] = [-1e-12,1e-12]
+                    bounds[5] = [-1e-12,1e-12]
             elif reg == ['delta_0',0]:
-                bounds[6] = [-1e-12,1e-12]
+                if self.params['split_behav']:
+                    bounds[7] = [-1e-12,1e-12]
+                else:
+                    bounds[6] = [-1e-12,1e-12]
             elif reg == ['delta_0',1]:
-                bounds[7] = [-1e-12,1e-12]
+                if self.params['split_behav']:
+                    bounds[8] = [-1e-12,1e-12]
+                else:
+                    bounds[7] = [-1e-12,1e-12]
+            elif reg == ['delta_0',2]:
+                if self.params['split_behav']:
+                    bounds[9] = [-1e-12,1e-12]
+                else:
+                    bounds[8] = [-1e-12,1e-12]
             elif reg == 'trial_coeffs':
                 for i in range(1,self.n_trials):
                     bounds[-i] = [-1e-12,1e-12] #note: loop from 1:N instead of 0:N-1 is correct here  
@@ -1098,6 +1170,54 @@ class reg_obj:
         return model_fit
             
 
+def trim_before_stim(data_dict, buffer_in_sec=30):
+    """ 
+    cut datasets with a stimulus to only include period prior to stim minus buffer
+    """
+    frames_to_cut = np.round(data_dict['scanRate']*buffer_in_sec).astype(int)
+    first_stim = np.flatnonzero(data_dict['stim'])[0]
+    cut_frame = first_stim-frames_to_cut
+
+    data_dict['dFF'] = data_dict['dFF'][:,:cut_frame]
+    data_dict['dYY'] = data_dict['dYY'][:,:cut_frame]
+    data_dict['dRR'] = data_dict['dRR'][:,:cut_frame]
+    data_dict['time'] = data_dict['time'][:cut_frame]
+    if 'tPl' in data_dict:
+        data_dict['tPl'] = data_dict['tPl'][:cut_frame]
+    if 'behavior' in data_dict:
+        data_dict['behavior'] = data_dict['behavior'][:cut_frame]
+    data_dict['ball'] = data_dict['ball'][:cut_frame,:]
+    if ('beh_labels' in data_dict) and (len(data_dict['beh_labels'])>1):
+        if data_dict['beh_labels'].shape[1]==1:
+            data_dict['beh_labels'] = data_dict['beh_labels'][:cut_frame, :]
+        else:
+            data_dict['beh_labels'] = data_dict['beh_labels'][:cut_frame, :]
+    data_dict['trialFlag'] = data_dict['trialFlag'][:cut_frame]
+    if 'state_is_valid' in data_dict:
+        data_dict['state_is_valid'] = data_dict['state_is_valid'][:cut_frame]
+
+
+def get_sig_filter(model_fit, param_input, th=0.1):
+    is_sig = np.zeros(len(model_fit))
+    f = plotting.get_model_fit_as_dict(model_fit)
+    if isinstance(param_input,str):
+        param_name = param_input
+        param_idx = None
+        for i in range(len(is_sig)):
+            is_sig[i] = f['stat'][i][param_name][0][1]<th
+    
+    elif isinstance(param_input,list):
+        param_name = param_input[0]
+        param_idx = param_input[1]
+        
+        for i in range(len(is_sig)):
+            if param_name in f['stat'][i]:
+                is_sig[i] = f['stat'][i][param_name][param_idx][1]<th
+            else:
+                is_sig[i] = False
+    return is_sig
+
+
 def get_summary_dict(expt_id, split_behav, data_dict, model_fit, model_fit_shifted, use_beh_labels):
     """
     summary preprocessing step to either plot regression output or feed it into other analyses
@@ -1117,7 +1237,7 @@ def get_summary_dict(expt_id, split_behav, data_dict, model_fit, model_fit_shift
     #pdb.set_trace()
     # get full and null-subtracted fit
     null_fit, dFF_tot = ro.get_null_subtracted_raster(just_null_model=True)
-    ro.params['use_beh_labels'] = True
+    ro.params['use_beh_labels'] = use_beh_labels
     dFF_fit, resid_tot = ro.get_null_subtracted_raster(just_null_model=False)
     #pdb.set_trace()
     
@@ -1127,8 +1247,10 @@ def get_summary_dict(expt_id, split_behav, data_dict, model_fit, model_fit_shift
     dFF_resid_base = ro.unnormalize_rows_euc(resid_tot, 0*ro.data_dict['mu'], ro.data_dict['sig'])
 
     # show rescaled null-subtracted fit
-    #reload(plotting)
     dict_tmp = copy.deepcopy(ro.data_dict)
+    for i in ['dYY', 'dRR', 'A', 'train_all', 'val_all', 'dFF_unnormalized', 'dFF_mag_norm']:
+        del dict_tmp[i]
+
     dict_tmp['dFF'] = dFF_tot_base
     dict_tmp['dFF_fit'] = dFF_fit_base
     dict_tmp['dFF_resid_base'] = dFF_resid_base
@@ -1137,4 +1259,77 @@ def get_summary_dict(expt_id, split_behav, data_dict, model_fit, model_fit_shift
     
     summary_dict = {'expt_id':expt_id, 'ro':ro, 'data_dict':dict_tmp, 'f':f, 'rsq':rsq, 'cc':cc}
     return summary_dict
+
+
+def get_behav_durations(data_dict, split_behav=False):
+    """
+    get total time in which fly exhibited each behavior (for normalization)
+    """
+    if split_behav:
+        u = data_dict['trialFlag'][:,0]==1
+        frac_run = data_dict['behavior'][u].sum()/len(data_dict['behavior'])
+        u = data_dict['trialFlag'][:,0]==2
+        frac_flail = data_dict['behavior'][u].sum()/len(data_dict['behavior'])
+        behav_fracs = {'run':frac_run, 'flail':frac_flail}
+    else:
+        if data_dict['beh_labels'].shape[1]>1:
+            frac_undef = data_dict['beh_labels'][:,0].sum()/data_dict['beh_labels'].shape[0]
+            frac_run = data_dict['beh_labels'][:,2].sum()/data_dict['beh_labels'].shape[0]
+            frac_fgroom = data_dict['beh_labels'][:,3].sum()/data_dict['beh_labels'].shape[0]
+            frac_bgroom = data_dict['beh_labels'][:,4].sum()/data_dict['beh_labels'].shape[0]
+            behav_fracs = {'undef':frac_undef, 'run':frac_run, 'fgroom':frac_fgroom, 'bgroom':frac_bgroom}
+        else:
+            behav_fracs = {'undef':np.nan, 'run':np.nan, 'fgroom':np.nan, 'bgroom':np.nan}
+    return behav_fracs
+
+
+def get_flattened_summary(data_tot=[], model_tot=[], model_tot_shifted=[], use_beh_labels=True, split_behav=False):
+    """
+    takes list of summary dicts for all flies and compiles flat dict for summary plots
+    data_tot = list of data dicts
+    model_tot = list of model fit dicts
+    """
+    ro = reg_obj(split_behav=split_behav,
+                 use_beh_labels=use_beh_labels)
+    # ro.refresh_params()
+    ro.is_downsampled=True
+
+    # make flattened centroid list
+    centroids_dict_flat_full = {'aligned_centroids': data_tot[0]['data_dict']['aligned_centroids'].copy(),
+                      'dims_in_um':data_tot[0]['data_dict']['dims_in_um'].copy(),
+                      'dims':data_tot[0]['data_dict']['dims'].copy()}
+    for nf in range(1,len(data_tot)):
+        new_c = data_tot[nf]['data_dict']['aligned_centroids'].copy()
+        centroids_dict_flat_full['aligned_centroids'] = np.concatenate((centroids_dict_flat_full['aligned_centroids'],new_c),axis=0)
+
+    # make flattened parameter dictionary
+    model_fit_flat = copy.deepcopy(model_tot[0])
+    for nf in range(1,len(model_tot)):
+        model_fit_flat.extend( copy.deepcopy(model_tot[nf]) )
+
+    # make flattened list of behavior fractions
+    behav_fracs = get_behav_durations(data_tot[0]['data_dict'], split_behav=split_behav)
+    behav_fracs_flat = [behav_fracs]*len(model_tot[0])
+    for nf in range(1,len(model_tot)):
+        behav_fracs = get_behav_durations(data_tot[nf]['data_dict'], split_behav=split_behav)
+        behav_fracs_flat.extend( [behav_fracs]*len(model_tot[nf]) )
+
+    # make flattened *shifted* parameter dictionary
+    model_fit_shifted_flat = copy.deepcopy(model_tot_shifted[0])
+    for nf in range(1,len(model_tot_shifted)):
+        for i in range(len(model_fit_shifted_flat)):
+            model_fit_shifted_flat[i].extend( copy.deepcopy(model_tot_shifted[nf][i]) )
+    
+    ro.model_fit = model_fit_flat
+    ro.model_fit_shifted = model_fit_shifted_flat
+    ro.behav_fracs_flat = behav_fracs_flat
+    ro.data_dict = {'aligned_centroids':centroids_dict_flat_full['aligned_centroids'],
+                    'dims_in_um':centroids_dict_flat_full['dims_in_um'],
+                    'dims':centroids_dict_flat_full['dims']}
+    return ro
+
+
+
+
+
 

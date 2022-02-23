@@ -4,13 +4,14 @@ import matplotlib.pyplot as plt
 import pdb
 
 
-def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10, include_feeding=False):
+def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10, include_feeding=False, 
+                    include_beh_labels=True, activity='dFF'):
     from matplotlib import colors
     from matplotlib import axes, gridspec
 
     plot_time = data_dict['tPl']
-    dFF = data_dict['dFF']
-    behavior = data_dict['ball']
+    dFF = data_dict[activity]
+    behavior = data_dict['behavior'] #data_dict['ball']
     dims = np.squeeze(data_dict['dims'])
     background_im = data_dict['im']
     A = data_dict['A']
@@ -47,11 +48,14 @@ def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10, include_feedin
     
     
     ax = plt.subplot2grid(grid_tuple, beh_subplot, colspan=1, rowspan=1)
-    plt.plot(plot_time, behavior,'k')
+    if include_beh_labels:
+        plot_states_simple(data_dict, axes=ax)
+    else:
+        plt.plot(plot_time, behavior,'k')
     plt.box()
     plt.xticks([])
     plt.yticks([])
-    plt.ylabel('locomotion')
+    plt.ylabel('Behavior')
     plt.tight_layout()
     if(not include_feeding):
         plt.title(expt_id+': Cluster '+str(k_id)+', nCells='+str(len(cIds)))
@@ -59,6 +63,7 @@ def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10, include_feedin
 
     ax = plt.subplot2grid(grid_tuple, dff_subplot, colspan=1, rowspan=3)
     plt.plot(plot_time, dFF[cIds[:plotMx],:].T)
+    ax.set_xlim([data_dict['tPl'].min(),data_dict['tPl'].max()])
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     plt.tight_layout()
@@ -70,25 +75,42 @@ def make_clust_fig(k_id, cIds, data_dict, expt_id='', nToPlot=10, include_feedin
     # show all cells belonging to current cluster
     nC = np.shape(A)[1]
     cIdVec = np.zeros((nC,1))
-    cIdVec[cIds]=1
+    for i,c in enumerate(cIds):
+        cIdVec[c]=(i+1)/len(cIds)
     Ar = A*cIdVec #np.sum( A[:,cIds], axis=1 )
     R = np.reshape(Ar,dims, order='F')
-    rIm = np.max(R,axis=2)
+
+    # get z range for partial MIP
+    tmp=R.max(axis=(0,1))
+    tmp2 = np.flatnonzero(tmp)[[0,-1]]
+    zlim = slice(tmp2[0],tmp2[1]+1)
+    background_slice = np.max(background_im[:,:,zlim],axis=2)
+    background_slice = 1.2*background_slice/background_slice.max()
+    background_slice[background_slice>1]=1.0
+
+    # make clust mask
+    rIm = R[:,:,zlim].max(axis=2)
     crs = colors.Normalize(0, 1, clip=True)(rIm)
     crs = cmap(crs)
-    crs[..., -1] = rIm #setting alpha for transparency
+    crs[..., -1] = .15*rIm #setting alpha for transparency
 
     ax = plt.subplot2grid(grid_tuple, roi_subplot, colspan=1, rowspan=4)
-    plt.imshow(np.max(background_im,axis=2),cmap=plt.get_cmap('gray'));
-    plt.imshow(crs); ax.axis('off')
+    plt.imshow(background_slice,cmap=plt.get_cmap('gray'))
+    plt.imshow(crs) 
+    ax.axis('off')
 
     return R
 
 
-def plot_pcs(pcs, color, cmap='inferno'):
-    plt.scatter(pcs[:, 0], pcs[:, 1], c=color, cmap=cmap, s=5, linewidths=0)
-    plt.xlabel('PC 1')
-    plt.ylabel('PC 2')
+def plot_pcs(pcs, color, cmap='inferno', idx=[0,1], s=5):
+    if len(idx)==2:
+        plt.scatter(pcs[:, idx[0]], pcs[:, idx[1]], c=color, cmap=cmap, s=s, linewidths=0)
+    else:
+        plt.scatter(pcs[:, idx[0]], pcs[:, idx[1]], pcs[:, idx[2]], c=color, cmap=cmap, s=s, linewidths=0)
+    plt.xlabel('PC '+str(idx[0]+1))
+    plt.ylabel('PC '+str(idx[1]+1))
+    if len(idx)==3:
+        plt.zlabel('PC '+str(idx[2]+1))
 
 
 def plot_neural_activity(
@@ -233,6 +255,17 @@ def plot_dlc_arhmm_states(
     return fig
 
 
+def get_state_colors():
+    import matplotlib.cm as cm
+    tmp = cm.get_cmap('tab10', 10) #cm.get_cmap('Accent', 6)
+    cmap = cm.get_cmap('tab10', 6)
+    cmap.colors = tmp.colors[:6]
+    cmap.colors[-1,:] = cmap.colors[1,:]
+    cmap.colors[1,:] = [1,1,1,1]
+    cmap.colors[0,:] = [0,0,0,.4]
+    return cmap
+
+
 def plot_states_simple(
         data_dict, slc=None, axes=None, restrict_xticks=True, valid_only=False, valid_thresh=0.75):
     """
@@ -257,34 +290,37 @@ def plot_states_simple(
     else:
         include_cbar = False
 
-    # Accent = cm.get_cmap('Dark2', 4) #Accent
-    cmap = cm.get_cmap('Accent', 5)
-    tmp = cm.get_cmap('tab10', 8)
-    cmap.colors[0,:] = [1,1,1,1]
-    cmap.colors[1:4,:] = tmp.colors[:3,:]
-    cmap.colors[4,:] = [0,0,0,.4]
-    cmap.colors[2,:3] *= .85
-    # cmap.colors[1,:3] *= .75
-    cmap.colors = np.roll(cmap.colors,1,axis=0)
+    cmap = get_state_colors()
 
     if slc is None:
         im = axes.imshow(beh_labels.T,aspect='auto',cmap=cmap)#,cmap='Accent',vmin=0, vmax=3)
     else:
-        im = axes.imshow(beh_labels[slc[0]:slc[1]].T,aspect='auto',cmap=cmap)#,cmap='Accent',vmin=0, vmax=3)
+        if type(slc) is list:
+            im = axes.imshow(beh_labels[slc[0]:slc[1]].T,aspect='auto',cmap=cmap)#,cmap='Accent',vmin=0, vmax=3)
+        else:
+            #assume slice object
+            im = axes.imshow(beh_labels[slc].T,aspect='auto',cmap=cmap)#,cmap='Accent',vmin=0, vmax=3)
 
     if restrict_xticks:
         xtk_labels = np.array([i for i in range(100, int(data_dict['tPl'][-1,0]), 100)]) #[300,400,500,600]
     else:
         xtk_labels = np.array([i for i in range(100, int(data_dict['tPl'][-1,0]), 50)]) #[300,400,500,600]
     if slc is not None:
-        val = (data_dict['tPl'][slc[0]]<xtk_labels)*(xtk_labels<data_dict['tPl'][slc[1]])
+        if type(slc) is list: 
+            val = (data_dict['tPl'][slc[0]]<xtk_labels)*(xtk_labels<data_dict['tPl'][slc[1]])
+        else:
+            tmp = data_dict['tPl'][slc]
+            val = (tmp[0]<xtk_labels)*(xtk_labels<tmp[-1])
         # val = (slc[0]/data_dict['scanRate']<xtk_labels)*(xtk_labels<slc[1]/data_dict['scanRate'])
         xtk_labels = xtk_labels[val]
     xtks = np.zeros(xtk_labels.shape)
     for i in range(len(xtks)):
         xtks[i] = np.argmin( abs(xtk_labels[i] - data_dict['tPl']) )
     if slc is not None:
-        xtks -= slc[0]
+        if type(slc) is list:
+            xtks -= slc[0]
+        else:
+            xtks -= slc.start
     # xtk_labels_adj = np.array(xtk_labels) #-xtk_labels[0]    
     plt.xticks(ticks=xtks, labels=xtk_labels)
     axes.set_xlabel('Time (s)')
@@ -293,7 +329,7 @@ def plot_states_simple(
 
     if include_cbar:
         cbar = plt.colorbar(im) #, ticks=np.arange(np.min(beh_labels),np.max(beh_labels)+1))
-        labels = ['other', 'still', 'run', 'front_groom', 'back_groom']
+        labels = ['Undefined', 'Stationary', 'Run', 'Front Groom', 'Back Groom', 'Abdomen Bend']
         l = len(labels)
         lp1 = (l-1)/(2*l)
         cbar.set_ticks( np.linspace( lp1, l-1-lp1, l ) )
@@ -1071,11 +1107,14 @@ def get_model_fit_as_dict(model_fit):
     # takes list of dicts and returns dict of lists
     reg_labels = list(model_fit[0].keys())
     fit_dict = {}
-    for j in range(len(reg_labels)):
+    for label in reg_labels:
         vals = [None]*len(model_fit)
         for i in range(len(model_fit)):
-            vals[i] = model_fit[i][reg_labels[j]]
-        fit_dict[reg_labels[j]] = np.squeeze(np.array(vals))
+            if label in model_fit[i]:
+                vals[i] = model_fit[i][label]
+            else:
+                vals[i] = [np.nan]*len(model_fit[0][label]) #case of missing reg, e.g. delta for data w/o beh_labels
+        fit_dict[label] = np.squeeze(np.array(vals))
     return fit_dict
 
 
@@ -1104,7 +1143,10 @@ def array_of_dicts_to_dict_of_arrays(a):
                 d[label] = np.zeros( (len(a), len(a[0]), len(a[0][0][label])) )
                 for i in range(len(a)):
                     for j in range(len(a[0])):
-                        d[label][i,j,:] = a[i][j][label]
+                        if label in a[i][j]:
+                            d[label][i,j,:] = a[i][j][label]
+                        else:
+                            d[label][i,j,:] = np.nan
     return d
 
 # def array_of_dicts_to_dict_of_arrays(a):
@@ -1142,106 +1184,247 @@ def unroll_model_fit_stats(model_fit):
     return model_fit_un
 
 
+def show_param_hist(model_fit=None, data_dict=None, param_input=None, param_input2=None, pval=.01, xlim=None, figsize=(4, 2),
+                        use_cc=False, n_xbins=40, sig_clr='#01386a', show_sum_line=False, legend=None, hatch=None):
+    """
+    """
+    #from matplotlib.ticker import ScalarFormatter
+    if model_fit is not None:
+        f = get_model_fit_as_dict(model_fit)
+        rsq_dict = get_model_fit_as_dict(f['r_sq'])
+        cc_dict = get_model_fit_as_dict(f['cc'])
+        if isinstance(param_input,str):
+            param_name = param_input
+            param_idx = None
+            if use_cc:
+                param = cc_dict[param_name]
+            else:
+                param = f[param_name]
+            rsq = rsq_dict[param_name]
+            stat = np.zeros(len(param))
+            for i in range(len(param)):
+                stat[i] = f['stat'][i][param_name][0][1]
+        elif isinstance(param_input,list):
+            param_name = param_input[0]
+            param_idx = param_input[1]
+            if use_cc:
+                param = cc_dict[param_name][:,param_idx]
+            else:
+                param = f[param_name][:,param_idx]
+            rsq = rsq_dict[param_name][:,param_idx]
+            stat = np.zeros(len(param))
+            for i in range(len(param)):
+                stat[i] = f['stat'][i][param_name][param_idx][1]
+
+        if(param_name=='phi'): 
+            # param = param/data_dict['scanRate'] # this is now absorbed into model
+            label = 'Temporal Shift (s)'
+        elif(param_name=='tau'):
+            label = r'$\tau$ (s)'
+        elif(param_name=='beta_0'): 
+            label = 'Running'
+        elif(param_name=='gamma_0'): 
+            label = r'$\gamma_0$'
+        elif(param_name=='delta_0'): 
+            label = 'Grooming'
+        elif(param_name=='tau_feed'):
+            label = r'$\tau_{feed}$'
+        else:
+            label=param_name
+        if use_cc: label+=' Correlation'
+
+        pval_text = pval #0.01
+        sig = list(stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
+        param_sig = param[sig]
+        param_notsig = param[np.logical_not(sig)] #param[np.logical_not(success*sig)]
+    else:
+        # manually pass list of form [param_name, param_input]
+        param_name = param_input[0]
+        param_sig = param_input[1]
+        label = param_name
+        if param_input2 is not None:
+            param_notsig = param_input2[1]
+
+    plt.figure(figsize=figsize)
+    # left, width = 0.1, 0.65
+    # bottom, height = 0.1, 0.65
+    # spacing = 0.005
+    # rect_histx = [left, bottom + height + spacing, width, 0.2]
+    # ax_histx = plt.axes(rect_histx)
+    ax_histx = plt.axes()
+    # ax_histx.tick_params(direction='in', labelbottom=False)
+    # ax_histx.axis('off')
+
+    if param_name=='tau':
+        ax_histx.set_xscale('log')    
+    if xlim is None:
+        xmin = param.min() #np.floor(param.min()) #4/scanRate
+        xmax = param.max() #np.ceil(param.max()) #30 #1000/scanRate #6000
+    else:
+        xmin = xlim[0]
+        xmax = xlim[1]
+
+    xbinwidth = (xmax-xmin)/n_xbins
+    if param_name=='tau':
+        xbins = np.logspace(np.log10(xmin), np.log10(xmax),num=len(ybins), base=10) #np.exp(1))
+    else:
+        xbins = np.arange(xmin, xmax+xbinwidth, xbinwidth) #np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
+    if legend is None:
+        v0,_,_ = ax_histx.hist(param_notsig, bins=xbins,color='tab:gray') #'#929591')
+        v1,_,_ = ax_histx.hist(param_sig, bins=xbins,color=sig_clr,alpha=.7) #'#929591')
+    else:
+        if hatch is None:
+            v0,_,_ = ax_histx.hist(param_notsig, bins=xbins,color='tab:gray',label=legend[1]) #'#929591')
+            v1,_,_ = ax_histx.hist(param_sig, bins=xbins,color=sig_clr,alpha=.7,label=legend[0]) #'#929591')
+        else:
+            v0,_,_ = ax_histx.hist(param_notsig, bins=xbins,color='tab:gray',label=legend[1], hatch=hatch) #'#929591')
+            v1,_,_ = ax_histx.hist(param_sig, bins=xbins,color=sig_clr,alpha=.7,label=legend[0]) #'#929591')
+    if show_sum_line:
+        ax_histx.plot(( xbins[:-1]+xbins[1:])/2, v0+v1,'k',linewidth=1)
+    if legend is not None:
+        plt.legend()
+    ax_histx.set_xlim((xmin,xmax))
+    ax_histx.set_xlabel(label)
+    ax_histx.set_ylabel('Cell Count')
+
+
 def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, xlim=None, param2_input=None, 
-                        use_cc=False, alphas=[.4,.15], s = 100, n_xbins=40, n_ybins=40, sig_clr='#01386a'):
+                        use_cc=False, alphas=[.4,.15], s = 100, n_xbins=40, n_ybins=40, sig_clr='#01386a',
+                        notsig_clr='tab:gray', omit_last_bin=True, color_param=None):
     """
     Default is to plot scatter of a parameter vs residual r^2 of that parameter
     param2_input: plot scatter vs another parameter instead of vs r^2
+    colors: optional specification of color of every point
     """
     from matplotlib.ticker import ScalarFormatter
 
-    f = get_model_fit_as_dict(model_fit)
-    rsq_dict = get_model_fit_as_dict(f['r_sq'])
-    cc_dict = get_model_fit_as_dict(f['cc'])
-    if isinstance(param_input,str):
-        param_name = param_input
-        param_idx = None
-        if use_cc:
-            param = cc_dict[param_name]
+    if model_fit is not None:
+        f = get_model_fit_as_dict(model_fit)
+        rsq_dict = get_model_fit_as_dict(f['r_sq'])
+        cc_dict = get_model_fit_as_dict(f['cc'])
+        if isinstance(param_input,str):
+            param_name = param_input
+            param_idx = None
+            if use_cc:
+                param = cc_dict[param_name]
+            else:
+                param = f[param_name]
+            rsq = rsq_dict[param_name]
+            stat = np.zeros(len(param))
+            for i in range(len(param)):
+                stat[i] = f['stat'][i][param_name][0][1]
+        elif isinstance(param_input,list):
+            param_name = param_input[0]
+            param_idx = param_input[1]
+            if use_cc:
+                param = cc_dict[param_name][:,param_idx]
+            else:
+                param = f[param_name][:,param_idx]
+            rsq = rsq_dict[param_name][:,param_idx]
+            stat = np.zeros(len(param))
+            for i in range(len(param)):
+                if param_name in f['stat'][i]:
+                    stat[i] = f['stat'][i][param_name][param_idx][1]
+                else:
+                    stat[i] = np.nan
+        if param2_input is not None:
+            if isinstance(param2_input,str):
+                param2_name = param2_input
+                param2_idx = None
+                if use_cc:
+                    param2 = cc_dict[param2_name]
+                else:
+                    param2 = f[param2_name]
+                # rsq = rsq_dict[param2_name]
+                stat2 = np.zeros(len(param2))
+                for i in range(len(param2)):
+                    stat2[i] = f['stat'][i][param2_name][0][1]
+            elif isinstance(param2_input,list):
+                param2_name = param2_input[0]
+                param2_idx = param2_input[1]
+                if use_cc:
+                    param2 = cc_dict[param2_name][:,param2_idx]
+                else:
+                    param2 = f[param2_name][:,param2_idx]
+                # rsq = rsq_dict[param2_name][:,param2_idx]
+                stat2 = np.zeros(len(param2))
+                for i in range(len(param2)):
+                    if param2_name in f['stat'][i]:
+                        stat2[i] = f['stat'][i][param2_name][param2_idx][1]
+                    else:
+                        stat2[i] = np.nan
+            if(param2_name=='phi'): 
+                # param2 = param2 /data_dict['scanRate'] # this is now absorbed into model
+                label2 = 'Temporal Shift (s)'
+            elif(param2_name=='beta_0'): 
+                label2 = 'Flailing' #r'$\beta_1$'
+            elif(param2_name=='gamma_0'): 
+                label2 = r'$\gamma_0$'
+            elif(param2_name=='delta_0'): 
+                if param2_idx==0:
+                    label2 = 'Front Grooming' #r'$\delta_0$'
+                elif param2_idx==1:
+                    label2 = 'Back Grooming' #r'$\delta_0$'
+            elif(param2_name=='tau_feed'):
+                label2 = r'$\tau_{feed}$'
+            else:
+                label2=param2_name
+        # success = True #f['success']
+
+        if(param_name=='phi'): 
+            # param = param/data_dict['scanRate'] # this is now absorbed into model
+            label = 'Temporal Shift (s)'
+        elif(param_name=='tau'):
+            label = r'$\tau$ (s)'
+        elif(param_name=='beta_0'): 
+            label = 'Running' #r'$\beta_0$'
+        elif(param_name=='gamma_0'): 
+            label = r'$\gamma_0$'
+        elif(param_name=='delta_0'): 
+            if param_idx==0:
+                label = 'Front Grooming' #r'$\delta_0$'
+            elif param_idx==1:
+                label = 'Back Grooming' #r'$\delta_0$'
+        elif(param_name=='tau_feed'):
+            label = r'$\tau_{feed}$'
         else:
-            param = f[param_name]
-        rsq = rsq_dict[param_name]
-        stat = np.zeros(len(param))
-        for i in range(len(param)):
-            stat[i] = f['stat'][i][param_name][0][1]
-    elif isinstance(param_input,list):
+            label=param_name
+
+        if use_cc:
+            label += ' Correlation'
+            label2 += ' Correlation'
+        elif 'Lag' not in label:
+            label += ' Weight'
+            label2 += ' Weight'
+
+        pval_text = pval #0.01
+        sig = list(stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
+        if param2_input is None:
+            param_sig = param[sig] #param[success*sig]
+            param_notsig = param[np.logical_not(sig)] #param[np.logical_not(success*sig)]
+            rsq_sig = rsq[sig] #rsq[success*sig]
+            rsq_notsig = rsq[np.logical_not(sig)] #rsq[np.logical_not(success*sig)]
+        else:
+            sig2 = list(stat2<pval)
+            # param_sig = param[ np.logical_and(sig,sig2) ] #param[success*sig]
+            # param_notsig = param[ np.logical_not( np.logical_and(sig,sig2) ) ]
+            # param2_sig = param2[ np.logical_and(sig,sig2) ] #param[success*sig]
+            # param2_notsig = param2[ np.logical_not(np.logical_and(sig,sig2)) ]
+            param_sig = param[ np.logical_or(sig,sig2) ] #param[success*sig]
+            param_notsig = param[ np.logical_not( np.logical_or(sig,sig2) ) ]
+            param2_sig = param2[ np.logical_or(sig,sig2) ] #param[success*sig]
+            param2_notsig = param2[ np.logical_not( np.logical_or(sig,sig2) ) ]
+    else:
+        # manually pass list of form [param_name, param_input]
         param_name = param_input[0]
-        param_idx = param_input[1]
-        if use_cc:
-            param = cc_dict[param_name][:,param_idx]
-        else:
-            param = f[param_name][:,param_idx]
-        rsq = rsq_dict[param_name][:,param_idx]
-        stat = np.zeros(len(param))
-        for i in range(len(param)):
-            stat[i] = f['stat'][i][param_name][param_idx][1]
-    if param2_input is not None:
-        if isinstance(param2_input,str):
-            param2_name = param2_input
-            param2_idx = None
-            if use_cc:
-                param2 = cc_dict[param2_name]
-            else:
-                param2 = f[param2_name]
-            # rsq = rsq_dict[param2_name]
-            stat2 = np.zeros(len(param2))
-            for i in range(len(param2)):
-                stat2[i] = f['stat'][i][param2_name][0][1]
-        elif isinstance(param2_input,list):
+        param_sig = param_input[1]
+        param_notsig = []
+        label = param_name
+        if param2_input is not None:
             param2_name = param2_input[0]
-            param2_idx = param2_input[1]
-            if use_cc:
-                param2 = cc_dict[param2_name][:,param2_idx]
-            else:
-                param2 = f[param2_name][:,param2_idx]
-            # rsq = rsq_dict[param2_name][:,param2_idx]
-            stat2 = np.zeros(len(param2))
-            for i in range(len(param2)):
-                stat2[i] = f['stat'][i][param2_name][param2_idx][1]
-        if(param2_name=='phi'): 
-            # param2 = param2 /data_dict['scanRate'] # this is now absorbed into model
-            label2 = 'Temporal Shift (s)'
-        elif(param2_name=='beta_0'): 
-            label2 = r'$\beta_1$'
-        elif(param2_name=='gamma_0'): 
-            label2 = r'$\gamma_0$'
-        elif(param2_name=='delta_0'): 
-            label2 = r'$\delta_0$'
-        elif(param2_name=='tau_feed'):
-            label2 = r'$\tau_{feed}$'
-        else:
-            label2=param2_name
-    # success = True #f['success']
-
-    if(param_name=='phi'): 
-        # param = param/data_dict['scanRate'] # this is now absorbed into model
-        label = 'Temporal Shift (s)'
-    elif(param_name=='tau'):
-        label = r'$\tau$ (s)'
-    elif(param_name=='beta_0'): 
-        label = r'$\beta_0$'
-    elif(param_name=='gamma_0'): 
-        label = r'$\gamma_0$'
-    elif(param_name=='delta_0'): 
-        label = r'$\delta_0$'
-    elif(param_name=='tau_feed'):
-        label = r'$\tau_{feed}$'
-    else:
-        label=param_name
-
-    pval_text = pval #0.01
-    sig = list(stat<pval) #*(rsq>rsq_null) #*(stat>0) # 1-sided test that behavior model > null model
-    if param2_input is None:
-        param_sig = param[sig] #param[success*sig]
-        param_notsig = param[np.logical_not(sig)] #param[np.logical_not(success*sig)]
-        rsq_sig = rsq[sig] #rsq[success*sig]
-        rsq_notsig = rsq[np.logical_not(sig)] #rsq[np.logical_not(success*sig)]
-    else:
-        sig2 = list(stat2<pval)
-        param_sig = param[sig and sig2] #param[success*sig]
-        param_notsig = param[np.logical_not(sig and sig2)]
-        param2_sig = param2[sig and sig2] #param[success*sig]
-        param2_notsig = param2[np.logical_not(sig and sig2)]
+            param2_sig = param2_input[1]
+            param2_notsig = []
+            label2 = param2_name
 
     plt.figure(figsize=(5, 5))
     left, width = 0.1, 0.65
@@ -1263,8 +1446,8 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
         ax_histx.set_xscale('log')
         ax_scatter.set_xscale('log')
     if param2_name=='phi':
-        ax_histy.set_yscale('symlog', linthreshy=.1, linscaley=.2/120)
-        ax_scatter.set_yscale('symlog', linthreshy=.1, linscaley=.2/120)
+        ax_histy.set_yscale('symlog', linthreshy=.1, linscaley=.02/120)
+        ax_scatter.set_yscale('symlog', linthreshy=.1, linscaley=.02/120)
 
     if xlim is None:
         xmin = param.min() #np.floor(param.min()) #4/scanRate
@@ -1283,12 +1466,25 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
         ymin = ylim[0]
         ymax = ylim[1]
 
+    if color_param is not None:
+        if color_param=='tau':
+            cmap = make_hot_without_black()
+            colors = cmap( np.log10(f['tau'][ np.logical_or(sig,sig2) ]) )
+        else:
+            print('undefined param palette')
+
     if param2_input is None:
-        ax_scatter.scatter(param_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=alphas[1], linewidths=0.75, edgecolors='k', s=s)
-        ax_scatter.scatter(param_sig,rsq_sig,c=sig_clr,marker='.',alpha=alphas[0],linewidths=0.75,edgecolors=sig_clr, s=s) #'#1f77b4'
+        ax_scatter.scatter(param_notsig,rsq_notsig,c=notsig_clr,marker='.',alpha=alphas[1], linewidths=0.75, edgecolors=notsig_clr, s=s)
+        if color_param is None:
+            ax_scatter.scatter(param_sig,rsq_sig,c=sig_clr,marker='.',alpha=alphas[0],linewidths=0.75,edgecolors=sig_clr, s=s) #'#1f77b4'
+        else:
+            ax_scatter.scatter(param_sig,rsq_sig,c=colors,marker='.',alpha=alphas[0],linewidths=0.75, s=s) #'#1f77b4'
     else:
-        ax_scatter.scatter(param_notsig,param2_notsig,c='tab:gray',marker='.',alpha=alphas[1], linewidths=0.75, edgecolors='k', s=s)
-        ax_scatter.scatter(param_sig,param2_sig,c=sig_clr,marker='.',alpha=alphas[0],linewidths=0.75,edgecolors=sig_clr, s=s) #'#1f77b4'
+        ax_scatter.scatter(param_notsig,param2_notsig,c=notsig_clr,marker='.',alpha=alphas[1], linewidths=0.75, edgecolors=notsig_clr, s=s)
+        if color_param is None:
+            ax_scatter.scatter(param_sig,param2_sig,c=sig_clr,marker='.',alpha=alphas[0],linewidths=0.75,edgecolors=sig_clr, s=s) #'#1f77b4'
+        else:
+            ax_scatter.scatter(param_sig,param2_sig,c=colors,marker='.',alpha=alphas[0],linewidths=0.75, s=s) #'#1f77b4'
     # ax_scatter.scatter(tau_sig[tau_is_neg_sig],rsq_sig[tau_is_neg_sig],c='tab:red',marker='.',alpha=0.3)
     # ax_scatter.set_xscale('log')
     ax_scatter.set_xlim((xmin,xmax))
@@ -1319,27 +1515,54 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
         xbins = np.logspace(np.log10(xmin), np.log10(xmax),num=len(ybins), base=10) #np.exp(1))
     else:
         xbins = np.arange(xmin, xmax+xbinwidth, xbinwidth) #np.logspace(np.log(xmin), np.log(xmax),num=len(ybins),base=np.exp(1))
-    ax_histx.hist(param_notsig, bins=xbins,color='tab:gray') #'#929591')
-    ax_histx.hist(param_sig, bins=xbins,color=sig_clr,alpha=.7) #'#929591')
-    ax_histx.set_xlim((xmin,xmax))
-    if param2_input is None:
-        ax_histy.hist(rsq_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
-        ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7) #''#929591')
+    if alphas[1]>0:
+        # if notsig_clr=='tab:gray':
+        #     vx1,_,_=ax_histx.hist(param_notsig, bins=xbins,color=notsig_clr) #'#929591')
+        # else:
+        vx1,_,_=ax_histx.hist(param_notsig, bins=xbins,color=notsig_clr,edgecolor='k',linewidth=0.25) #'#929591')
     else:
-        ax_histy.hist(param2_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
-        ax_histy.hist(param2_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7) #''#929591')
+        vx1=np.array([0,0])
+    vx2,_,_=ax_histx.hist(param_sig, bins=xbins,color=sig_clr,alpha=.7,edgecolor='k',linewidth=0.25) #'#929591')
+    if omit_last_bin: 
+        ax_histx.set_xlim(1,xbins[-2])
+        ax_scatter.set_xlim(1,xbins[-2])
+        m1=vx1[:-1].max()
+        m2=vx2[:-1].max()
+    else: 
+        ax_histx.set_xlim((xmin,xmax))
+        ax_scatter.set_xlim((xmin,xmax))
+        m1=vx1.max()
+        m2=vx2.max()
+    ax_histx.set_ylim(0, np.max((m1,m2)) )
+    if param2_input is None:
+        if alphas[1]>0:
+            vy1,_,_=ax_histy.hist(rsq_notsig, bins=ybins, orientation='horizontal',color=notsig_clr,edgecolor='k',linewidth=0.25) #''#929591')
+        else:
+            vy1=np.array([0,0])
+        vy2,_,_=ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7,edgecolor='k',linewidth=0.25) #''#929591')
+    else:
+        if alphas[1]>0:
+            # if notsig_clr=='tab:gray':
+            #     vy1,_,_=ax_histy.hist(param2_notsig, bins=ybins, orientation='horizontal',color=notsig_clr) #''#929591')
+            # else:
+            vy1,_,_=ax_histy.hist(param2_notsig, bins=ybins, orientation='horizontal',color=notsig_clr,edgecolor='k',linewidth=0.25) #''#929591')
+        else:
+            vy1=np.array([0,0])
+        vy2,_,_=ax_histy.hist(param2_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7,edgecolor='k',linewidth=0.25) #''#929591')
     ax_histy.set_ylim((ymin,ymax))
+    ax_histy.set_xlim(0, np.max((vy1.max(),vy2.max())) )
 
 
 
 
-def show_tau_scatter(model_fit, pval=.01, idx=None, sig_clr='#01386a', s=100, alphas=[.15,.4]):
+def show_tau_scatter(model_fit, pval=.01, idx=None, sig_clr='#01386a', s=100, 
+                    alphas=[.15,.4], rsq_field='tot', omit_last_bin=True):
     f = get_model_fit_as_dict(model_fit)
     rsq_dict = get_model_fit_as_dict(f['r_sq'])
     if idx is None:
-        rsq = rsq_dict['tau'] #['tot']
+        rsq = rsq_dict[rsq_field] #['tau']
     else:
-        rsq = rsq_dict['tau'][:,idx]
+        rsq = rsq_dict[rsq_field][:,idx]
     tau = abs(f['tau'])
     tau_is_pos = (f['tau']>=0)
     # rsq_null = f['rsq_null']
@@ -1363,6 +1586,7 @@ def show_tau_scatter(model_fit, pval=.01, idx=None, sig_clr='#01386a', s=100, al
     # print('sum of neg post is '+str( sum( np.logical_not(tau_is_pos)[success*sig] ) ))
 
     print('median tau of significant cells = '+str(np.nanmedian(tau_sig)))
+    print('frac of significant cells w/ tau below 4s = '+str( np.sum(tau_sig<4)/len(tau_sig) ))
     print('frac of significant cells w/ tau above 20s = '+str( np.sum(tau_sig>20)/len(tau_sig) ))
     print('fraction of cells with p<'+str(pval)+' = '+str( (success*sig).sum()/len(sig) ))
 
@@ -1394,23 +1618,36 @@ def show_tau_scatter(model_fit, pval=.01, idx=None, sig_clr='#01386a', s=100, al
     ax_scatter.scatter(tau_sig[tau_is_pos_sig],rsq_sig[tau_is_pos_sig],c=sig_clr,marker='.',alpha=alphas[1],linewidths=0.75,edgecolors=sig_clr, s=s) #'#1f77b4'
     # ax_scatter.scatter(tau_sig[tau_is_neg_sig],rsq_sig[tau_is_neg_sig],c='tab:red',marker='.',alpha=0.3)
     ax_scatter.set_xscale('log')
-    ax_scatter.set_xlim((xmin,xmax))
+    # ax_scatter.set_xlim((xmin,xmax))
     ax_scatter.set_xticks((1,3,10,30))
     ax_scatter.set_xticklabels(('1','3','10','30'))
     ax_scatter.set_ylim((ymin,ymax))
-    ax_scatter.set_xlabel('Optimal time constant (s)')
+    ax_scatter.set_xlabel('Behavioral time constant (s)')
     ax_scatter.set_ylabel(r'$r^2$')
 
     # xbinwidth = 100
     ybinwidth = 0.05 #0.025
     ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
     xbins = np.logspace(np.log10(xmin), np.log10(xmax),num=len(ybins), base=10) #np.exp(1))
-    ax_histx.hist(tau_notsig, bins=xbins,log=True,color='tab:gray') #'#929591')
-    ax_histx.hist(tau_sig, bins=xbins,log=True,color=sig_clr,alpha=.7) #'#929591')
-    ax_histx.set_xlim((xmin,xmax))
-    ax_histy.hist(rsq_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
-    ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7) #''#929591')
+    vx1,_,_=ax_histx.hist(tau_notsig, bins=xbins,color='tab:gray') #'#929591')
+    vx2,_,_=ax_histx.hist(tau_sig, bins=xbins,color=sig_clr,alpha=.7) #'#929591')
+    if omit_last_bin: 
+        ax_histx.set_xlim(1,xbins[-2])
+        ax_scatter.set_xlim(1,xbins[-2])
+        m1=vx1[:-1].max()
+        m2=vx2[:-1].max()
+    else: 
+        ax_histx.set_xlim((xmin,xmax))
+        ax_scatter.set_xlim((xmin,xmax))
+        m1=vx1.max()
+        m2=vx2.max()
+    # l=ax_histx.get_ylim()
+    ax_histx.set_ylim(0, np.max((m1,m2)) )
+    vy1,_,_=ax_histy.hist(rsq_notsig, bins=ybins, orientation='horizontal',color='tab:gray') #''#929591')
+    vy2,_,_=ax_histy.hist(rsq_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7) #''#929591')
     ax_histy.set_ylim((ymin,ymax))
+    # l=ax_histy.get_xlim()
+    ax_histy.set_xlim(0, np.max((vy1.max(),vy2.max())) )
 
 
 def show_tau_scatter_legacy(tauList, corrMat, data_dict):
@@ -1705,7 +1942,7 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
     dims = data_dict['dims']
     if(not cmap): cmap = make_hot_without_black()
     gry = cm.get_cmap('Greys', 15)
-    gry = ListedColormap(gry(np.linspace(.8, 1, 2)))
+    gry = ListedColormap(gry(np.linspace(.8, 1, 2))) #515151
  
     if type(plot_param) is list:
         plot_field = plot_param[0]
@@ -1727,7 +1964,7 @@ def show_colorCoded_cellMap_points(data_dict, model_fit, plot_param, cmap='', pv
                 if use_cc:
                     color_data[i] = model_fit[i]['cc'][plot_field][0]
                 else:
-                    color_data[i] = model_fit[i][plot_field]
+                    color_data[i] = model_fit[i][plot_field][0]
                 sig.append( model_fit[i]['stat'][plot_field][0][1]<pval ) # 1-sided test that behavior model > null model
             else:
                 if use_cc:
@@ -2174,7 +2411,7 @@ def show_colorCoded_cellMap(R, mask_vol, color_lims, data_dict, cmap=''):
     # axes[1, 1].set_title('Front')
 
 
-def show_scaled_image(im, dims_in_um, c_range=None, title='', cmap=None):
+def show_scaled_image(im, dims_in_um, c_range=None, title='', cmap=None, smoothing=None):
     """
     Show projections of volume. Similar to show_colorCoded_cellMap and show_colorCoded_cellMap_points, but for images
     """
@@ -2193,23 +2430,47 @@ def show_scaled_image(im, dims_in_um, c_range=None, title='', cmap=None):
     ax3 = plt.axes([.05+zpx,  .04,      ypx,  zpx])
 
     # max abs val projection
-    idx_image = np.argmax(abs(im), axis=2)
-    im_proj_0 = np.zeros((im.shape[0],im.shape[1]))
-    for i in range(im.shape[0]):
-        for j in range(im.shape[1]):
-            im_proj_0[i,j] = im[i,j,idx_image[i,j]]
-    
-    idx_image = np.argmax(abs(im), axis=1)
-    im_proj_1 = np.zeros((im.shape[0],im.shape[2]))
-    for i in range(im.shape[0]):
-        for j in range(im.shape[2]):
-            im_proj_1[i,j] = im[i,idx_image[i,j],j]
+    if type(im) is list:
+        im_proj_0 = im[0]
+        im_proj_1 = im[2]
+        im_proj_2 = im[1]
+        dims = [im[0].shape[0],im[0].shape[1],im[1].shape[0]]
+    else:
+        dims = im.shape
+        if smoothing is not None:
+            from skimage.restoration import denoise_tv_chambolle
+            if type(smoothing) is float:
+                weight = smoothing
+            else:
+                weight = 0.5
+            im = denoise_tv_chambolle(im, weight=.15)
+            
+        idx_image = np.argmax(abs(im), axis=2)
+        im_proj_0 = np.zeros((im.shape[0],im.shape[1]))
+        for i in range(im.shape[0]):
+            for j in range(im.shape[1]):
+                im_proj_0[i,j] = im[i,j,idx_image[i,j]]
+        
+        idx_image = np.argmax(abs(im), axis=1)
+        im_proj_1 = np.zeros((im.shape[0],im.shape[2]))
+        for i in range(im.shape[0]):
+            for j in range(im.shape[2]):
+                im_proj_1[i,j] = im[i,idx_image[i,j],j]
 
-    idx_image = np.argmax(abs(im), axis=0)
-    im_proj_2 = np.zeros((im.shape[1],im.shape[2]))
-    for i in range(im.shape[1]):
-        for j in range(im.shape[2]):
-            im_proj_2[i,j] = im[idx_image[i,j],i,j]
+        idx_image = np.argmax(abs(im), axis=0)
+        im_proj_2 = np.zeros((im.shape[1],im.shape[2]))
+        for i in range(im.shape[1]):
+            for j in range(im.shape[2]):
+                im_proj_2[i,j] = im[idx_image[i,j],i,j]
+    if smoothing is not None:
+        from skimage.restoration import denoise_tv_chambolle
+        if type(smoothing) is float:
+            weight = smoothing
+        else:
+            weight = 0.5
+        im_proj_2 = denoise_tv_chambolle(im_proj_2, weight=weight)
+        im_proj_0 = denoise_tv_chambolle(im_proj_0, weight=weight)
+        im_proj_1 = denoise_tv_chambolle(im_proj_1, weight=weight)
 
     ax1.imshow(im_proj_2, aspect='auto', cmap=cmap)
     ax2.imshow(im_proj_0.T, aspect='auto', cmap=cmap)
@@ -2224,10 +2485,10 @@ def show_scaled_image(im, dims_in_um, c_range=None, title='', cmap=None):
     ax2.axis('off')
     ax3.axis('off')
 
-    ypx_per_um = im.shape[0]/dims_in_um[1]
+    ypx_per_um = dims[0]/dims_in_um[1]
     scaleBar_um = 50 #50 um
     bar_color = 'w'
-    ax2.plot( im.shape[0]*.97-np.array([scaleBar_um*ypx_per_um,0]), (im.shape[1]*.93, im.shape[1]*.93), bar_color)
+    ax2.plot( dims[0]*.97-np.array([scaleBar_um*ypx_per_um,0]), (dims[1]*.93, dims[1]*.93), bar_color)
     ax2.set_title(title)
     # plt.show()
 
@@ -2269,6 +2530,12 @@ def show_raster_with_behav(data_dict,color_range=(0,0.4),include_feeding=False,s
         neural_data = data_dict['dFF_resid_base'].copy()
     elif activity=='std':
         neural_data = data_dict['dFF'].copy()*np.sqrt(data_dict['dFF'].shape[1])
+    elif activity=='dRR_nobase':
+        neural_data = data_dict['dRR'].copy()
+        for i in range(neural_data.shape[0]):
+            neural_data[i,:] -= neural_data[i,:].min() #np.quantile(neural_data[i,:],.01)
+    elif activity in data_dict:
+        neural_data = data_dict[activity]
     
     if(color_range=='auto'):
         dFF = trim_dynamic_range(neural_data, 0.01, 0.95)
@@ -2584,6 +2851,7 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex=1, show_fit=Fals
         sucrose_touch = np.zeros(data_dict['sucrose_touch'].shape)
         sucrose_touch[s1:s1+10] = 1
     if slice_time:
+        traces = traces[:,slice_time]
         tPl = tPl[slice_time]
         behavior = behavior[slice_time]
         feed = feed[slice_time]
@@ -2641,11 +2909,50 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex=1, show_fit=Fals
     return axes
 
 
-def get_model_as_dist(centroids, vals, sig=15, grid_points=None):
+def get_sample_indices_from_grid(centroids, vals, grid_points=None, max_per_grid=4):
     """
     centroids: location of every cell
     vals: value of that cell (e.g. a model parameter)
-    sig: standard deviation of gaussian blur for each point (in microns)
+    """
+    # define grid
+    mx = centroids['dims_in_um'][[1,0,2]]
+    if grid_points is None:
+        grid_points = np.round(mx/8).astype(int)
+        
+    pos_new = []
+    pos_new.append( np.linspace(0,mx[0],grid_points[0]) )
+    pos_new.append( np.linspace(0,mx[1],grid_points[1]) )
+    pos_new.append( np.linspace(0,mx[2],grid_points[2]) )
+    N = centroids['aligned_centroids'].shape[0]
+    
+    # idx_image = np.zeros((grid_points[0],grid_points[1],grid_points[2]))
+    idx_image = [ [ [[]]*grid_points[2] for i in range(grid_points[1])] for j in range(grid_points[0])] # note dim order needs to be backwards from numpy equivalent
+    # for all cells, append to closest grid vertex
+    for n in range(N):            
+        m = [None]*3
+        for i in range(len(pos_new)):
+            m[i] = int(np.argmin( abs( centroids['aligned_centroids'][n,i]-pos_new[i] ) ))
+        idx_image[m[0]][m[1]][m[2]].append( n )
+
+    # for all grid vertices, downsample list as needed
+    sample_indices = []
+    for x in range(grid_points[0]):
+        for y in range(grid_points[1]):
+            for z in range(grid_points[2]):
+                l = np.array( idx_image[x][y][z] )
+                if len(l)>max_per_grid:
+                    # if length is greater than max_per_grid, choose those closest to median
+                    is_rep = np.argsort( np.abs( vals[l] - np.median(vals[l]) ) )
+                    l = l[is_rep[:max_per_grid]]
+                sample_indices.extend(l)
+    return sample_indices
+
+
+def get_model_as_dist(centroids, vals, sig=None, grid_points=None, flat=False):
+    """
+    centroids: location of every cell
+    vals: value of that cell (e.g. a model parameter)
+    sig: standard deviation of gaussian blur for each point in microns, DEPRECATED
     """
     from scipy.stats import multivariate_normal
     # define grid
@@ -2660,35 +2967,63 @@ def get_model_as_dist(centroids, vals, sig=15, grid_points=None):
 
     N = centroids['aligned_centroids'].shape[0]
     
-    # for each cell, add to grid_image
-    grid_image = np.zeros((grid_points[0],grid_points[1],grid_points[2]))
-    idx_image = np.zeros((grid_points[0],grid_points[1],grid_points[2]))
-    for n in range(N):
-        if(np.mod(n,200)==0): print(n,end=' ')
-            
-        m = [None]*3
-        for i in range(len(pos_new)):
-            m[i] = int(np.argmin( abs( centroids['aligned_centroids'][n,i]-pos_new[i] ) ))
+    if not flat:
+        # returns volume
+        # for each cell, add to grid_image
+        grid_image = np.zeros((grid_points[0],grid_points[1],grid_points[2]))
+        idx_image = np.zeros((grid_points[0],grid_points[1],grid_points[2]))
+        for n in range(N):
+            # if(np.mod(n,200)==0): print(n,end=' ')
+                
+            m = [None]*3
+            for i in range(len(pos_new)):
+                m[i] = int(np.argmin( abs( centroids['aligned_centroids'][n,i]-pos_new[i] ) ))
 
-        grid_image[m[0],m[1],m[2]] += vals[n]
-        idx_image[m[0],m[1],m[2]] += 1
+            grid_image[m[0],m[1],m[2]] += vals[n]
+            idx_image[m[0],m[1],m[2]] += 1
+        
+        idx_image[idx_image==0]=1
+        grid_image /= idx_image
+    else:
+        # returns list of flattened images
+        # for each cell, add to grid_image
+        grid_image = []
+        p = [[0,1],[1,2],[0,2]]
+        for j in range(3):
+            grid_image_tmp = np.zeros( (grid_points[p[j][0]], grid_points[p[j][1]]) )
+            idx_image = np.zeros( (grid_points[p[j][0]], grid_points[p[j][1]]) )
+            for n in range(N):
+                # if(np.mod(n,200)==0): print(n,end=' ')
+                    
+                m = [None]*3
+                for i in range(len(pos_new)):
+                    m[i] = int(np.argmin( abs( centroids['aligned_centroids'][n,i]-pos_new[i] ) ))
+
+                grid_image_tmp[m[p[j][0]],m[p[j][1]]] += vals[n]
+                idx_image[m[p[j][0]],m[p[j][1]]] += 1
+            
+            idx_image[idx_image==0]=1
+            grid_image_tmp /= idx_image
+            grid_image.append(grid_image_tmp)
     
-    idx_image[idx_image==0]=1
-    grid_image /= idx_image
     return grid_image
 
 
 
-def make_hot_without_black(clrs=100, low_bnd=0.15, show_map=False):
+def make_hot_without_black(clrs=100, low_bnd=0.15, show_map=False, tks=None, tk_labels=None):
     # old low_bnd=0.1
     from matplotlib import cm
     from matplotlib.colors import ListedColormap
     hot = cm.get_cmap('hot', clrs)
-    newcmp = ListedColormap(hot(np.linspace(low_bnd, .9, clrs)))
+    my_cmap = ListedColormap(hot(np.linspace(low_bnd, .9, clrs)))
     if show_map:
-        display_cmap(newcmp)
-        # plt.show()
-    return newcmp
+        if tks is None:
+            display_cmap(my_cmap=my_cmap)
+        elif tk_labels is None:
+            display_cmap(my_cmap=my_cmap, tks=tks)
+        else:
+            display_cmap(my_cmap=my_cmap, tks=tks, tk_labels=tk_labels, mn=0, mx=np.log10(60) )
+    return my_cmap
 
 def cold_to_hot_cmap(show_map=False, tks=None, tk_labels=None):
     from matplotlib.colors import LinearSegmentedColormap
@@ -2706,23 +3041,28 @@ def cold_to_hot_cmap(show_map=False, tks=None, tk_labels=None):
 
 
 def cmap_from_dendrogram(R, color_idx=None):
-    # convert colors from a dencrogram into usable colormap
+    # convert colors from a dendrogram into usable colormap
     # import matplotlib.cm as cm
     from matplotlib.colors import LinearSegmentedColormap
     basic_cols=np.unique(R['leaves_color_list'])
     if color_idx is None:
         map_cols = basic_cols
-    else:
+    elif type(color_idx) is int:
         # gry = cm.get_cmap('Greys', 15)
         map_cols = ['#363737', basic_cols[color_idx]]
+    else:
+        # assumes list of indices
+        map_cols = ['#363737']
+        for i in color_idx:
+            map_cols.append( basic_cols[i] )
     my_cmap=LinearSegmentedColormap.from_list('mycmap', map_cols)
     return my_cmap
 
 
-def display_cmap(my_cmap, mx=100, tks=[0,50,100], tk_labels=None):
+def display_cmap(my_cmap, mn=0, mx=100, tks=[0,50,100], tk_labels=None):
     plt.figure(figsize=(5,0.25))
     sprange = 100
-    plt.imshow(np.linspace(0, mx, sprange)[None, :], interpolation='nearest', cmap=my_cmap, aspect='auto')
+    plt.imshow(np.linspace(mn, mx, sprange)[None, :], interpolation='nearest', cmap=my_cmap, aspect='auto')
     if tk_labels is None:
         plt.xticks(ticks=(np.array(tks)/mx)*sprange)
     else:

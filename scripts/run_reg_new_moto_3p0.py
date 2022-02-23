@@ -63,14 +63,22 @@ exp_list = ['2019_07_01_fly2',
             '2019_10_14_fly2',
             '2019_10_14_fly4',
             '2019_10_02_fly2',
-            '2019_08_14_fly3_2'] 
+            '2019_08_14_fly3_2',
+            '2019_08_14_fly2',
+            '2019_08_07_fly2',
+            '2019_10_18_fly3',
+            '2019_06_26_fly2',
+            '2019_08_19_fly1_1'] 
 
 i = int(sys.argv[1]) # DATASET TO LOAD
 part_i = int(sys.argv[2])
-n_perms = int(sys.argv[3]) # DATASET TO LOAD
+n_perms = int(sys.argv[3])
 # for expt_id in exp_list:
 expt_id = exp_list[i] #[0] + '_' + exp_list[i][1]
 print(expt_id)
+
+# n_perms = 5
+# print('Manually setting n_perms to 5')
 
 dirs = futils.get_dirs()
 fig_dirs = futils.get_fig_dirs(expt_id)
@@ -162,10 +170,10 @@ if (part_i==-1) or (part_i==999):
     ro.model_fit_shifted = [None]*n_perms
     for n in range(n_perms):
         print('Perm '+str(n))
-        
         #ro.model_fit_shifted[n] = ro.fit_and_eval_reg_model(shifted=n, exclude_regressors=['gamma_0'])
         ro.model_fit_shifted[n] = ro.get_model_mle(shifted=n, initial_conds=initial_conds.copy(), tau_inits=tau_inits)
-        ro.evaluate_model(model_fit=ro.model_fit_shifted[n], parallel=True, refit_model=True)
+        ro.evaluate_model(model_fit=ro.model_fit_shifted[n], parallel=False, 
+                        refit_model=False, shifted=n, fields_to_save=['r_sq', 'stat', 'cc'])
         pickle.dump( ro.model_fit_shifted, open( fig_dirs['pkl_dir'] + expt_id +'_'+ro.activity+'_ols_reg_model_shifted_'+part+'_3p2_all.pkl', "wb" ) )
     
 
