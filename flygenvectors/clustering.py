@@ -648,11 +648,11 @@ class family_tree:
         for i in range(1,mx_clust_size_null):
             if parallel:
                 self.mean_dist_null_samples[i] = Parallel(n_jobs=self.num_cores)(delayed(
-                    self.evaluate_dists_null)(clust_size=n) for n in range(max_null_samples))
+                    self.evaluate_dists_null)(clust_size=i) for n in range(max_null_samples))
             else:
                 samples = [None]*max_null_samples
                 for n in range(max_null_samples):
-                    samples[n] = self.evaluate_dists_null(clust_size=n)
+                    samples[n] = self.evaluate_dists_null(clust_size=i)
                 self.mean_dist_null_samples[i] = samples
 
 
