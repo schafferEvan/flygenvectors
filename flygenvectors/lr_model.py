@@ -304,3 +304,7 @@ class lr_obj:
         ll = -N/2* ( D*np.log(2*np.pi) + np.trace(C_inv@S) )
         return ll
 
+
+
+
+

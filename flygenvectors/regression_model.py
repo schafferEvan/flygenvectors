@@ -891,6 +891,24 @@ class reg_obj:
         elif self.exp_id=='2019_02_26_fly1_2':
             tv_params[0]=0.2
             tv_params[2]=0.01
+        elif self.exp_id=='2022_01_08_fly1':
+            [] #ok
+        elif self.exp_id=='2022_01_08_fly2':
+            [] #ok
+        elif self.exp_id=='2022_01_05_fly2':
+            [] #ok
+        elif self.exp_id=='2022_01_19_fly1':
+            [] #ok
+        elif self.exp_id=='2022_01_21_fly2':
+            [] #ok
+        elif self.exp_id=='2022_01_25_fly2':
+            [] #ok
+        elif self.exp_id=='2022_01_14_fly1':
+            [] #ok
+        elif self.exp_id=='2020_08_28_fly1':
+            [] #ok
+        elif self.exp_id=='2019_11_12_fly5':
+            [] #ok
         else:
             print('**** warning: no exp_id match ****')
         
@@ -965,7 +983,7 @@ class reg_obj:
             yl = plt.ylim()
             plt.plot([inv_cv_thresh,inv_cv_thresh], yl, 'r--')
             plt.xlim(-0.01,0.01+2*inv_cv_thresh)
-            plt.xlabel(r'CV$^{-1}$ (red)')
+            plt.xlabel(r'red CV')
             plt.ylabel('count')
             plt.tight_layout()
         return dRR0, R0
@@ -1027,7 +1045,7 @@ class reg_obj:
         self.data_dict_downsample['circshift_beh_labels'] = copy.deepcopy( self.data_dict['circshift_beh_labels'] )
 
 
-    def preprocess(self, do_ICA=False, get_behav_from_ball=False):
+    def preprocess(self, do_ICA=False, get_behav_from_ball=False, ignore_isgood=False):
         if get_behav_from_ball:
             self.get_smooth_behavior()
         self.data_dict_orig['behavior'] = copy.deepcopy(self.data_dict['behavior'])
@@ -1037,12 +1055,13 @@ class reg_obj:
         self.motion = motion_obj.motion
         if self.options['make_motion_hist']:
             plt.savefig(self.fig_dirs['fig_folder'] + self.exp_id +'_motion_artifacts.pdf',transparent=False, bbox_inches='tight')
-        isgood = self.motion['isgood']
-        self.data_dict['dFF'] = self.data_dict['dFF'][isgood,:]
-        self.data_dict['dYY'] = self.data_dict['dYY'][isgood,:]
-        self.data_dict['dRR'] = self.data_dict['dRR'][isgood,:]
-        self.data_dict['aligned_centroids'] = self.data_dict['aligned_centroids'][isgood,:]
-        self.data_dict['A'] = self.data_dict['A'][:,isgood]
+        if not ignore_isgood:
+            isgood = self.motion['isgood']
+            self.data_dict['dFF'] = self.data_dict['dFF'][isgood,:]
+            self.data_dict['dYY'] = self.data_dict['dYY'][isgood,:]
+            self.data_dict['dRR'] = self.data_dict['dRR'][isgood,:]
+            self.data_dict['aligned_centroids'] = self.data_dict['aligned_centroids'][isgood,:]
+            self.data_dict['A'] = self.data_dict['A'][:,isgood]
         if do_ICA: 
             self.data_dict['dFF'] = dataUtils.get_dFF_ica(self.data_dict)
         # self.data_dict['behavior'] = self.data_dict['behavior'].copy()
@@ -1255,7 +1274,7 @@ def get_summary_dict(expt_id, split_behav, data_dict, model_fit, model_fit_shift
     dict_tmp['dFF_fit'] = dFF_fit_base
     dict_tmp['dFF_resid_base'] = dFF_resid_base
     dict_tmp['dFF_resid'] = resid_tot
-    dict_tmp['behavior'][dict_tmp['behavior']>0] = 1
+    dict_tmp['behavior'][dict_tmp['behavior']>0.01] = 1
     
     summary_dict = {'expt_id':expt_id, 'ro':ro, 'data_dict':dict_tmp, 'f':f, 'rsq':rsq, 'cc':cc}
     return summary_dict
@@ -1314,6 +1333,12 @@ def get_flattened_summary(data_tot=[], model_tot=[], model_tot_shifted=[], use_b
         behav_fracs = get_behav_durations(data_tot[nf]['data_dict'], split_behav=split_behav)
         behav_fracs_flat.extend( [behav_fracs]*len(model_tot[nf]) )
 
+    # make list of fly and cell references
+    fly_cell_ref = {'fly_id':[], 'cell_id':[]}
+    for nf in range(len(model_tot)):
+        fly_cell_ref['cell_id'].extend( [i for i in range(len(model_tot[nf]))] )
+        fly_cell_ref['fly_id'].extend( [nf]*len(model_tot[nf]) )
+
     # make flattened *shifted* parameter dictionary
     model_fit_shifted_flat = copy.deepcopy(model_tot_shifted[0])
     for nf in range(1,len(model_tot_shifted)):
@@ -1325,7 +1350,8 @@ def get_flattened_summary(data_tot=[], model_tot=[], model_tot_shifted=[], use_b
     ro.behav_fracs_flat = behav_fracs_flat
     ro.data_dict = {'aligned_centroids':centroids_dict_flat_full['aligned_centroids'],
                     'dims_in_um':centroids_dict_flat_full['dims_in_um'],
-                    'dims':centroids_dict_flat_full['dims']}
+                    'dims':centroids_dict_flat_full['dims'],
+                    'fly_cell_ref':fly_cell_ref}
     return ro
 
 
