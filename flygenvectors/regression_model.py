@@ -909,6 +909,26 @@ class reg_obj:
             [] #ok
         elif self.exp_id=='2019_11_12_fly5':
             [] #ok
+        elif self.exp_id=='2019_11_12_fly6':
+            [] #ok
+        elif self.exp_id=='2019_05_20_fly2':
+            [] #ok
+        elif self.exp_id=='2019_05_20_fly3':
+            [] #ok
+        elif self.exp_id=='2019_05_14_fly3':
+            [] #ok
+        elif self.exp_id=='2019_05_14_fly4':
+            [] #ok
+        elif self.exp_id=='2019_05_13_fly1':
+            [] #ok
+        elif self.exp_id=='2020_08_10_fly1':
+            [] #ok
+        elif self.exp_id=='2020_08_10_fly2':
+            [] #ok
+        elif self.exp_id=='2020_08_24_fly1':
+            [] #ok
+        elif self.exp_id=='2020_07_29_fly2':
+            [] #ok
         else:
             print('**** warning: no exp_id match ****')
         
@@ -1055,6 +1075,9 @@ class reg_obj:
         self.motion = motion_obj.motion
         if self.options['make_motion_hist']:
             plt.savefig(self.fig_dirs['fig_folder'] + self.exp_id +'_motion_artifacts.pdf',transparent=False, bbox_inches='tight')
+        if 'centroid_is_red' in self.data_dict:
+            self.data_dict['aligned_centroids_green'] = self.data_dict['aligned_centroids'][np.logical_not(self.data_dict['centroid_is_red'][:,0]),:].copy()
+            self.data_dict['aligned_centroids'] = self.data_dict['aligned_centroids'][np.flatnonzero(self.data_dict['centroid_is_red']),:]
         if not ignore_isgood:
             isgood = self.motion['isgood']
             self.data_dict['dFF'] = self.data_dict['dFF'][isgood,:]
