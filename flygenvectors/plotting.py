@@ -808,7 +808,7 @@ def make_labeled_movie_slow(
         os.makedirs(os.path.dirname(filename))
     ani.save(filename, writer=writer)
     print('done')
-
+    
 
 def make_labeled_movie(
         filename, states, frames, frame_indxs, state_mapping, height=3, framerate=20):
@@ -2790,7 +2790,8 @@ def show_maps_for_avg_traces(dict_tot, example_array_tot):
 
 
 def show_activity_traces(model_fit, data_dict, plot_param, n_ex=1, show_fit=False, 
-                        include_feeding=False, slice_time=None, sup_ttl=None, include_beh_labels=False, valid_only=False):
+                        include_feeding=False, slice_time=None, sup_ttl=None, include_beh_labels=False, 
+                        valid_thresh=0.75, valid_only=False):
     """
     plot_param: param for sorting, in format [['partial_reg', idx]] or  'full_reg'
     n_ex: number of examples.  n_ex>0 gives largest, n_ex<0 gives smallest, n_ex=0 GIVES AVG of everything
@@ -2826,11 +2827,16 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex=1, show_fit=Fals
     else:
         num_ex = n_ex
         start_ex = 0
-    if num_ex>0:
+    if num_ex>1:
         traces = dFF[s[start_ex:start_ex+num_ex],:]
         if show_fit:
             fits = data_dict['dFF_fit'][s[start_ex:start_ex+num_ex],:]
         print(s[:num_ex])
+    elif num_ex==1:
+        traces = dFF[s[start_ex],:]
+        traces = np.expand_dims( traces, axis=0)
+        if show_fit:
+            fits = data_dict['dFF_fit'][s[start_ex],:]
     elif num_ex<0:
         if not start_ex:
             traces = dFF[s[start_ex+num_ex:],:]
@@ -2858,6 +2864,8 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex=1, show_fit=Fals
         stim = stim[slice_time]
         trial_flag = trial_flag[slice_time]
         if 'sucrose_touch' in data_dict: sucrose_touch = sucrose_touch[slice_time]
+        if show_fit:
+            fits = fits[slice_time]
 
     fig = plt.figure(figsize=(14,5))
     gs = GridSpec(2,1, height_ratios=[3.,1.],hspace=.05)
@@ -2878,7 +2886,7 @@ def show_activity_traces(model_fit, data_dict, plot_param, n_ex=1, show_fit=Fals
     
     axes.append( fig.add_subplot(gs[1]) )
     if include_beh_labels:
-        plot_states_simple(data_dict, slc=slice_time, axes=axes[-1], restrict_xticks=True, valid_only=valid_only)
+        plot_states_simple(data_dict, slc=slice_time, axes=axes[-1], restrict_xticks=True, valid_thresh=valid_thresh, valid_only=valid_only)
     else:
         if not include_feeding:
             axes[1].plot(tPl, behavior, 'k')
@@ -2944,6 +2952,8 @@ def get_sample_indices_from_grid(centroids, vals, grid_points=None, max_per_grid
                     # if length is greater than max_per_grid, choose those closest to median
                     is_rep = np.argsort( np.abs( vals[l] - np.median(vals[l]) ) )
                     l = l[is_rep[:max_per_grid]]
+                else:
+                    l = []
                 sample_indices.extend(l)
     return sample_indices
 
