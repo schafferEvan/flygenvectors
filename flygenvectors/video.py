@@ -7,7 +7,7 @@ from flygenvectors.data import load_video as video_loader
 from flygenvectors.dlc import preprocess_and_split_data
 from flygenvectors.dlc import shuffle_data
 import flygenvectors.plotting as plotting
-from flygenvectors.segmentation import heuristic_segmentation_v4
+from flygenvectors.segmentation import heuristic_segmentation_v4, heuristic_segmentation_v5
 
 
 FPS = 70
@@ -307,7 +307,96 @@ database = {
         'scale': 0.580,
         'notes': ''
     },
-
+    '2022_01_05_fly1': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 51496,
+        'max_frames': None,
+        'x_off': 200,
+        'y_off': 10,
+        'scale': 0.602,
+        'notes': ''
+    },
+    '2022_01_05_fly2': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 135381,
+        'max_frames': None,
+        'x_off': 220,
+        'y_off': 10,
+        'scale': 0.549,
+        'notes': ''
+    },
+    '2022_01_08_fly1': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 134545,
+        'max_frames': None,
+        'x_off': 220,
+        'y_off': 10,
+        'scale': 0.545,
+        'notes': ''
+    },
+    '2022_01_08_fly2': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 90198,
+        'max_frames': None,
+        'x_off': 210,
+        'y_off': 10,
+        'scale': 0.576,
+        'notes': ''
+    },
+    '2022_01_14_fly1': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 134620,
+        'max_frames': None,
+        'x_off': 110,
+        'y_off': 120,
+        'scale': 0.451,
+        'notes': ''
+    },
+    '2022_01_14_fly2': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 133330,
+        'max_frames': None,
+        'x_off': 80,
+        'y_off': 130,
+        'scale': 0.565,
+        'notes': ''
+    },
+    '2022_01_19_fly1': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 134971,
+        'max_frames': None,
+        'x_off': 80,
+        'y_off': 130,
+        'scale': 0.486,
+        'notes': ''
+    },
+    '2022_01_21_fly2': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 129220,
+        'max_frames': None,
+        'x_off': 80,
+        'y_off': 120,
+        'scale': 0.451,
+        'notes': ''
+    },
+    '2022_01_25_fly2': {
+        'include_behavior': True,
+        'include_neural': True,
+        'n_frames': 129861,
+        'max_frames': None,
+        'x_off': 70,
+        'y_off': 120,
+        'scale': 0.620,
+        'notes': ''
+    },
 }
 
 
@@ -431,7 +520,7 @@ def make_sample_videos_for_labeling(in_file, out_file, sample_start=0, sample_le
 
 
 def label_videos(
-        in_file, out_file, proj_cfg_file, dgp_model_file, dgp_label_script, shuffle,
+        in_file, out_file, proj_cfg_file, dgp_model_file, dgp_label_script, shuffle, gpu_id=0,
         sample_video=True):
 
     call_str = \
@@ -441,7 +530,8 @@ def label_videos(
         str('--dgp_model_file %s ' % dgp_model_file) + \
         str('--video_file %s ' % in_file) + \
         str('--output_dir %s ' % os.path.dirname(out_file)) + \
-        str('--shuffle %i ' % shuffle)
+        str('--shuffle %i ' % shuffle) + \
+        str('--gpu_id %i ' % gpu_id)
 
     if sample_video:
         call_str += '--sample'
@@ -455,8 +545,8 @@ def label_videos(
 
 def compute_heuristic_labels(
         expt_id, out_file, ball_me_dir, labels_dir, states_dir, state_ids=[],
-        walk_thresh=0.5, still_thresh=0.05, groom_thresh=0.02, ab_thresh=0.9,
-        create_syllable_movies=False, create_labeled_movies=False):
+        walk_thresh=0.5, still_thresh=0.05, groom_thresh=0.02, ab_thresh=0.9, fidget_thresh=0.5,
+        create_syllable_movies=False, create_labeled_movies=False, version=None):
 
     if os.path.exists(out_file):
         print('%s\n%s already exists; skipping\n' % (expt_id, out_file))
@@ -494,9 +584,17 @@ def compute_heuristic_labels(
         ball_me = ball_me[:n_t]
 
         # perform segmentation
-        states, state_mapping = heuristic_segmentation_v4(
-            labels, ball_me, walk_thresh=walk_thresh, still_thresh=still_thresh,
-            groom_thresh=groom_thresh, ab_thresh=ab_thresh, run_smoother=False)
+        if version is None or version == 5:
+            states, state_mapping = heuristic_segmentation_v5(
+                labels, ball_me, walk_thresh=walk_thresh, still_thresh=still_thresh,
+                groom_thresh=groom_thresh, ab_thresh=ab_thresh, fidget_thresh=fidget_thresh,
+                run_smoother=False)
+        elif version == 4:
+            states, state_mapping = heuristic_segmentation_v4(
+                labels, ball_me, walk_thresh=walk_thresh, still_thresh=still_thresh,
+                groom_thresh=groom_thresh, ab_thresh=ab_thresh, run_smoother=False)
+        else:
+            raise NotImplementedError
 
         # save data
         data = {'states': states, 'state_labels': state_mapping}
@@ -510,8 +608,10 @@ def compute_heuristic_labels(
     # create syllable movie
     if create_syllable_movies:
         if len(state_ids) == 0:
+            # put all in one video
             state_ids = [None]
         for state_id in state_ids:
+            # split videos by behavior
             if state_id is not None:
                 syll_str = state_mapping[state_id]
             else:
