@@ -91,7 +91,7 @@ ro = model.reg_obj(activity=activity,
                     exp_id=expt_id,
                     use_beh_labels=True,
                     use_only_valid=True)
-ro.is_downsampled = True
+ro.downsample_in_time()
 
 # ro.fit_and_eval_reg_model_extended(n_perms=n_perms)
 # ro.model_fit = ro.fit_and_eval_reg_model(shifted=None, exclude_regressors=['gamma_0'])
