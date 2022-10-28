@@ -60,10 +60,14 @@ run_circ = True
 n_perms = 5
 part='whole'
 
+dirs = {
+            'data': '/home/evan/Documents/_data/flygenvectors/',
+            'results': '/home/evan/Documents/_data/flygenvectors/'
+        }
+
 for expt_id in exp_list:
     print(expt_id)
 
-    dirs = futils.get_dirs()
     fig_dirs = futils.get_fig_dirs(expt_id)
     data_dict = pickle.load( open( fig_dirs['pkl_dir'] + expt_id +'_dict.pkl', "rb" ) )
 
