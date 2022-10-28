@@ -28,7 +28,7 @@ import matplotlib.cm as cm
 from matplotlib.colors import ListedColormap
 
 import data as dataUtils
-import regression_model as model
+import regression_model_markers as model
 import plotting
 import flygenvectors.ssmutils_moto as utils
 import flygenvectors.utils as futils
