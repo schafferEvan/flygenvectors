@@ -26,7 +26,7 @@ To be able to use this environment for jupyter notebooks:
 To install ssm, `cd` to any directory where you would like to keep the ssm code and run the following:
 
 ```
-(flygenvectors) $: git clone git@github.com:slinderman/ssm.git
+(flygenvectors) $: git clone https://github.com/lindermanlab/ssm.git
 (flygenvectors) $: cd ssm
 (flygenvectors) $: pip install cython
 (flygenvectors) $: pip install -e .
