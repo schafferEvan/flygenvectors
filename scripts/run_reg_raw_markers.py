@@ -60,10 +60,7 @@ run_circ = True
 n_perms = 5
 part='whole'
 
-dirs = {
-            'data': '/home/evan/Documents/_data/flygenvectors/',
-            'results': '/home/evan/Documents/_data/flygenvectors/'
-        }
+dirs = futils.get_dirs()
 
 for expt_id in exp_list:
     print(expt_id)

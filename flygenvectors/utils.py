@@ -13,8 +13,8 @@ def get_dirs():
     if username == 'evan':
         if sys.platform=='linux':
             dirs = {
-                'data': '/home/evan/Documents/_data/',
-                'results': '/home/evan/Documents/figs/'
+                'data': '/home/evan/Documents/flygenvectors/_data/',
+                'results': '/home/evan/Documents/flygenvectors/figs/'
             }
         else:
             dirs = {
