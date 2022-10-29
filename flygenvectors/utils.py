@@ -1,4 +1,5 @@
 import os
+import sys
 
 
 def get_user():
@@ -10,10 +11,16 @@ def get_user():
 def get_dirs():
     username = get_user()
     if username == 'evan':
-        dirs = {
+        if sys.platform=='linux':
+            dirs = {
+                'data': '/home/evan/Documents/_data/',
+                'results': '/home/evan/Documents/figs/'
+            }
+        else:
+            dirs = {
             'data': '/Users/evan/Dropbox/_AxelLab/__flygenvectors/dataShare/_main/',
             'results': '/Users/evan/Dropbox/_AxelLab/__flygenvectors/figs/'
-        }
+            }
     elif username == 'mattw':
         dirs = {
             # 'data': '/media/mattw/data/_flygenvectors',  # base data dir
