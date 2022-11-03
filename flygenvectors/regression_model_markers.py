@@ -212,7 +212,7 @@ class reg_obj:
         obj_fun_val = np.inf
         success=False # catch rare case where fit fails for all inits
         for tau in tau_inits:
-            initial_conds[8] = tau
+            initial_conds[22] = tau
             res_tmp = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds, options=options)
             if res_tmp.fun<obj_fun_val:
                 res = copy.deepcopy(res_tmp)
@@ -328,28 +328,12 @@ class reg_obj:
             trial_regressors[i,:] /= abs(trial_regressors[i,:]).max()
 
         # motion energy from ball
-        if params['split_behav']:
-            #and not just_null_model
-            ball = np.zeros((NT,len(data_dict['behavior'])))
-            if shifted is None:
-                for i in range(NT):
-                    is_this_trial = np.squeeze(data_dict['trialFlag']==self.U[i])
-                    ball[i,is_this_trial] = data_dict['behavior'][is_this_trial]-data_dict['behavior'][is_this_trial].mean()
-                    # not_this_trial = np.squeeze(data_dict['trialFlag']!=self.U[i])
-                    # ball[i,not_this_trial] = -data_dict['behavior'][is_this_trial].mean()
-            else:
-                for i in range(NT):
-                    is_this_trial = np.squeeze(data_dict['trialFlag']==self.U[i])
-                    ball[i,is_this_trial] = data_dict['circshift_behav'][shifted][is_this_trial]-data_dict['circshift_behav'][shifted][is_this_trial].mean()
-                    # not_this_trial = np.squeeze(data_dict['trialFlag']!=self.U[i])
-                    # ball[i,not_this_trial] = -data_dict['circshift_behav'][shifted][is_this_trial].mean()
-        # elif just_null_model:
-        #     ball = []
+    
+        if shifted is None:
+            ball = data_dict['behavior']-data_dict['behavior'].mean()
         else:
-            if shifted is None:
-                ball = data_dict['behavior']-data_dict['behavior'].mean()
-            else:
-                ball = data_dict['circshift_behav'][shifted] - data_dict['circshift_behav'][shifted].mean()
+            ball = data_dict['circshift_behav'][shifted] - data_dict['circshift_behav'][shifted].mean()
+        ball = np.zeros(len(ball))
 
         # running state transitions
         # start with binary timeseries of behavioral state starts & stops (ignoring brief states)

@@ -62,6 +62,7 @@ n_perms = 5
 part='whole'
 
 dirs = futils.get_dirs()
+pdb.set_trace()
 
 for expt_id in exp_list:
     print(expt_id)
@@ -85,7 +86,7 @@ for expt_id in exp_list:
     ro = model.reg_obj(activity=activity, 
                         data_dict=data_dict,
                         exp_id=expt_id,
-                        use_beh_labels=False,
+                        use_beh_labels=True,
                         use_only_valid=True)
     #ro.is_downsampled = True
     ro.exclude_regressors = ['beta_0', 'gamma_0']
