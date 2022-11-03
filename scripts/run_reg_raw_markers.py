@@ -32,6 +32,7 @@ import regression_model_markers as model
 import plotting
 import flygenvectors.ssmutils_moto as utils
 import flygenvectors.utils as futils
+from sklearn.decomposition import PCA
 
 
 # from IPython.display import set_matplotlib_formats
@@ -68,13 +69,26 @@ for expt_id in exp_list:
     fig_dirs = futils.get_fig_dirs(expt_id)
     data_dict = pickle.load( open( fig_dirs['pkl_dir'] + expt_id +'_dict.pkl', "rb" ) )
 
+    # orthogonalize and normalize marker traces, then treat them as the behavior labels for simplicity
+    mkrs = np.concatenate((data_dict['beh_markers_x'],data_dict['beh_markers_y']), axis=1)
+    for i in range(mkrs.shape[1]):
+        mkrs[:,i] -= mkrs[:,i].mean()
+        mkrs[:,i] /= mkrs[:,i].std()
+
+    pca = PCA(n_components=16)
+    pca.fit(mkrs.T)
+    ortho_markers = {'ortho_markers':pca.components_.T}
+    pickle.dump( ortho_markers, open( fig_dirs['pkl_dir'] + expt_id +'_ortho_markers.pkl', "wb" ) )
+    data_dict['beh_labels'] = pca.components_.T
+
+
     ro = model.reg_obj(activity=activity, 
                         data_dict=data_dict,
                         exp_id=expt_id,
                         use_beh_labels=False,
                         use_only_valid=True)
     #ro.is_downsampled = True
-    ro.exclude_regressors = ['gamma_0']
+    ro.exclude_regressors = ['beta_0', 'gamma_0']
 
     if run_fit:
         # ro.model_fit = ro.fit_and_eval_reg_model(shifted=None, exclude_regressors=['gamma_0'])
