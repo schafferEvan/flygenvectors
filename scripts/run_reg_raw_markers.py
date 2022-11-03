@@ -62,7 +62,7 @@ n_perms = 5
 part='whole'
 
 dirs = futils.get_dirs()
-pdb.set_trace()
+
 
 for expt_id in exp_list:
     print(expt_id)
