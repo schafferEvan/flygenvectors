@@ -1551,7 +1551,7 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
         vy2,_,_=ax_histy.hist(param2_sig, bins=ybins, orientation='horizontal',color=sig_clr,alpha=.7,edgecolor='k',linewidth=0.25) #''#929591')
     ax_histy.set_ylim((ymin,ymax))
     ax_histy.set_xlim(0, np.max((vy1.max(),vy2.max())) )
-
+    return ax_scatter
 
 
 

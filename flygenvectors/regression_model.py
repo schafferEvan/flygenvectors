@@ -212,7 +212,7 @@ class reg_obj:
         obj_fun_val = np.inf
         success=False # catch rare case where fit fails for all inits
         for tau in tau_inits:
-            initial_conds[8] = tau
+            initial_conds[9] = tau
             res_tmp = minimize(self.get_objective_fn, initial_conds, method='SLSQP', bounds=bounds, options=options)
             if res_tmp.fun<obj_fun_val:
                 res = copy.deepcopy(res_tmp)
@@ -1076,8 +1076,9 @@ class reg_obj:
         if self.options['make_motion_hist']:
             plt.savefig(self.fig_dirs['fig_folder'] + self.exp_id +'_motion_artifacts.pdf',transparent=False, bbox_inches='tight')
         if 'centroid_is_red' in self.data_dict:
-            self.data_dict['aligned_centroids_green'] = self.data_dict['aligned_centroids'][np.logical_not(self.data_dict['centroid_is_red'][:,0]),:].copy()
-            self.data_dict['aligned_centroids'] = self.data_dict['aligned_centroids'][np.flatnonzero(self.data_dict['centroid_is_red']),:]
+            if len(self.data_dict['centroid_is_red']) > 0:
+                self.data_dict['aligned_centroids_green'] = self.data_dict['aligned_centroids'][np.logical_not(self.data_dict['centroid_is_red'][:,0]),:].copy()
+                self.data_dict['aligned_centroids'] = self.data_dict['aligned_centroids'][np.flatnonzero(self.data_dict['centroid_is_red']),:]
         if not ignore_isgood:
             isgood = self.motion['isgood']
             self.data_dict['dFF'] = self.data_dict['dFF'][isgood,:]
