@@ -1556,7 +1556,7 @@ def show_param_scatter(model_fit, data_dict, param_input, pval=.01, ylim=None, x
 
 
 def show_tau_scatter(model_fit, pval=.01, idx=None, sig_clr='#01386a', s=100, 
-                    alphas=[.15,.4], rsq_field='tot', omit_last_bin=True):
+                    alphas=[.15,.4], rsq_field='tot', omit_last_bin=True, show_avg=False):
     f = get_model_fit_as_dict(model_fit)
     rsq_dict = get_model_fit_as_dict(f['r_sq'])
     if idx is None:
@@ -1613,6 +1613,10 @@ def show_tau_scatter(model_fit, pval=.01, idx=None, sig_clr='#01386a', s=100,
     xmax = 60 #1000/scanRate #6000
     ymin = 0
     ymax = 1
+    ybinwidth = 0.05 #0.025
+    ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
+    xbins = np.logspace(np.log10(xmin), np.log10(xmax),num=len(ybins), base=10) #np.exp(1))
+
 
     ax_scatter.scatter(tau_notsig,rsq_notsig,c='tab:gray',marker='.',alpha=alphas[0], linewidths=0.75, edgecolors='k', s=s)
     ax_scatter.scatter(tau_sig[tau_is_pos_sig],rsq_sig[tau_is_pos_sig],c=sig_clr,marker='.',alpha=alphas[1],linewidths=0.75,edgecolors=sig_clr, s=s) #'#1f77b4'
@@ -1625,12 +1629,10 @@ def show_tau_scatter(model_fit, pval=.01, idx=None, sig_clr='#01386a', s=100,
     ax_scatter.set_xlabel('Behavioral time constant (s)')
     ax_scatter.set_ylabel(r'$r^2$')
 
-    # xbinwidth = 100
-    ybinwidth = 0.05 #0.025
-    ybins = np.arange(ymin, ymax+ybinwidth, ybinwidth)
-    xbins = np.logspace(np.log10(xmin), np.log10(xmax),num=len(ybins), base=10) #np.exp(1))
+    
     vx1,_,_=ax_histx.hist(tau_notsig, bins=xbins,color='tab:gray') #'#929591')
     vx2,_,_=ax_histx.hist(tau_sig, bins=xbins,color=sig_clr,alpha=.7) #'#929591')
+    
     if omit_last_bin: 
         ax_histx.set_xlim(1,xbins[-2])
         ax_scatter.set_xlim(1,xbins[-2])
@@ -1648,6 +1650,14 @@ def show_tau_scatter(model_fit, pval=.01, idx=None, sig_clr='#01386a', s=100,
     ax_histy.set_ylim((ymin,ymax))
     # l=ax_histy.get_xlim()
     ax_histy.set_xlim(0, np.max((vy1.max(),vy2.max())) )
+
+    avg_rsq = np.zeros(len(xbins))
+    avg_rsq[0] = np.nanmedian(rsq_sig[ tau_sig<xbins[:2].mean() ])
+    for i in range(1,len(xbins)-1):
+        avg_rsq[i] = np.nanmedian(rsq_sig[ tau_sig<xbins[i:2+i].mean() ])
+    avg_rsq[-1] = np.nanmedian(rsq_sig[ tau_sig>xbins[-2:].mean() ])
+    ax_scatter.plot(xbins,avg_rsq,color=sig_clr,alpha=.9)
+
 
 
 def show_tau_scatter_legacy(tauList, corrMat, data_dict):
