@@ -523,6 +523,58 @@ def trim_time(data_dict, before_stim=True):
     return data_dict_new
 
 
+def extract_state_runs(states, sort_by='ending', min_length=20):
+    """
+    Find contiguous chunks of data with the same state
+
+    Args:
+        states (list):
+        min_length (int):
+        sort_by (None, 'ending', 'beginning')
+    Returns:
+        list
+    """
+
+    K = len(np.unique(np.concatenate([np.unique(s) for s in states])))
+    if sort_by is None:
+        state_snippets = [[] for _ in range(K)]
+    else:
+        state_snippets = [ [[] for _ in range(K)] for _ in range(K)]
+        
+
+    i_beg = 0
+    curr_len = 1
+    curr_state = states[0]
+    old_state = 0
+
+    for i, next_state in enumerate(states, start=1):        
+        if next_state != curr_state:
+            # record indices if state duration long enough
+            if curr_len >= min_length:
+                if sort_by == 'ending':
+                    state_snippets[curr_state][next_state].append(
+                        [j-1 for j in range(i_beg,i)])
+                elif sort_by == 'beginning':
+                    state_snippets[old_state][curr_state].append(
+                        [j-1 for j in range(i_beg,i)])
+                else:
+                    state_snippets[curr_state].append(
+                        [j-1 for j in range(i_beg,i)])
+            i_beg = i
+            old_state = curr_state
+            curr_state = next_state
+            curr_len = 1
+        else:
+            curr_len += 1
+        # end of trial cleanup
+        # if next_state == curr_state:
+        #     # record indices if state duration long enough
+        #     if curr_len >= min_length:
+        #         state_snippets[curr_state].append(curr_indxs[i_beg:i])
+    return state_snippets
+
+
+
 class Logger(object):
     # for printing stdout to both screen and logfile
     def __init__(self, fname="logfile.log"):
